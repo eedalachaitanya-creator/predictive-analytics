@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Walmart Raw Data Schema — ER Diagram v5</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+
+    header {
+      background: linear-gradient(135deg, #0071ce 0%, #004c8c 100%);
+      padding: 18px 40px;
+      display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.4);
+    }
+    header .logo { font-size: 32px; }
+    header h1 { font-size: 20px; font-weight: 700; color: #fff; line-height: 1.2; }
+    header p  { font-size: 12px; color: rgba(255,255,255,0.75); margin-top: 3px; }
+
+    .legend-bar {
+      background: #161b22;
+      padding: 10px 40px;
+      display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+      border-bottom: 1px solid #30363d;
+    }
+    .legend-label { font-size: 11px; color: #8b949e; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+    .legend-item  { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #c9d1d9; }
+    .legend-dot   { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .legend-sep   { width: 1px; height: 18px; background: #30363d; margin: 0 4px; }
+
+    .controls {
+      background: #161b22;
+      padding: 8px 40px;
+      display: flex; gap: 12px; align-items: center;
+      border-bottom: 1px solid #30363d;
+    }
+    .controls button {
+      background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
+      transition: background 0.15s;
+    }
+    .controls button:hover { background: #30363d; }
+    .controls span { font-size: 12px; color: #8b949e; }
+    #zoom-level { font-size: 12px; color: #58a6ff; font-weight: 600; min-width: 40px; text-align: center; }
+
+    .diagram-wrapper {
+      overflow: auto;
+      padding: 40px;
+      position: relative;
+      min-height: calc(100vh - 140px);
+      cursor: grab;
+    }
+    .diagram-wrapper:active { cursor: grabbing; }
+
+    #diagram-canvas {
+      position: relative;
+      transform-origin: top left;
+      transition: transform 0.1s;
+    }
+
+    #svg-overlay {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    /* ── Table cards ─────────────────────────────── */
+    .er-table {
+      position: absolute;
+      width: 272px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      font-size: 11.5px;
+    }
+    .er-table-header {
+      padding: 9px 11px;
+      font-weight: 700;
+      font-size: 12.5px;
+      display: flex; align-items: center; gap: 7px;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .er-table-count {
+      margin-left: auto; font-size: 9.5px; font-weight: 500;
+      opacity: 0.85; background: rgba(0,0,0,0.25);
+      padding: 2px 7px; border-radius: 10px; flex-shrink: 0;
+    }
+    .er-table-body { background: #0d1117; }
+    .er-col {
+      padding: 4px 10px;
+      display: flex; align-items: center; gap: 7px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: #c9d1d9;
+      transition: background 0.1s;
+    }
+    .er-col:hover { background: rgba(255,255,255,0.03); }
+    .er-col:last-child { border-bottom: none; }
+    .er-col-icon { font-size: 9px; width: 12px; flex-shrink: 0; line-height: 1; }
+    .er-col-name { flex: 1; font-weight: 500; }
+    .er-col-pk   { color: #ffd700 !important; font-weight: 700; }
+    .er-col-fk   { color: #79c0ff !important; }
+    .er-col-type { font-size: 9.5px; color: #484f58; text-align: right; font-style: italic; }
+
+    /* Group header colors */
+    .g-transaction .er-table-header { background: #1565c0; border-bottom: 2px solid #1e88e5; }
+    .g-hierarchy   .er-table-header { background: #1b5e20; border-bottom: 2px solid #2e7d32; }
+    .g-brand       .er-table-header { background: #bf360c; border-bottom: 2px solid #e64a19; }
+    .g-vendor      .er-table-header { background: #4e342e; border-bottom: 2px solid #6d4c41; }
+    .g-mapping     .er-table-header { background: #311b92; border-bottom: 2px solid #4527a0; }
+    .g-pricing     .er-table-header { background: #4a148c; border-bottom: 2px solid #6a1b9a; }
+    .g-config      .er-table-header { background: #263238; border-bottom: 2px solid #37474f; }
+    .g-analytics   .er-table-header { background: #004d40; border-bottom: 2px solid #00695c; }
+
+    .g-transaction { border: 1px solid #1565c0; }
+    .g-hierarchy   { border: 1px solid #2e7d32; }
+    .g-brand       { border: 1px solid #e64a19; }
+    .g-vendor      { border: 1px solid #6d4c41; }
+    .g-mapping     { border: 1px solid #4527a0; }
+    .g-pricing     { border: 1px solid #6a1b9a; }
+    .g-config      { border: 1px solid #37474f; }
+    .g-analytics   { border: 1px solid #00695c; }
+
+    /* Cardinality labels */
+    .card-label {
+      font-size: 9px; font-weight: 700;
+      fill: #8b949e;
+      pointer-events: none;
+    }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed; z-index: 999;
+      background: #1c2128; border: 1px solid #30363d;
+      border-radius: 6px; padding: 8px 12px;
+      font-size: 11px; color: #c9d1d9;
+      pointer-events: none; display: none;
+      max-width: 280px; line-height: 1.5;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    }
+
+    /* FK count badge */
+    .fk-badge {
+      display: inline-block; background: #1f6feb;
+      color: white; font-size: 9px; font-weight: 700;
+      padding: 1px 5px; border-radius: 8px; margin-left: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🛒</div>
+  <div>
+    <h1>Walmart Raw Data Schema — ER Diagram v5</h1>
+    <p>15 tables &nbsp;·&nbsp; CTO-approved schema &nbsp;·&nbsp; Fully normalized relational model &nbsp;·&nbsp; 21/21 FK checks passed</p>
+  </div>
+</header>
+
+<div class="legend-bar">
+  <span class="legend-label">Table Groups</span>
+  <div class="legend-item"><div class="legend-dot" style="background:#1565c0"></div>Transaction</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2e7d32"></div>Product Hierarchy</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#e64a19"></div>Brand</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6d4c41"></div>Vendor</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4527a0"></div>Mapping</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6a1b9a"></div>Pricing</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#37474f"></div>Config</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00695c"></div>Analytics</div>
+  <div class="legend-sep"></div>
+  <span class="legend-label">Columns</span>
+  <div class="legend-item"><span style="color:#ffd700;font-size:10px;">🔑</span> Primary Key</div>
+  <div class="legend-item"><span style="color:#79c0ff;font-size:10px;">🔗</span> Foreign Key</div>
+  <div class="legend-item"><span style="color:#8b949e;font-size:10px;">•</span> Attribute</div>
+  <div class="legend-sep"></div>
+  <span class="legend-label">Lines</span>
+  <div class="legend-item"><span style="color:#4fc3f7;font-size:11px;">─</span> Transaction FK</div>
+  <div class="legend-item"><span style="color:#81c784;font-size:11px;">─</span> Category FK</div>
+  <div class="legend-item"><span style="color:#ffb74d;font-size:11px;">─</span> Brand/Vendor FK</div>
+  <div class="legend-item"><span style="color:#ce93d8;font-size:11px;">─</span> Pricing FK</div>
+  <div class="legend-item"><span style="color:#80cbc4;font-size:11px;">─</span> Analytics FK</div>
+</div>
+
+<div class="controls">
+  <button onclick="zoom(0.15)">＋ Zoom In</button>
+  <button onclick="zoom(-0.15)">－ Zoom Out</button>
+  <button onclick="resetZoom()">⊙ Reset</button>
+  <button onclick="fitToScreen()">⤢ Fit Screen</button>
+  <span id="zoom-level">100%</span>
+  <div class="legend-sep" style="margin:0 8px;"></div>
+  <span style="font-size:11px; color:#8b949e;">Tip: Scroll to zoom · Drag to pan · Click table header to collapse</span>
+</div>
+
+<div class="diagram-wrapper" id="wrapper">
+  <div id="diagram-canvas">
+    <svg id="svg-overlay"></svg>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// SCHEMA DEFINITION
+// ═══════════════════════════════════════════════════
+const ROW_H = 25;
+const HDR_H = 38;
+const TBL_W = 272;
+
+const GROUPS = {
+  transaction: { color: '#1565c0', lineColor: '#4fc3f7' },
+  hierarchy:   { color: '#1b5e20', lineColor: '#81c784' },
+  brand:       { color: '#bf360c', lineColor: '#ffb74d' },
+  vendor:      { color: '#4e342e', lineColor: '#ffb74d' },
+  mapping:     { color: '#311b92', lineColor: '#b39ddb' },
+  pricing:     { color: '#4a148c', lineColor: '#ce93d8' },
+  config:      { color: '#263238', lineColor: '#90a4ae' },
+  analytics:   { color: '#004d40', lineColor: '#80cbc4' },
+};
+
+const tables = [
+  {
+    id: 'vendor_config', name: '⚙️ Vendor Config', group: 'config', count: 'Config',
+    x: 30, y: 30,
+    columns: [
+      { n: 'parameter',   t: 'TEXT',  pk: false, fk: false },
+      { n: 'value',       t: 'TEXT',  pk: false, fk: false },
+      { n: 'type',        t: 'TEXT',  pk: false, fk: false },
+      { n: 'description', t: 'TEXT',  pk: false, fk: false },
+    ],
+    note: 'Stores client identity, pipeline parameters, and feature flags. No FK relationships — standalone config.'
+  },
+  {
+    id: 'customer_master', name: '👤 Customer Master', group: 'transaction', count: '200 rows',
+    x: 30, y: 218,
+    columns: [
+      { n: 'client_id',            t: 'TEXT',  pk: false, fk: false },
+      { n: 'customer_id',          t: 'TEXT',  pk: true,  fk: false },
+      { n: 'customer_email',       t: 'TEXT',  pk: false, fk: false },
+      { n: 'customer_name',        t: 'TEXT',  pk: false, fk: false },
+      { n: 'customer_phone',       t: 'TEXT',  pk: false, fk: false },
+      { n: 'account_created_date', t: 'DATE',  pk: false, fk: false },
+      { n: 'registration_channel', t: 'TEXT',  pk: false, fk: false },
+      { n: 'country_code',         t: 'TEXT',  pk: false, fk: false },
+      { n: 'state',                t: 'TEXT',  pk: false, fk: false },
+      { n: 'city',                 t: 'TEXT',  pk: false, fk: false },
+      { n: 'zip_code',             t: 'INT',   pk: false, fk: false },
+      { n: 'shipping_address',     t: 'TEXT',  pk: false, fk: false },
+      { n: 'preferred_device',     t: 'TEXT',  pk: false, fk: false },
+      { n: 'email_opt_in',         t: 'BOOL',  pk: false, fk: false },
+      { n: 'sms_opt_in',           t: 'BOOL',  pk: false, fk: false },
+    ],
+    note: 'One row per unique customer. customer_id is PK referenced by Order Master and Line Items Master.'
+  },
+  {
+    id: 'order_master', name: '📦 Order Master', group: 'transaction', count: '1,894 rows',
+    x: 30, y: 700,
+    columns: [
+      { n: 'client_id',        t: 'TEXT',     pk: false, fk: false },
+      { n: 'order_id',         t: 'TEXT',     pk: true,  fk: false },
+      { n: 'customer_id',      t: 'TEXT',     pk: false, fk: true,  ref: 'customer_master',   refCol: 'customer_id' },
+      { n: 'order_date',       t: 'DATETIME', pk: false, fk: false },
+      { n: 'order_status',     t: 'TEXT',     pk: false, fk: false },
+      { n: 'order_value_usd',  t: 'FLOAT',    pk: false, fk: false },
+      { n: 'discount_usd',     t: 'FLOAT',    pk: false, fk: false },
+      { n: 'coupon_code',      t: 'TEXT',     pk: false, fk: false },
+      { n: 'payment_method',   t: 'TEXT',     pk: false, fk: false },
+      { n: 'order_item_count', t: 'INT',      pk: false, fk: false },
+    ],
+    note: 'One row per order. customer_id FK → Customer Master. order_id referenced by Line Items Master.'
+  },
+  {
+    id: 'line_items_master', name: '🛍️ Line Items Master', group: 'transaction', count: '5,740 rows',
+    x: 30, y: 1070,
+    columns: [
+      { n: 'client_id',           t: 'TEXT',  pk: false, fk: false },
+      { n: 'line_item_id',        t: 'TEXT',  pk: true,  fk: false },
+      { n: 'order_id',            t: 'TEXT',  pk: false, fk: true,  ref: 'order_master',    refCol: 'order_id' },
+      { n: 'customer_id',         t: 'TEXT',  pk: false, fk: true,  ref: 'customer_master', refCol: 'customer_id' },
+      { n: 'product_id',          t: 'INT',   pk: false, fk: true,  ref: 'product_master',  refCol: 'product_id' },
+      { n: 'quantity',            t: 'INT',   pk: false, fk: false },
+      { n: 'unit_price_usd',      t: 'FLOAT', pk: false, fk: false },
+      { n: 'final_line_total_usd',t: 'FLOAT', pk: false, fk: false },
+      { n: 'item_discount_usd',   t: 'FLOAT', pk: false, fk: false },
+      { n: 'item_status',         t: 'TEXT',  pk: false, fk: false },
+    ],
+    note: 'One row per product per order. FKs to Order Master, Customer Master, and Product Master.'
+  },
+  {
+    id: 'category_master', name: '📂 Category Master', group: 'hierarchy', count: '10 rows',
+    x: 370, y: 30,
+    columns: [
+      { n: 'category_id',   t: 'INT',  pk: true,  fk: false },
+      { n: 'category_name', t: 'TEXT', pk: false, fk: false },
+    ],
+    note: 'Top-level product groupings (e.g. Electronics, Clothing, Grocery). Referenced by Sub-Category Master and Product Master.'
+  },
+  {
+    id: 'sub_category_master', name: '📁 Sub-Category Master', group: 'hierarchy', count: '66 rows',
+    x: 370, y: 168,
+    columns: [
+      { n: 'sub_category_id',   t: 'INT',  pk: true,  fk: false },
+      { n: 'sub_category_name', t: 'TEXT', pk: false, fk: false },
+      { n: 'category_id',       t: 'INT',  pk: false, fk: true, ref: 'category_master', refCol: 'category_id' },
+    ],
+    note: 'Second-level category classification. FK → Category Master.'
+  },
+  {
+    id: 'sub_sub_category_master', name: '📄 Sub-Sub-Category', group: 'hierarchy', count: '69 rows',
+    x: 370, y: 348,
+    columns: [
+      { n: 'sub_sub_category_id',   t: 'INT',  pk: true,  fk: false },
+      { n: 'sub_sub_category_name', t: 'TEXT', pk: false, fk: false },
+      { n: 'sub_category_id',       t: 'INT',  pk: false, fk: true, ref: 'sub_category_master',     refCol: 'sub_category_id' },
+      { n: 'category_id',           t: 'INT',  pk: false, fk: true, ref: 'category_master',         refCol: 'category_id' },
+    ],
+    note: 'Third-level classification. FKs to both Sub-Category Master and Category Master for denormalized lookups.'
+  },
+  {
+    id: 'product_master', name: '📋 Product Master', group: 'hierarchy', count: '76 rows',
+    x: 370, y: 560,
+    columns: [
+      { n: 'product_id',          t: 'INT',     pk: true,  fk: false },
+      { n: 'sku',                 t: 'TEXT',    pk: false, fk: false },
+      { n: 'product_name',        t: 'TEXT',    pk: false, fk: false },
+      { n: 'category_id',         t: 'INT',     pk: false, fk: true, ref: 'category_master',         refCol: 'category_id' },
+      { n: 'sub_category_id',     t: 'INT',     pk: false, fk: true, ref: 'sub_category_master',     refCol: 'sub_category_id' },
+      { n: 'sub_sub_category_id', t: 'INT',     pk: false, fk: true, ref: 'sub_sub_category_master', refCol: 'sub_sub_category_id' },
+      { n: 'brand_id',            t: 'INT',     pk: false, fk: true, ref: 'brand_master',            refCol: 'brand_id' },
+      { n: 'product_price_id',    t: 'INT',     pk: false, fk: true, ref: 'product_price_master',    refCol: 'price_id' },
+      { n: 'rating',              t: 'FLOAT',   pk: false, fk: false },
+      { n: 'active',              t: 'INT(0/1)',pk: false, fk: false },
+      { n: 'not_available',       t: 'INT(0/1)',pk: false, fk: false },
+    ],
+    note: '76 products. FKs to all 3 category levels, Brand Master, and Product Price Master. active/not_available indicate client availability.'
+  },
+  {
+    id: 'product_price_master', name: '💲 Product Price Master', group: 'pricing', count: '380 rows (5 tiers × 76)',
+    x: 370, y: 1010,
+    columns: [
+      { n: 'price_id',        t: 'INT',   pk: true,  fk: false },
+      { n: 'product_id',      t: 'INT',   pk: false, fk: true, ref: 'product_master', refCol: 'product_id' },
+      { n: 'qty_range_label', t: 'TEXT',  pk: false, fk: false },
+      { n: 'qty_min',         t: 'INT',   pk: false, fk: false },
+      { n: 'qty_max',         t: 'INT',   pk: false, fk: false },
+      { n: 'unit_price_usd',  t: 'FLOAT', pk: false, fk: false },
+    ],
+    note: 'Row-wise normalized pricing. 5 qty tiers per product: 1 unit / 2–10 / 11–50 / 51–100 / 100+ (qty_max=0 means no upper limit).'
+  },
+  {
+    id: 'brand_master', name: '🏷️ Brand Master', group: 'brand', count: '156 rows',
+    x: 712, y: 30,
+    columns: [
+      { n: 'brand_id',          t: 'INT',     pk: true,  fk: false },
+      { n: 'brand_name',        t: 'TEXT',    pk: false, fk: false },
+      { n: 'brand_description', t: 'TEXT',    pk: false, fk: false },
+      { n: 'vendor_id',         t: 'INT',     pk: false, fk: true, ref: 'vendor_master', refCol: 'vendor_id' },
+      { n: 'active',            t: 'INT(0/1)',pk: false, fk: false },
+      { n: 'not_available',     t: 'INT(0/1)',pk: false, fk: false },
+      { n: 'category_hint',     t: 'TEXT',    pk: false, fk: false },
+    ],
+    note: '66 active + 90 not_available brands. vendor_id FK → Vendor Master. category_hint is a non-FK descriptive field.'
+  },
+  {
+    id: 'vendor_master', name: '🏭 Vendor Master', group: 'vendor', count: '45 rows',
+    x: 712, y: 346,
+    columns: [
+      { n: 'vendor_id',          t: 'INT',  pk: true,  fk: false },
+      { n: 'vendor_name',        t: 'TEXT', pk: false, fk: false },
+      { n: 'vendor_description', t: 'TEXT', pk: false, fk: false },
+      { n: 'vendor_contact_no',  t: 'TEXT', pk: false, fk: false },
+      { n: 'vendor_address',     t: 'TEXT', pk: false, fk: false },
+      { n: 'vendor_email',       t: 'TEXT', pk: false, fk: false },
+    ],
+    note: '45 vendors. Includes 8 direct-supply brands (Apple, Nike, Samsung…) as their own vendor entries. Referenced by Brand Master and Product-Vendor Mapping.'
+  },
+  {
+    id: 'product_vendor_mapping', name: '🔗 Product–Vendor Mapping', group: 'mapping', count: '76 rows',
+    x: 712, y: 660,
+    columns: [
+      { n: 'pv_id',      t: 'INT', pk: true,  fk: false },
+      { n: 'product_id', t: 'INT', pk: false, fk: true, ref: 'product_master', refCol: 'product_id' },
+      { n: 'brand_id',   t: 'INT', pk: false, fk: true, ref: 'brand_master',   refCol: 'brand_id' },
+      { n: 'vendor_id',  t: 'INT', pk: false, fk: true, ref: 'vendor_master',  refCol: 'vendor_id' },
+    ],
+    note: 'Many-to-many bridge: maps products to their supplying vendors. brand_id included for convenience (not strictly needed since brand → vendor FK already exists).'
+  },
+  {
+    id: 'business_segment_master', name: '💼 Business Segment Master', group: 'analytics', count: '7 rows',
+    x: 1060, y: 30,
+    columns: [
+      { n: 'segment_id',         t: 'TEXT', pk: true,  fk: false },
+      { n: 'segment_name',       t: 'TEXT', pk: false, fk: false },
+      { n: 'description',        t: 'TEXT', pk: false, fk: false },
+      { n: 'criteria',           t: 'TEXT', pk: false, fk: false },
+      { n: 'recommended_focus',  t: 'TEXT', pk: false, fk: false },
+    ],
+    note: 'RFM-based customer segments (Champions, Loyal Customers, etc.). criteria is a rule string evaluated by the pipeline. No FK to transaction tables — applied at pipeline runtime.'
+  },
+  {
+    id: 'value_tier_master', name: '💎 Value-Tier Master', group: 'analytics', count: '4 rows',
+    x: 1060, y: 328,
+    columns: [
+      { n: 'tier_id',         t: 'TEXT',  pk: true,  fk: false },
+      { n: 'tier_name',       t: 'TEXT',  pk: false, fk: false },
+      { n: 'threshold_type',  t: 'TEXT',  pk: false, fk: false },
+      { n: 'threshold_value', t: 'FLOAT', pk: false, fk: false },
+      { n: 'description',     t: 'TEXT',  pk: false, fk: false },
+      { n: 'benefits',        t: 'TEXT',  pk: false, fk: false },
+    ],
+    note: '4 tiers: Platinum / Gold / Silver / Bronze. tier_name is referenced (logically) by Value Proposition Master.'
+  },
+  {
+    id: 'value_proposition_master', name: '🎯 Value Proposition Master', group: 'analytics', count: '12 rows',
+    x: 1060, y: 596,
+    columns: [
+      { n: 'tier_name',        t: 'TEXT',  pk: false, fk: true, ref: 'value_tier_master', refCol: 'tier_name' },
+      { n: 'risk_level',       t: 'TEXT',  pk: false, fk: false },
+      { n: 'action_type',      t: 'TEXT',  pk: false, fk: false },
+      { n: 'message_template', t: 'TEXT',  pk: false, fk: false },
+      { n: 'discount_pct',     t: 'FLOAT', pk: false, fk: false },
+      { n: 'channel',          t: 'TEXT',  pk: false, fk: false },
+      { n: 'priority',         t: 'INT',   pk: false, fk: false },
+    ],
+    note: '3 rows per tier (At-Risk / Reactivated / VIP Re-engagement). tier_name FK → Value-Tier Master.'
+  },
+];
+
+// ═══════════════════════════════════════════════════
+// FK CONNECTIONS
+// ═══════════════════════════════════════════════════
+const connections = [
+  // — Transaction flow ——————————————————————————————
+  { from: 'customer_master',  fromC: 'customer_id', to: 'order_master',         toC: 'customer_id', color: '#4fc3f7', label: '1 : N', card: '1..1|0..N' },
+  { from: 'customer_master',  fromC: 'customer_id', to: 'line_items_master',    toC: 'customer_id', color: '#4fc3f7', label: '1 : N', card: '1..1|0..N' },
+  { from: 'order_master',     fromC: 'order_id',    to: 'line_items_master',    toC: 'order_id',    color: '#4fc3f7', label: '1 : N', card: '1..1|1..N' },
+  { from: 'product_master',   fromC: 'product_id',  to: 'line_items_master',    toC: 'product_id',  color: '#81c784', label: '1 : N', card: '1..1|0..N' },
+
+  // — Category hierarchy ——————————————————————————
+  { from: 'category_master',         fromC: 'category_id',       to: 'sub_category_master',     toC: 'category_id',       color: '#aed581', label: '1 : N' },
+  { from: 'category_master',         fromC: 'category_id',       to: 'sub_sub_category_master', toC: 'category_id',       color: '#aed581', label: '1 : N' },
+  { from: 'sub_category_master',     fromC: 'sub_category_id',   to: 'sub_sub_category_master', toC: 'sub_category_id',   color: '#aed581', label: '1 : N' },
+  { from: 'category_master',         fromC: 'category_id',       to: 'product_master',          toC: 'category_id',       color: '#66bb6a', label: '1 : N' },
+  { from: 'sub_category_master',     fromC: 'sub_category_id',   to: 'product_master',          toC: 'sub_category_id',   color: '#66bb6a', label: '1 : N' },
+  { from: 'sub_sub_category_master', fromC: 'sub_sub_category_id', to: 'product_master',        toC: 'sub_sub_category_id', color: '#66bb6a', label: '1 : N' },
+
+  // — Brand / Vendor ————————————————————————————
+  { from: 'vendor_master', fromC: 'vendor_id', to: 'brand_master',          toC: 'vendor_id',  color: '#ffb74d', label: '1 : N' },
+  { from: 'brand_master',  fromC: 'brand_id',  to: 'product_master',        toC: 'brand_id',   color: '#ffb74d', label: '1 : N' },
+  { from: 'product_master',fromC: 'product_id',to: 'product_vendor_mapping',toC: 'product_id', color: '#b39ddb', label: '1 : N' },
+  { from: 'brand_master',  fromC: 'brand_id',  to: 'product_vendor_mapping',toC: 'brand_id',   color: '#ffb74d', label: '1 : N' },
+  { from: 'vendor_master', fromC: 'vendor_id', to: 'product_vendor_mapping',toC: 'vendor_id',  color: '#ffb74d', label: '1 : N' },
+
+  // — Pricing ——————————————————————————————————
+  { from: 'product_master',       fromC: 'product_id', to: 'product_price_master', toC: 'product_id', color: '#ce93d8', label: '1 : 5' },
+  { from: 'product_price_master', fromC: 'price_id',   to: 'product_master',       toC: 'product_price_id', color: '#ab47bc', label: '1 : 1', dashed: true },
+
+  // — Analytics ————————————————————————————————
+  { from: 'value_tier_master', fromC: 'tier_name', to: 'value_proposition_master', toC: 'tier_name', color: '#80cbc4', label: '1 : N' },
+];
+
+// ═══════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════
+function tblHeight(t) { return HDR_H + t.columns.length * ROW_H; }
+function getTable(id)  { return tables.find(t => t.id === id); }
+
+function colMidY(tbl, colName) {
+  const idx = tbl.columns.findIndex(c => c.n === colName);
+  if (idx < 0) return tbl.y + HDR_H + ROW_H / 2;
+  return tbl.y + HDR_H + idx * ROW_H + ROW_H / 2;
+}
+
+const canvas = document.getElementById('diagram-canvas');
+const svg    = document.getElementById('svg-overlay');
+
+// Render table cards
+tables.forEach(tbl => {
+  const div = document.createElement('div');
+  div.id = 'tbl-' + tbl.id;
+  div.className = `er-table g-${tbl.group}`;
+  div.style.left   = tbl.x + 'px';
+  div.style.top    = tbl.y + 'px';
+  div.style.width  = TBL_W + 'px';
+
+  const hdrColor = GROUPS[tbl.group].color;
+
+  let html = `
+    <div class="er-table-header" style="background:${hdrColor};" onclick="toggleTable('${tbl.id}')" title="${tbl.note || ''}">
+      <span>${tbl.name}</span>
+      <span class="er-table-count">${tbl.count}</span>
+    </div>
+    <div class="er-table-body" id="body-${tbl.id}">`;
+
+  tbl.columns.forEach(col => {
+    const icon      = col.pk ? '🔑' : col.fk ? '🔗' : '•';
+    const nameClass = col.pk ? 'er-col-pk' : col.fk ? 'er-col-fk' : '';
+    const refNote   = col.fk && col.ref ? ` → ${col.ref.replace(/_/g,' ')}` : '';
+    html += `
+      <div class="er-col" title="${col.n}${refNote}">
+        <span class="er-col-icon">${icon}</span>
+        <span class="er-col-name ${nameClass}">${col.n}</span>
+        <span class="er-col-type">${col.t}</span>
+      </div>`;
+  });
+
+  html += '</div>';
+  div.innerHTML = html;
+  canvas.appendChild(div);
+});
+
+// Set canvas size
+let maxX = 0, maxY = 0;
+tables.forEach(t => {
+  maxX = Math.max(maxX, t.x + TBL_W + 80);
+  maxY = Math.max(maxY, t.y + tblHeight(t) + 80);
+});
+canvas.style.width  = maxX + 'px';
+canvas.style.height = maxY + 'px';
+svg.setAttribute('width',  maxX);
+svg.setAttribute('height', maxY);
+
+// Build arrowhead defs
+const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+
+const usedColors = new Set();
+connections.forEach(c => usedColors.add(c.color));
+usedColors.forEach(color => {
+  const id = 'arrow-' + color.replace('#','');
+  const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  marker.setAttribute('id', id);
+  marker.setAttribute('viewBox', '0 0 8 8');
+  marker.setAttribute('refX', '7');
+  marker.setAttribute('refY', '4');
+  marker.setAttribute('markerWidth', '6');
+  marker.setAttribute('markerHeight', '6');
+  marker.setAttribute('orient', 'auto');
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', 'M 0 1 L 7 4 L 0 7 Z');
+  p.setAttribute('fill', color);
+  marker.appendChild(p);
+  defs.appendChild(marker);
+
+  // crow's foot (many end)
+  const idM = 'crow-' + color.replace('#','');
+  const markerM = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  markerM.setAttribute('id', idM);
+  markerM.setAttribute('viewBox', '0 0 12 12');
+  markerM.setAttribute('refX', '10');
+  markerM.setAttribute('refY', '6');
+  markerM.setAttribute('markerWidth', '8');
+  markerM.setAttribute('markerHeight', '8');
+  markerM.setAttribute('orient', 'auto');
+  const pM = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  pM.setAttribute('d', 'M 0 2 L 10 6 L 0 10 M 4 2 L 4 10');
+  pM.setAttribute('stroke', color);
+  pM.setAttribute('stroke-width', '1.5');
+  pM.setAttribute('fill', 'none');
+  markerM.appendChild(pM);
+  defs.appendChild(markerM);
+});
+svg.insertBefore(defs, svg.firstChild);
+
+// Draw connections
+connections.forEach(conn => {
+  const fromTbl = getTable(conn.from);
+  const toTbl   = getTable(conn.to);
+  if (!fromTbl || !toTbl) return;
+
+  const fromY = colMidY(fromTbl, conn.fromC);
+  const toY   = colMidY(toTbl,   conn.toC);
+
+  let fromX, toX, cp1x, cp2x;
+
+  // Determine which sides to connect
+  if (fromTbl.x + TBL_W <= toTbl.x) {
+    // from is left of to
+    fromX = fromTbl.x + TBL_W;
+    toX   = toTbl.x;
+  } else if (toTbl.x + TBL_W <= fromTbl.x) {
+    // from is right of to
+    fromX = fromTbl.x;
+    toX   = toTbl.x + TBL_W;
+  } else {
+    // overlapping x — connect on right sides with offset
+    fromX = fromTbl.x + TBL_W + 6;
+    toX   = toTbl.x   + TBL_W + 6;
+  }
+
+  const gap = Math.abs(toX - fromX);
+  cp1x = fromX + (toX > fromX ? gap * 0.45 : -gap * 0.45);
+  cp2x = toX   - (toX > fromX ? gap * 0.45 : -gap * 0.45);
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const d = `M ${fromX} ${fromY} C ${cp1x} ${fromY}, ${cp2x} ${toY}, ${toX} ${toY}`;
+  path.setAttribute('d', d);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', conn.color);
+  path.setAttribute('stroke-width', '1.5');
+  path.setAttribute('stroke-opacity', '0.65');
+  if (conn.dashed) path.setAttribute('stroke-dasharray', '5,3');
+  path.setAttribute('marker-end', `url(#crow-${conn.color.replace('#','')})`);
+  svg.appendChild(path);
+
+  // Cardinality label near midpoint
+  if (conn.label) {
+    const midX = (fromX + toX) / 2;
+    const midY = fromY + (toY - fromY) * 0.5 - 6;
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('x', midX);
+    txt.setAttribute('y', midY);
+    txt.setAttribute('text-anchor', 'middle');
+    txt.setAttribute('class', 'card-label');
+    txt.setAttribute('fill', conn.color);
+    txt.setAttribute('font-size', '9');
+    txt.setAttribute('font-family', 'monospace');
+    txt.setAttribute('opacity', '0.8');
+    txt.textContent = conn.label;
+    svg.appendChild(txt);
+  }
+});
+
+// ═══════════════════════════════════════════════════
+// ZOOM + PAN
+// ═══════════════════════════════════════════════════
+let scale = 1;
+const wrapper = document.getElementById('wrapper');
+
+function setZoom(s) {
+  scale = Math.min(Math.max(s, 0.2), 2.0);
+  canvas.style.transform = `scale(${scale})`;
+  document.getElementById('zoom-level').textContent = Math.round(scale * 100) + '%';
+}
+function zoom(delta) { setZoom(scale + delta); }
+function resetZoom() { setZoom(1); wrapper.scrollTo(0, 0); }
+function fitToScreen() {
+  const ww = wrapper.clientWidth  - 80;
+  const wh = wrapper.clientHeight - 80;
+  const cw = parseInt(canvas.style.width);
+  const ch = parseInt(canvas.style.height);
+  setZoom(Math.min(ww / cw, wh / ch, 1));
+}
+
+wrapper.addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    zoom(e.deltaY < 0 ? 0.08 : -0.08);
+  }
+}, { passive: false });
+
+// Drag to pan
+let dragging = false, startX, startY, scrollLeft, scrollTop;
+wrapper.addEventListener('mousedown', e => {
+  dragging = true;
+  startX = e.pageX - wrapper.offsetLeft;
+  startY = e.pageY - wrapper.offsetTop;
+  scrollLeft = wrapper.scrollLeft;
+  scrollTop  = wrapper.scrollTop;
+});
+wrapper.addEventListener('mouseleave', () => { dragging = false; });
+wrapper.addEventListener('mouseup',    () => { dragging = false; });
+wrapper.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  e.preventDefault();
+  const dx = e.pageX - wrapper.offsetLeft - startX;
+  const dy = e.pageY - wrapper.offsetTop  - startY;
+  wrapper.scrollLeft = scrollLeft - dx;
+  wrapper.scrollTop  = scrollTop  - dy;
+});
+
+// ═══════════════════════════════════════════════════
+// COLLAPSE / EXPAND table bodies
+// ═══════════════════════════════════════════════════
+function toggleTable(id) {
+  const body = document.getElementById('body-' + id);
+  if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+}
+
+// Auto-fit on load
+window.addEventListener('load', () => {
+  setTimeout(fitToScreen, 100);
+});
+</script>
+
+</body>
+</html>

@@ -1,14 +1,67 @@
 -- ============================================================
 -- schema_migration_v3.sql
--- Analyst Agent — Subscription Churn Detection
+-- Analyst Agent — Subscription Churn Detection + Dynamic Config
 -- ============================================================
--- Adds subscription product detection (from product names +
--- purchase behaviour) and personalised outreach tracking.
+-- Adds subscription product detection, personalised outreach
+-- tracking, and wires ALL client-configurable parameters into
+-- the materialized view so the pipeline respects Settings UI.
 --
 -- Run AFTER schema_migration_v2.sql
 -- ============================================================
 
 BEGIN;
+
+-- ============================================================
+-- STEP 0: EXTEND client_config WITH UI-DRIVEN PARAMETERS
+-- ============================================================
+-- These columns map 1:1 to the ⚙️ Settings page in the UI.
+-- ALTER ADD COLUMN IF NOT EXISTS is not natively supported in
+-- PostgreSQL < 16, so we use DO blocks for safe idempotency.
+-- ─────────────────────────────────────────────────────────────
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN min_repeat_orders INT DEFAULT 2;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN high_value_percentile INT DEFAULT 75;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN recent_order_gap_window INT DEFAULT 3;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN tier_method VARCHAR(20) DEFAULT 'quartile';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN custom_platinum_min NUMERIC(10,2) DEFAULT 500.00;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN custom_gold_min NUMERIC(10,2) DEFAULT 250.00;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN custom_silver_min NUMERIC(10,2) DEFAULT 100.00;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN custom_bronze_min NUMERIC(10,2) DEFAULT 0.00;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN reference_date_mode VARCHAR(10) DEFAULT 'auto';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN reference_date DATE DEFAULT NULL;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE client_config ADD COLUMN prediction_mode VARCHAR(20) DEFAULT 'churn';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 -- ============================================================
 -- STEP 1: NEW TABLES
@@ -196,6 +249,27 @@ CREATE MATERIALIZED VIEW mv_customer_features AS
 
 WITH
 
+-- ── Config: resolve reference_date per client ────────────────────────────────
+-- If reference_date_mode = 'auto' → use NOW(), else use the fixed date.
+client_ref AS (
+    SELECT
+        client_id,
+        churn_window_days,
+        min_repeat_orders,
+        high_value_percentile,
+        recent_order_gap_window,
+        tier_method,
+        custom_platinum_min,
+        custom_gold_min,
+        custom_silver_min,
+        custom_bronze_min,
+        CASE WHEN reference_date_mode = 'fixed' AND reference_date IS NOT NULL
+             THEN reference_date::TIMESTAMPTZ
+             ELSE NOW()
+        END AS ref_date
+    FROM client_config
+),
+
 -- ── Existing CTEs ─────────────────────────────────────────────────────────────
 order_agg AS (
     SELECT
@@ -204,24 +278,25 @@ order_agg AS (
         COUNT(*)                                                                        AS total_orders,
         MIN(o.order_date)                                                               AS first_order_date,
         MAX(o.order_date)                                                               AS last_order_date,
-        EXTRACT(DAY FROM NOW() - MAX(o.order_date))::INT                                AS days_since_last_order,
+        EXTRACT(DAY FROM cr.ref_date - MAX(o.order_date))::INT                          AS days_since_last_order,
         SUM(o.order_value_usd)                                                          AS total_spend_usd,
         ROUND(AVG(o.order_value_usd)::NUMERIC, 2)                                       AS avg_order_value_usd,
         MAX(o.order_value_usd)                                                          AS max_order_value_usd,
         COALESCE(SUM(o.discount_usd), 0)                                                AS total_discount_usd,
-        SUM(CASE WHEN o.order_date >= NOW() - INTERVAL '30 days'
+        SUM(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '30 days'
                  THEN o.order_value_usd ELSE 0 END)                                     AS spend_last_30d_usd,
-        SUM(CASE WHEN o.order_date >= NOW() - INTERVAL '90 days'
+        SUM(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '90 days'
                  THEN o.order_value_usd ELSE 0 END)                                     AS spend_last_90d_usd,
-        SUM(CASE WHEN o.order_date >= NOW() - INTERVAL '180 days'
+        SUM(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '180 days'
                  THEN o.order_value_usd ELSE 0 END)                                     AS spend_last_180d_usd,
-        COUNT(CASE WHEN o.order_date >= NOW() - INTERVAL '30 days'  THEN 1 END)         AS orders_last_30d,
-        COUNT(CASE WHEN o.order_date >= NOW() - INTERVAL '90 days'  THEN 1 END)         AS orders_last_90d,
-        COUNT(CASE WHEN o.order_date >= NOW() - INTERVAL '180 days' THEN 1 END)         AS orders_last_180d,
+        COUNT(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '30 days'  THEN 1 END)   AS orders_last_30d,
+        COUNT(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '90 days'  THEN 1 END)   AS orders_last_90d,
+        COUNT(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '180 days' THEN 1 END)   AS orders_last_180d,
         COUNT(CASE WHEN o.discount_usd > 0 THEN 1 END)                                 AS orders_with_discount
     FROM orders o
+    JOIN client_ref cr ON o.client_id = cr.client_id
     WHERE o.order_status NOT IN ('Cancelled')
-    GROUP BY o.client_id, o.customer_id
+    GROUP BY o.client_id, o.customer_id, cr.ref_date
 ),
 
 order_gaps AS (
@@ -267,9 +342,10 @@ review_agg AS (
         ROUND(COUNT(CASE WHEN r.sentiment = 'negative' THEN 1 END) * 100.0
               / NULLIF(COUNT(*), 0), 1)                                                 AS pct_negative_reviews,
         MAX(r.review_date)                                                              AS last_review_date,
-        EXTRACT(DAY FROM NOW() - MAX(r.review_date::TIMESTAMPTZ))::INT                 AS days_since_last_review
+        EXTRACT(DAY FROM cr.ref_date - MAX(r.review_date::TIMESTAMPTZ))::INT            AS days_since_last_review
     FROM customer_reviews r
-    GROUP BY r.client_id, r.customer_id
+    JOIN client_ref cr ON r.client_id = cr.client_id
+    GROUP BY r.client_id, r.customer_id, cr.ref_date
 ),
 
 ticket_agg AS (
@@ -316,12 +392,12 @@ subscription_agg AS (
         -- FIX Bug 3 — cast NUMERIC to TEXT before || for interval string construction
         MAX(
             EXTRACT(DAY FROM
-                NOW() - (lp.last_purchase_date::TIMESTAMPTZ
+                cr.ref_date - (lp.last_purchase_date::TIMESTAMPTZ
                          + (sp.avg_refill_days::TEXT || ' days')::INTERVAL)
             )
         )::INT                                                                          AS days_overdue_for_refill,
         SUM(
-            CASE WHEN EXTRACT(DAY FROM NOW() - lp.last_purchase_date::TIMESTAMPTZ)
+            CASE WHEN EXTRACT(DAY FROM cr.ref_date - lp.last_purchase_date::TIMESTAMPTZ)
                       > sp.avg_refill_days * 1.5
                  THEN 1 ELSE 0 END
         )                                                                               AS missed_refill_count
@@ -329,7 +405,86 @@ subscription_agg AS (
     JOIN vw_subscription_products sp
          ON lp.product_id = sp.product_id
         AND sp.is_subscription_product = TRUE
-    GROUP BY lp.client_id, lp.customer_id
+    JOIN client_ref cr ON lp.client_id = cr.client_id
+    GROUP BY lp.client_id, lp.customer_id, cr.ref_date
+),
+
+-- ── Repeat customer flag (dynamic threshold from config) ─────────────────────
+repeat_flag AS (
+    SELECT
+        oa.client_id,
+        oa.customer_id,
+        CASE WHEN oa.total_orders >= cr.min_repeat_orders THEN 1 ELSE 0 END            AS is_repeat_customer
+    FROM order_agg oa
+    JOIN client_ref cr ON oa.client_id = cr.client_id
+),
+
+-- ── Recent order gaps (uses recent_order_gap_window from config) ─────────────
+-- Computes the avg gap across only the N most recent orders for rhythm detection
+recent_gaps AS (
+    SELECT client_id, customer_id,
+        ROUND(AVG(gap_days)::NUMERIC, 1) AS recent_avg_gap_days
+    FROM (
+        SELECT g.client_id, g.customer_id, g.gap_days,
+            ROW_NUMBER() OVER (
+                PARTITION BY g.client_id, g.customer_id ORDER BY g.order_date DESC
+            ) AS rn,
+            cr.recent_order_gap_window
+        FROM (
+            SELECT client_id, customer_id, order_date,
+                EXTRACT(DAY FROM order_date - LAG(order_date) OVER (
+                    PARTITION BY client_id, customer_id ORDER BY order_date
+                ))::NUMERIC AS gap_days
+            FROM orders WHERE order_status NOT IN ('Cancelled')
+        ) g
+        JOIN client_ref cr ON g.client_id = cr.client_id
+        WHERE g.gap_days IS NOT NULL
+    ) ranked
+    WHERE rn <= recent_order_gap_window
+    GROUP BY client_id, customer_id
+),
+
+-- ── High-value flag (uses percentile OR custom thresholds from config) ───────
+spend_percentiles AS (
+    SELECT
+        oa.client_id,
+        oa.customer_id,
+        oa.total_spend_usd,
+        PERCENT_RANK() OVER (
+            PARTITION BY oa.client_id ORDER BY oa.total_spend_usd ASC
+        ) * 100 AS spend_pct_rank
+    FROM order_agg oa
+),
+
+tier_assignment AS (
+    SELECT
+        sp.client_id,
+        sp.customer_id,
+        -- Quartile mode: percentile-based tier
+        CASE WHEN cr.tier_method = 'quartile' THEN
+            CASE WHEN sp.spend_pct_rank >= cr.high_value_percentile THEN 'Platinum'
+                 WHEN sp.spend_pct_rank >= 50                        THEN 'Gold'
+                 WHEN sp.spend_pct_rank >= 25                        THEN 'Silver'
+                 ELSE 'Bronze'
+            END
+        -- Custom mode: fixed dollar thresholds
+        ELSE
+            CASE WHEN sp.total_spend_usd >= cr.custom_platinum_min THEN 'Platinum'
+                 WHEN sp.total_spend_usd >= cr.custom_gold_min     THEN 'Gold'
+                 WHEN sp.total_spend_usd >= cr.custom_silver_min   THEN 'Silver'
+                 ELSE 'Bronze'
+            END
+        END AS customer_tier,
+        CASE WHEN cr.tier_method = 'quartile'
+                  AND sp.spend_pct_rank >= cr.high_value_percentile
+             THEN 1
+             WHEN cr.tier_method != 'quartile'
+                  AND sp.total_spend_usd >= cr.custom_platinum_min
+             THEN 1
+             ELSE 0
+        END AS is_high_value
+    FROM spend_percentiles sp
+    JOIN client_ref cr ON sp.client_id = cr.client_id
 )
 
 -- ── Final SELECT ──────────────────────────────────────────────────────────────
@@ -338,7 +493,7 @@ SELECT
     c.customer_id,
 
     -- Account
-    EXTRACT(DAY FROM NOW() - c.account_created_date::TIMESTAMPTZ)::INT     AS account_age_days,
+    EXTRACT(DAY FROM cr.ref_date - c.account_created_date::TIMESTAMPTZ)::INT AS account_age_days,
 
     -- Recency
     oa.first_order_date,
@@ -354,6 +509,7 @@ SELECT
     COALESCE(og.median_days_between_orders, 0)                              AS median_days_between_orders,
     ROUND(ABS(COALESCE(og.avg_days_between_orders, 0)
               - COALESCE(og.median_days_between_orders, 0))::NUMERIC, 1)   AS order_gap_mean_median_diff,
+    COALESCE(rg.recent_avg_gap_days, 0)                                     AS recent_avg_gap_days,
 
     -- Monetary
     oa.total_spend_usd,
@@ -398,26 +554,35 @@ SELECT
     rf.rfm_monetary_score,
     (rf.rfm_recency_score + rf.rfm_frequency_score + rf.rfm_monetary_score) AS rfm_total_score,
 
+    -- Dynamic config-driven features
+    COALESCE(rpf.is_repeat_customer, 0)                                     AS is_repeat_customer,
+    COALESCE(ta2.customer_tier, 'Bronze')                                   AS customer_tier,
+    COALESCE(ta2.is_high_value, 0)                                          AS is_high_value,
+
     -- Subscription signals
     COALESCE(sa.subscription_product_count, 0)                              AS subscription_product_count,
     COALESCE(sa.avg_refill_cycle_days, 0)                                   AS avg_refill_cycle_days,
     COALESCE(sa.days_overdue_for_refill, 0)                                 AS days_overdue_for_refill,
     COALESCE(sa.missed_refill_count, 0)                                     AS missed_refill_count,
 
-    -- Churn label
-    CASE WHEN oa.days_since_last_order >= 90 THEN 1 ELSE 0 END              AS churn_label,
+    -- Churn label (dynamic from client_config.churn_window_days)
+    CASE WHEN oa.days_since_last_order >= cr.churn_window_days THEN 1 ELSE 0 END AS churn_label,
 
-    NOW()                                                                   AS computed_at
+    cr.ref_date                                                             AS computed_at
 
 FROM customers c
+JOIN  client_ref   cr  ON c.client_id = cr.client_id
 JOIN  order_agg    oa  ON c.client_id = oa.client_id  AND c.customer_id = oa.customer_id
 JOIN  rfm_scored   rf  ON c.client_id = rf.client_id  AND c.customer_id = rf.customer_id
-LEFT JOIN order_gaps    og ON c.client_id = og.client_id AND c.customer_id = og.customer_id
-LEFT JOIN line_agg      la ON c.client_id = la.client_id AND c.customer_id = la.customer_id
-LEFT JOIN cat_agg       ca ON c.client_id = ca.client_id AND c.customer_id = ca.customer_id
-LEFT JOIN review_agg    ra ON c.client_id = ra.client_id AND c.customer_id = ra.customer_id
-LEFT JOIN ticket_agg    ta ON c.client_id = ta.client_id AND c.customer_id = ta.customer_id
-LEFT JOIN subscription_agg sa ON c.client_id = sa.client_id AND c.customer_id = sa.customer_id;
+LEFT JOIN order_gaps       og  ON c.client_id = og.client_id  AND c.customer_id = og.customer_id
+LEFT JOIN recent_gaps      rg  ON c.client_id = rg.client_id  AND c.customer_id = rg.customer_id
+LEFT JOIN line_agg         la  ON c.client_id = la.client_id  AND c.customer_id = la.customer_id
+LEFT JOIN cat_agg          ca  ON c.client_id = ca.client_id  AND c.customer_id = ca.customer_id
+LEFT JOIN review_agg       ra  ON c.client_id = ra.client_id  AND c.customer_id = ra.customer_id
+LEFT JOIN ticket_agg       ta  ON c.client_id = ta.client_id  AND c.customer_id = ta.customer_id
+LEFT JOIN repeat_flag      rpf ON c.client_id = rpf.client_id AND c.customer_id = rpf.customer_id
+LEFT JOIN tier_assignment   ta2 ON c.client_id = ta2.client_id AND c.customer_id = ta2.customer_id
+LEFT JOIN subscription_agg sa  ON c.client_id = sa.client_id  AND c.customer_id = sa.customer_id;
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 CREATE UNIQUE INDEX idx_mv_cf_pk
@@ -428,6 +593,8 @@ CREATE INDEX idx_mv_cf_recency
     ON mv_customer_features (days_since_last_order DESC);
 CREATE INDEX idx_mv_cf_overdue
     ON mv_customer_features (days_overdue_for_refill DESC);
+CREATE INDEX idx_mv_cf_tier
+    ON mv_customer_features (customer_tier, is_high_value);
 
 COMMIT;
 
@@ -440,7 +607,7 @@ COMMIT;
 REFRESH MATERIALIZED VIEW mv_customer_features;
 
 -- ============================================================
--- STEP 5: Verify — should list all 48 columns
+-- STEP 5: Verify — should list all 52 columns
 -- ============================================================
 SELECT column_name, ordinal_position AS "#"
 FROM information_schema.columns

@@ -1,0 +1,4 @@
+.upload-layout { display:grid; grid-template-columns:1fr 340px; gap:22px; }
+.step-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.step-num { width:28px; height:28px; border-radius:50%; background:rgba(26,111,212,.10); color:var(--accent-blue); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.col-chip { display:inline-block; padding:2px 7px; background:#EBF1FB; border:1px solid var(--border); border-radius:4px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-secondary); margin:2px; }

@@ -1,0 +1,118 @@
+<div class="chat-page">
+
+  <!-- Header -->
+  <div class="chat-header">
+    <div class="header-left">
+      <span class="header-icon">🤖</span>
+      <div>
+        <h2>Analyst Agent</h2>
+        <p class="subtitle">Ask questions about churn risk, customer data, and retention strategies</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-ghost" (click)="newChat()" title="New conversation">
+        ✨ New Chat
+      </button>
+      <button class="btn-ghost danger" (click)="clearChat()" title="Clear history"
+              *ngIf="chat.messages().length > 0">
+        🗑️ Clear
+      </button>
+    </div>
+  </div>
+
+  <!-- Messages Area -->
+  <div class="messages-area" #messagesContainer>
+
+    <!-- Empty state — show when no messages -->
+    <div class="empty-state" *ngIf="chat.messages().length === 0 && !chat.loading()">
+      <div class="agent-avatar-large">🤖</div>
+      <h3>CRP Analyst Agent</h3>
+      <p>I can help you analyze churn risk, explore customer data, and suggest retention strategies.
+         I have access to your database, ML models, and customer profiles.</p>
+
+      <div class="tools-grid">
+        <div class="tool-card">
+          <span class="tool-icon">🗄️</span>
+          <span class="tool-label">SQL Queries</span>
+        </div>
+        <div class="tool-card">
+          <span class="tool-icon">🤖</span>
+          <span class="tool-label">ML Predictions</span>
+        </div>
+        <div class="tool-card">
+          <span class="tool-icon">👤</span>
+          <span class="tool-label">Customer Profiles</span>
+        </div>
+        <div class="tool-card">
+          <span class="tool-icon">📊</span>
+          <span class="tool-label">Risk Analysis</span>
+        </div>
+      </div>
+
+      <p class="try-label">Try asking:</p>
+      <div class="suggestions">
+        <button class="suggestion-chip"
+                *ngFor="let s of chat.suggestions()"
+                (click)="useSuggestion(s.text)">
+          <span class="chip-icon">{{ s.icon }}</span>
+          {{ s.text }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Message bubbles -->
+    <div class="message-list" *ngIf="chat.messages().length > 0">
+      <div *ngFor="let msg of chat.messages()"
+           class="message-row"
+           [class.user]="msg.role === 'user'"
+           [class.assistant]="msg.role === 'assistant'">
+
+        <div class="avatar" *ngIf="msg.role === 'assistant'">🤖</div>
+
+        <div class="bubble" [class.user-bubble]="msg.role === 'user'"
+                            [class.assistant-bubble]="msg.role === 'assistant'">
+          <div [innerHTML]="formatContent(msg.content)"></div>
+          <span class="timestamp" *ngIf="msg.timestamp">
+            {{ msg.timestamp | date:'shortTime' }}
+          </span>
+        </div>
+
+        <div class="avatar user-avatar" *ngIf="msg.role === 'user'">👤</div>
+      </div>
+
+      <!-- Typing indicator -->
+      <div class="message-row assistant" *ngIf="chat.loading()">
+        <div class="avatar">🤖</div>
+        <div class="bubble assistant-bubble typing">
+          <div class="typing-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="typing-text">Analyzing your data...</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Input Area -->
+  <div class="input-area">
+    <div class="input-container">
+      <textarea
+        [(ngModel)]="userInput"
+        (keydown)="onKeyDown($event)"
+        placeholder="Ask about churn risk, customer profiles, retention strategies..."
+        [disabled]="chat.loading()"
+        rows="1"
+        class="chat-input"
+      ></textarea>
+      <button class="send-btn"
+              (click)="send()"
+              [disabled]="!userInput.trim() || chat.loading()">
+        <span *ngIf="!chat.loading()">➤</span>
+        <span *ngIf="chat.loading()" class="spinner"></span>
+      </button>
+    </div>
+    <p class="input-hint">Press Enter to send, Shift+Enter for new line</p>
+  </div>
+
+</div>

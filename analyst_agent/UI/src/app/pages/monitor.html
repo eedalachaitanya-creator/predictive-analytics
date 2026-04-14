@@ -1,0 +1,109 @@
+<div class="page-anim">
+  <div class="grid-5 mb-24">
+    <div class="stat-card"><div class="stat-value text-blue">2</div><div class="stat-label">Running</div></div>
+    <div class="stat-card"><div class="stat-value text-yellow">1</div><div class="stat-label">Queued</div></div>
+    <div class="stat-card"><div class="stat-value text-green">47</div><div class="stat-label">Completed Today</div></div>
+    <div class="stat-card"><div class="stat-value text-red">0</div><div class="stat-label">Failed</div></div>
+    <div class="stat-card"><div class="stat-value">6.1s</div><div class="stat-label">Avg Duration</div></div>
+  </div>
+
+  <!-- LLM Cost Tracking Section -->
+  <div class="section-heading">💰 LLM Cost Tracking (LangFuse)</div>
+  <div class="card mb-24" style="padding:24px">
+    @if (costLoading()) {
+      <div style="text-align:center;color:var(--text-muted);padding:16px">Loading cost tracking info...</div>
+    } @else if (costError()) {
+      <div style="text-align:center;color:#e74c3c;padding:16px">{{ costError() }}</div>
+    } @else if (costConfig()) {
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px">
+        <!-- Status -->
+        <div class="stat-card">
+          <div class="stat-value" [style.color]="costConfig()!.langfuse_configured ? '#10b981' : '#f59e0b'" style="font-size:16px">
+            {{ costConfig()!.langfuse_configured ? '✅ Connected' : '⚠️ Not Configured' }}
+          </div>
+          <div class="stat-label">LangFuse Status</div>
+          <div class="stat-sub">{{ costConfig()!.langfuse_enabled ? 'Tracking enabled' : 'Tracking disabled' }}</div>
+        </div>
+        <!-- Target Cost -->
+        <div class="stat-card">
+          <div class="stat-value text-blue" style="font-size:22px">${{ costConfig()!.target_per_call.toFixed(2) }}</div>
+          <div class="stat-label">Target Per Call</div>
+          <div class="stat-sub">Budget limit per analyst call</div>
+        </div>
+        <!-- Input Token Cost -->
+        <div class="stat-card">
+          <div class="stat-value" style="font-size:16px">{{ formatTokenCost(costConfig()!.cost_per_input_token) }}</div>
+          <div class="stat-label">Input Token Cost</div>
+          <div class="stat-sub">Groq llama-3.3-70b</div>
+        </div>
+        <!-- Output Token Cost -->
+        <div class="stat-card">
+          <div class="stat-value" style="font-size:16px">{{ formatTokenCost(costConfig()!.cost_per_output_token) }}</div>
+          <div class="stat-label">Output Token Cost</div>
+          <div class="stat-sub">Groq llama-3.3-70b</div>
+        </div>
+      </div>
+
+      @if (!costConfig()!.langfuse_configured) {
+        <div style="margin-top:20px;padding:16px;background:var(--surface-alt, #f8fafc);border-radius:8px;border:1px solid var(--border);font-size:13px;color:var(--text-muted)">
+          <strong style="color:var(--text)">Setup Required:</strong>
+          Sign up at <span style="color:var(--primary, #0071dc);font-weight:600">cloud.langfuse.com</span>,
+          then add your <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px">LANGFUSE_PUBLIC_KEY</code> and
+          <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px">LANGFUSE_SECRET_KEY</code> to the <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px">.env</code> file.
+          Cost tracking works without LangFuse (logged locally), but the dashboard requires it.
+        </div>
+      }
+    }
+  </div>
+
+  <div class="section-heading">⚡ Live Job Queue</div>
+  <div class="card mb-24">
+    <table class="data-table">
+      <thead><tr><th>Job ID</th><th>Client</th><th>Triggered By</th><th>Started</th><th>Stage</th><th>Progress</th><th>ETA</th><th>Status</th></tr></thead>
+      <tbody>
+        @for (j of live; track j.id) {
+          <tr>
+            <td>{{j.id}}</td><td>{{j.client}}</td>
+            <td class="font-mono" style="font-size:11px">{{j.by}}</td>
+            <td class="font-mono" style="font-size:11px">{{j.started}}</td>
+            <td>{{j.stage}}</td>
+            <td>
+              <div class="job-bar"><div class="fill" [style.width]="j.pct+'%'"></div></div>
+            </td>
+            <td>{{j.eta}}</td>
+            <td>
+              @if (j.status==='running') { <span class="badge yellow">⏳ Running</span> }
+              @if (j.status==='queued')  { <span class="badge gray">🕐 Queued</span> }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-heading">📜 Recent Run History (last 10 runs)</div>
+  <div class="card mb-24">
+    <table class="data-table">
+      <thead><tr><th>Job ID</th><th>Client</th><th>Date</th><th>Duration</th><th>Customers</th><th>Orders</th><th>Features</th><th>Output</th><th>Status</th></tr></thead>
+      <tbody>
+        @for (h of history; track h.id) {
+          <tr>
+            <td>{{h.id}}</td><td>{{h.client}}</td>
+            <td class="font-mono" style="font-size:11px">{{h.date}}</td>
+            <td>{{h.dur}}</td><td>{{h.cust}}</td><td>{{h.ord | number}}</td><td>{{h.feat}}</td><td>{{h.sheets}}</td>
+            <td><span class="badge" [class]="h.ok?'green':'yellow'">{{h.ok?'✅':'⚠️'}}</span></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-heading">📊 Performance Summary (last 30 days)</div>
+  <div class="grid-5">
+    <div class="stat-card"><div class="stat-value">142</div><div class="stat-label">Total Jobs</div><div class="stat-sub">Last 30 days</div></div>
+    <div class="stat-card"><div class="stat-value text-green">99.3%</div><div class="stat-label">Success Rate</div><div class="stat-sub">141 / 142</div></div>
+    <div class="stat-card"><div class="stat-value">6.1s</div><div class="stat-label">Avg Duration</div><div class="stat-sub">All clients</div></div>
+    <div class="stat-card"><div class="stat-value">7.9K</div><div class="stat-label">Avg Records/Run</div><div class="stat-sub">Avg rows</div></div>
+    <div class="stat-card"><div class="stat-value text-red">1</div><div class="stat-label">Failed Jobs</div><div class="stat-sub">CLT-004 warn</div></div>
+  </div>
+</div>

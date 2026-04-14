@@ -1,0 +1,89 @@
+<div class="page-anim">
+  <div class="grid-4 mb-20">
+    <div class="stat-card"><div class="stat-value">247</div><div class="stat-label">Events Today</div></div>
+    <div class="stat-card"><div class="stat-value text-yellow">3</div><div class="stat-label">Warnings</div></div>
+    <div class="stat-card"><div class="stat-value text-green">0</div><div class="stat-label">Security Alerts</div></div>
+    <div style="display:flex;align-items:center"><button class="btn outline">↓ Export CSV</button></div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">🔍 Filters</div></div>
+    <div style="padding:16px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label class="form-label">Date Range</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="date" class="form-input" style="width:150px" value="2026-03-01">
+          <span class="text-muted">→</span>
+          <input type="date" class="form-input" style="width:150px" value="2026-03-17">
+        </div>
+      </div>
+      <div>
+        <label class="form-label">Client</label>
+        <select class="form-select" style="width:180px">
+          <option>All Clients</option>
+          <option>CLT-001 · Walmart</option>
+          <option>CLT-002 · Target</option>
+          <option>CLT-003 · Costco</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">User</label>
+        <select class="form-select" style="width:180px">
+          <option>All Users</option>
+          <option>ops@walmart.com</option>
+          <option>raj@analytics.com</option>
+          <option>bi@target.com</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Action Type</label>
+        <select class="form-select" style="width:160px">
+          <option>All</option>
+          <option>Pipeline Run</option>
+          <option>File Upload</option>
+          <option>Settings Saved</option>
+          <option>User Added</option>
+          <option>Login</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Outcome</label>
+        <select class="form-select" style="width:130px">
+          <option>All</option>
+          <option>✅ Success</option>
+          <option>⚠️ Warning</option>
+        </select>
+      </div>
+      <button class="btn primary sm">🔍 Apply Filter</button>
+    </div>
+  </div>
+
+  <!-- Events -->
+  <div class="section-heading">📋 Audit Events</div>
+  <div class="card">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>Timestamp</th><th>User</th><th>Client</th><th>Action</th><th>Details</th><th>IP</th><th>Outcome</th></tr></thead>
+      <tbody>
+        @for (e of events; track e.n) {
+          <tr>
+            <td>{{e.n}}</td>
+            <td class="font-mono" style="font-size:11px">{{e.ts}}</td>
+            <td class="font-mono" style="font-size:11px">{{e.user}}</td>
+            <td>{{e.client}}</td>
+            <td><span class="badge blue">{{e.action}}</span></td>
+            <td style="font-size:12px">{{e.detail}}</td>
+            <td class="font-mono" style="font-size:11px">{{e.ip}}</td>
+            <td>
+              @if (e.ok)  { <span class="badge green">✅</span> }
+              @if (!e.ok) { <span class="badge yellow">⚠️</span> }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    <div style="padding:13px 18px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted)">
+      🔒 Audit log is immutable and cannot be edited or deleted. Retained for 365 days per data retention policy. Export available as CSV.
+    </div>
+  </div>
+</div>

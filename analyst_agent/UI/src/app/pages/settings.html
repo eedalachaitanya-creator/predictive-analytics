@@ -1,0 +1,141 @@
+<div class="page-anim">
+
+  <!-- Pipeline Rules -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">📐 Pipeline Rules</div></div>
+    <div style="padding:4px 20px 8px">
+      <div class="param-row">
+        <div><div class="param-label">CHURN WINDOW</div><div class="param-desc">Customers with no completed order in this many days are flagged as churned</div></div>
+        <div class="num-pair"><input type="number" [ngModel]="churnWindow()" (ngModelChange)="churnWindow.set($event)"><span class="unit">days</span></div>
+      </div>
+      <div class="param-row">
+        <div><div class="param-label">REPEAT CUSTOMER THRESHOLD</div><div class="param-desc">Minimum completed orders needed to be classified as a repeat customer</div></div>
+        <div class="num-pair"><input type="number" [ngModel]="repeatThreshold()" (ngModelChange)="repeatThreshold.set($event)"><span class="unit">or more orders</span></div>
+      </div>
+      <div class="param-row">
+        <div><div class="param-label">HIGH VALUE — SPEND PERCENTILE</div><div class="param-desc">Net spend cutoff: customers above this quartile are tagged as High Value</div></div>
+        <div class="num-pair"><input type="number" [ngModel]="highValuePct()" (ngModelChange)="highValuePct.set($event)"><span class="unit">th percentile</span></div>
+      </div>
+      <div class="param-row">
+        <div><div class="param-label">RECENT ORDER GAP WINDOW</div><div class="param-desc">Number of most recent orders used for personal rhythm breach detection</div></div>
+        <div class="num-pair"><input type="number" [ngModel]="recentGapWindow()" (ngModelChange)="recentGapWindow.set($event)"><span class="unit">last orders</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prediction Mode -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">🎯 Prediction Mode</div></div>
+    <div style="padding:20px">
+      <p class="text-secondary mb-16" style="font-size:13px">Select what the model should predict:</p>
+      <div class="radio-option" [class.selected]="predMode()==='churn'" (click)="predMode.set('churn')">
+        <div class="radio-dot"></div><div><div class="radio-label">🔴 Churn Prediction</div><div class="radio-desc">Predict which customers will stop buying</div></div>
+      </div>
+      <div class="radio-option" [class.selected]="predMode()==='retention'" (click)="predMode.set('retention')">
+        <div class="radio-dot"></div><div><div class="radio-label">🟡 Retention Analysis</div><div class="radio-desc">Score every customer by likelihood of staying</div></div>
+      </div>
+      <div class="radio-option" [class.selected]="predMode()==='segment'" (click)="predMode.set('segment')">
+        <div class="radio-dot"></div><div><div class="radio-label">🟣 Segmentation</div><div class="radio-desc">RFM + business segments for all customers</div></div>
+      </div>
+      <div class="radio-option" [class.selected]="predMode()==='full'" (click)="predMode.set('full')">
+        <div class="radio-dot"></div>
+        <div><div class="radio-label">🔵 Full Pipeline &nbsp;<span class="badge blue">Recommended</span></div><div class="radio-desc">Run churn + retention + segmentation in one pass</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tier Threshold -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">⚖️ Tier Threshold Method</div></div>
+    <div style="padding:20px">
+      <p class="text-secondary mb-16" style="font-size:13px">Choose how customer value tiers (Platinum / Gold / Silver / Bronze) are calculated:</p>
+      <div class="radio-option" [class.selected]="tierMethod()==='quartile'" (click)="tierMethod.set('quartile')">
+        <div class="radio-dot"></div>
+        <div>
+          <div class="radio-label">◉ Quartile &nbsp;<span class="badge blue">Recommended</span></div>
+          <div class="radio-desc">System automatically divides customers into 4 equal bands (25th / 50th / 75th percentile) based on net spend. Thresholds recalculate on every run.</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Auto: Top 25% → 💎 Platinum &nbsp;|&nbsp; 25–50% → 🥇 Gold &nbsp;|&nbsp; 50–75% → 🥈 Silver &nbsp;|&nbsp; Bottom 25% → 🥉 Bronze</div>
+        </div>
+      </div>
+      <div class="radio-option" [class.selected]="tierMethod()==='custom'" (click)="tierMethod.set('custom')">
+        <div class="radio-dot"></div>
+        <div style="width:100%">
+          <div class="radio-label">○ Custom Thresholds</div>
+          <div class="radio-desc">Manually define the minimum net spend (USD) for each tier.</div>
+          @if (tierMethod()==='custom') {
+            <div class="grid-2" style="margin-top:14px;max-width:480px">
+              <div class="form-group"><label class="form-label">💎 Platinum — min spend $</label><input class="form-input" type="number" [ngModel]="platMin()" (ngModelChange)="platMin.set($event)"></div>
+              <div class="form-group"><label class="form-label">🥇 Gold — min spend $</label><input class="form-input" type="number" [ngModel]="goldMin()" (ngModelChange)="goldMin.set($event)"></div>
+              <div class="form-group"><label class="form-label">🥈 Silver — min spend $</label><input class="form-input" type="number" [ngModel]="silverMin()" (ngModelChange)="silverMin.set($event)"></div>
+              <div class="form-group mb-0"><label class="form-label">🥉 Bronze — min spend $</label><input class="form-input" type="number" [ngModel]="bronzeMin()" (ngModelChange)="bronzeMin.set($event)"></div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Value Tier Labels -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">💎 Value-Tier Labels — display names for each tier</div></div>
+    <div style="padding:20px">
+      <div class="grid-4">
+        <div class="form-group mb-0"><label class="form-label">Top 25%</label><input class="form-input" value="💎 Platinum"></div>
+        <div class="form-group mb-0"><label class="form-label">25–50%</label><input class="form-input" value="🥇 Gold"></div>
+        <div class="form-group mb-0"><label class="form-label">50–75%</label><input class="form-input" value="🥈 Silver"></div>
+        <div class="form-group mb-0"><label class="form-label">Bottom 25%</label><input class="form-input" value="🥉 Bronze"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Business Segment Rules -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">💼 Business Segment Rules — RFM-based classification logic</div></div>
+    <table class="data-table">
+      <thead><tr><th>Segment</th><th>RFM Condition</th><th>Recommended Focus</th><th>Active</th></tr></thead>
+      <tbody>
+        @for (s of segments; track s.name) {
+          <tr><td>{{s.name}}</td><td><code>{{s.cond}}</code></td><td>{{s.focus}}</td><td><span class="badge green">✅</span></td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Value Proposition Rules -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">🎯 Value Proposition Rules — action templates per Tier × Risk Level</div></div>
+    <table class="data-table">
+      <thead><tr><th>Tier</th><th>Risk Level</th><th>Action Type</th><th>Discount %</th><th>Channel</th><th>Template Preview</th></tr></thead>
+      <tbody>
+        @for (r of vpRules; track $index) {
+          <tr>
+            <td [class]="r.tier.includes('Platinum')?'tier-platinum':r.tier.includes('Gold')?'tier-gold':r.tier.includes('Silver')?'tier-silver':'tier-bronze'">{{r.tier}}</td>
+            <td>{{r.risk}}</td><td>{{r.action}}</td>
+            <td><span class="font-mono" style="color:var(--accent-cyan)">{{r.disc}}</span></td>
+            <td>{{r.ch}}</td>
+            <td style="font-size:11px;color:var(--text-muted)">{{r.tpl}}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Vendor / Client Config -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">⚙️ Vendor / Client Config — core pipeline parameters</div></div>
+    <table class="data-table">
+      <thead><tr><th>Parameter</th><th>Current Value</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        @for (v of vendorCfg; track v.param) {
+          <tr><td>{{v.param}}</td><td><span class="param-value">{{v.val}}</span></td><td><code>{{v.type}}</code></td><td>{{v.desc}}</td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex-row">
+    <button class="btn walmart" (click)="save()">💾 Save Settings</button>
+    <button class="btn outline">↩ Reset to Defaults</button>
+    @if (saved()) { <span class="badge green" style="font-size:13px;padding:8px 14px">✅ Settings saved!</span> }
+  </div>
+</div>

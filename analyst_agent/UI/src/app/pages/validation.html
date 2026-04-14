@@ -1,0 +1,147 @@
+<div class="page-anim">
+
+  <!-- Loading state -->
+  @if (loading()) {
+    <div class="loading-state">
+      <div class="spinner">⏳</div>
+      <div>Running validation checks…</div>
+    </div>
+  }
+
+  <!-- Error state -->
+  @if (error() && !loading()) {
+    <div class="notice warning mb-20">
+      ⚠️ Validation failed: {{ error() }}
+      <button class="btn outline sm" style="margin-left:12px" (click)="runValidation()">↻ Retry</button>
+    </div>
+  }
+
+  <!-- No data -->
+  @if (!loading() && !error() && files().length === 0 && summary()) {
+    <div class="empty-state">
+      <div style="font-size:36px;margin-bottom:12px">📋</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">No data to validate</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload your master files first, then come back here to validate them.</div>
+      <button class="btn outline sm" (click)="runValidation()">↻ Re-check</button>
+    </div>
+  }
+
+  <!-- Main content -->
+  @if (summary(); as s) {
+    <!-- Stats row -->
+    <div class="grid-5 mb-24">
+      <div class="stat-card">
+        <div class="stat-value">{{ s.uploaded }}<span style="font-size:16px;color:var(--text-muted)">/{{ s.totalMasters }}</span></div>
+        <div class="stat-label">Tables with Data</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value text-green">{{ s.passed }}</div>
+        <div class="stat-label">Passed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value text-yellow">{{ s.warnings }}</div>
+        <div class="stat-label">Warnings</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value text-red">{{ s.errors }}</div>
+        <div class="stat-label">Errors</div>
+      </div>
+      <div style="display:flex;align-items:center">
+        <button class="btn outline" (click)="runValidation()">↻ Re-run Validation</button>
+      </div>
+    </div>
+
+    <!-- File summary table -->
+    @if (files().length > 0) {
+      <div class="card mb-24">
+        <div class="card-header">
+          <div class="card-title">📋 Data Validation Summary — {{ files().length }} Tables
+            <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(Click a row for column details)</span>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Table / Master</th><th>Group</th><th>Rows</th><th>Cols</th>
+              <th>Missing</th><th>Dup IDs</th><th>Date Err</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (f of files(); track f.n) {
+              <tr [class.warn-row]="f.status==='warn'"
+                  [class.error-row]="f.status==='error'"
+                  [style.cursor]="'pointer'"
+                  [style.background]="selectedFile()?.masterType === f.masterType ? 'var(--bg-hover, rgba(99,102,241,0.08))' : ''"
+                  (click)="selectFile(f)">
+                <td>{{ f.n }}</td>
+                <td>{{ f.name }}</td>
+                <td>{{ f.group }}</td>
+                <td>{{ f.rows | number }}</td>
+                <td>{{ f.cols }}</td>
+                <td>{{ f.missing }}</td>
+                <td>{{ f.dup }}</td>
+                <td>{{ f.dateErrors }}</td>
+                <td>
+                  @if (f.status === 'ok')    { <span class="badge green">✅ OK</span> }
+                  @if (f.status === 'warn')  { <span class="badge yellow">⚠️ Warn</span> }
+                  @if (f.status === 'error') { <span class="badge red">❌ Error</span> }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+
+    <!-- Column detail -->
+    @if (selectedFile()) {
+      <div class="card mb-20">
+        <div class="card-header">
+          <div class="card-title">🔍 Column Detail — {{ detailLabel() }}
+            <span style="font-size:11px;font-weight:400;color:var(--text-muted)">({{ detailTotalRows() | number }} rows)</span>
+          </div>
+        </div>
+        @if (detailLoading()) {
+          <div style="padding:28px;text-align:center;color:var(--text-muted)">⏳ Loading column details…</div>
+        } @else if (cols().length === 0) {
+          <div style="padding:28px;text-align:center;color:var(--text-muted)">No column data available</div>
+        } @else {
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Column</th><th>Type</th><th>Non-Null</th><th>Unique</th>
+                <th>Sample Value</th><th>Required</th><th>Nulls</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of cols(); track c.col) {
+                <tr>
+                  <td>{{ c.col }}</td>
+                  <td><code>{{ c.type }}</code></td>
+                  <td>{{ c.nonNull }}</td>
+                  <td>{{ c.unique }}</td>
+                  <td><code>{{ c.sample }}</code></td>
+                  <td>{{ c.req ? '✅' : '—' }}</td>
+                  <td>{{ c.nullCount }}</td>
+                  <td>
+                    @if (c.status === 'ok')   { <span class="badge green">✅</span> }
+                    @if (c.status === 'warn') { <span class="badge yellow">⚠️</span> }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+    }
+
+    <!-- Warnings list -->
+    @if (warnings().length > 0) {
+      <div class="notice warning">
+        @for (w of warnings(); track w) {
+          <div>⚠️ {{ w }}</div>
+        }
+      </div>
+    }
+  }
+</div>

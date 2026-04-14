@@ -1,0 +1,157 @@
+<div class="page-anim">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <p class="text-muted" style="font-size:12px">Cross-client KPIs · Comparative performance · Trend analysis</p>
+    <button class="btn outline sm" (click)="refresh()">↻ Refresh</button>
+  </div>
+
+  @if (svc.loading()) {
+    <div class="loading-state"><div class="spinner">⏳</div> Loading analytics…</div>
+  }
+
+  @if (svc.error() && !svc.loading()) {
+    <div class="notice warning mb-20">⚠️ {{ svc.error() }} <button class="btn outline sm" style="margin-left:12px" (click)="refresh()">↻ Retry</button></div>
+  }
+
+  @if (!svc.data() && !svc.loading()) {
+    <div class="empty-state">
+      <div style="font-size:36px;margin-bottom:12px">📈</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">No analytics data</div>
+      <div style="font-size:13px;color:var(--text-muted)">Analytics populate after at least one pipeline run across clients.</div>
+    </div>
+  }
+
+  @if (svc.data()) {
+    <!-- A. Platform KPIs -->
+    <div class="section-heading">A. Platform-Wide Summary</div>
+    <div class="grid-5 mb-28">
+      <div class="stat-card">
+        <div class="stat-value text-green">{{ kpis()?.activeClients }}</div>
+        <div class="stat-label">Active Clients</div>
+        <div class="stat-sub">{{ kpis()?.totalClients }} total incl. setup</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ kpis()?.totalCustomers | number }}</div>
+        <div class="stat-label">Total Customers</div>
+        <div class="stat-sub">Across all clients</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ kpis()?.totalOrders | number }}</div>
+        <div class="stat-label">Total Orders</div>
+        <div class="stat-sub">All clients combined</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value text-yellow">{{ kpis()?.avgChurnRate | number:'1.1-1' }}%</div>
+        <div class="stat-label">Avg Churn Rate</div>
+        <div class="stat-sub">Across active clients</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ kpis()?.pipelineRunsLast30 }}</div>
+        <div class="stat-label">Pipeline Runs</div>
+        <div class="stat-sub">Last 30 days</div>
+      </div>
+    </div>
+
+    <!-- B. Client Comparison -->
+    <div class="section-heading">B. Client Comparison</div>
+    @if (clients().length) {
+      <div class="grid-3 mb-24">
+        <div class="card">
+          <div class="card-header"><div class="card-title">📊 Customers</div></div>
+          <div style="padding:18px">
+            @for (c of clients(); track c.clientId) {
+              <div class="seg-bar-row">
+                <span class="seg-label">{{ c.clientName }}</span>
+                <div class="seg-track">
+                  <div class="seg-fill" [style.width]="custPct(c.customers)+'%'" [style.background]="c.color">{{ c.customers | number }}</div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">📊 Churn %</div></div>
+          <div style="padding:18px">
+            @for (c of clients(); track c.clientId) {
+              <div class="seg-bar-row">
+                <span class="seg-label">{{ c.clientName }}</span>
+                <div class="seg-track">
+                  <div class="seg-fill" [style.width]="churnPct(c.churnPct)+'%'"
+                       [style.background]="c.churnPct > 45 ? 'linear-gradient(90deg,#EF4444,#B91C1C)' : 'linear-gradient(90deg,#F59E0B,#D97706)'">
+                    {{ c.churnPct | number:'1.1-1' }}%
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">📊 High Value</div></div>
+          <div style="padding:18px">
+            @for (c of clients(); track c.clientId) {
+              <div class="seg-bar-row">
+                <span class="seg-label">{{ c.clientName }}</span>
+                <div class="seg-track">
+                  <div class="seg-fill" [style.width]="hvPct(c.highValue)+'%'" style="background:linear-gradient(90deg,#8B5CF6,#6D28D9)">{{ c.highValue }}</div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- Client table -->
+      <div class="card mb-24">
+        <div class="card-header"><div class="card-title">📋 Client Summary Table</div></div>
+        <table class="data-table">
+          <thead><tr><th>Client</th><th>Customers</th><th>Orders</th><th>Churn %</th><th>High Value</th><th>Last Run</th><th>Avg Duration</th></tr></thead>
+          <tbody>
+            @for (c of clients(); track c.clientId) {
+              <tr>
+                <td>{{ c.clientName }}</td>
+                <td>{{ c.customers | number }}</td>
+                <td>{{ c.orders | number }}</td>
+                <td [style.color]="c.churnPct > 45 ? 'var(--accent-red)' : 'var(--accent-yellow)'">{{ c.churnPct | number:'1.1-1' }}%</td>
+                <td>{{ c.highValue }}</td>
+                <td class="font-mono" style="font-size:11px">{{ c.lastRun }}</td>
+                <td>{{ c.avgDuration | number:'1.1-1' }}s</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="notice info mb-24">No client data available yet.</div>
+    }
+
+    <!-- C. Monthly Trend -->
+    <div class="section-heading">C. Monthly Run Volume Trend</div>
+    @if (trend().length) {
+      <div class="card">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Month</th>
+              @for (cid of trendClients(); track cid) { <th>{{ cid }}</th> }
+              <th>Total Runs</th>
+              <th>Avg Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of trend(); track row.month) {
+              <tr>
+                <td>{{ row.month }}</td>
+                @for (cid of trendClients(); track cid) {
+                  <td>{{ row.runsByClient[cid] || 0 }}</td>
+                }
+                <td><strong>{{ row.totalRuns }}</strong></td>
+                <td>{{ row.avgDurationSeconds | number:'1.1-1' }}s</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="notice info">No trend data available yet.</div>
+    }
+  }
+</div>

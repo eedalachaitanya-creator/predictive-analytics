@@ -1,0 +1,13 @@
+:host { display: block; }
+
+.param-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 20px;
+}
+.param-row:last-child { border-bottom: none; }
+.param-label { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.param-desc  { font-size: 12px; color: var(--text-muted); max-width: 500px; line-height: 1.5; }

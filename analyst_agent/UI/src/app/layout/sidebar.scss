@@ -1,0 +1,16 @@
+.sidebar { width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--bg-surface); border-right:1px solid var(--border); display:flex; flex-direction:column; height:100vh; overflow-y:auto; box-shadow:2px 0 8px rgba(26,111,212,.06); }
+.sb-logo { padding:18px 20px 14px; border-bottom:1px solid var(--border); background:linear-gradient(135deg,#F8FBFF 0%,#EEF4FF 100%); }
+.sb-logo-title { font-size:15px; font-weight:700; letter-spacing:-.3px; color:var(--text-primary); span{color:var(--walmart-blue)} }
+.sb-logo-sub { font-size:10px; color:var(--text-muted); margin-top:2px; }
+.sb-section { padding:14px 10px 4px; }
+.sb-section-label { font-size:9px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted); padding:0 8px; margin-bottom:5px; }
+.nav-item { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:var(--radius-sm); cursor:pointer; transition:var(--transition); font-size:13px; color:var(--text-secondary); }
+.nav-item:hover { background:var(--bg-hover); color:var(--text-primary); }
+.nav-item.active { background:rgba(26,111,212,.10); color:var(--walmart-blue); font-weight:600; }
+.nav-icon { font-size:15px; width:20px; text-align:center; }
+.sb-footer { margin-top:auto; padding:14px 16px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:10px; background:#F5F8FF; }
+.sb-footer-user { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Router-based nav */
+a.nav-item { text-decoration: none; display: flex; }
+a.nav-item:focus-visible { outline: 2px solid var(--walmart-blue); outline-offset: 2px; }

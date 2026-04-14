@@ -1,0 +1,61 @@
+<div class="page-anim">
+  <!-- Global Pipeline Defaults -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">📐 Global Pipeline Defaults &nbsp;<span style="font-size:11px;font-weight:400;color:var(--text-muted)">(overridable per-client)</span></div></div>
+    <table class="data-table">
+      <thead><tr><th>Parameter</th><th>Global Default</th><th>Type</th><th>Override Allowed</th><th>Notes</th></tr></thead>
+      <tbody>
+        @for (g of globals; track g.p) {
+          <tr>
+            <td>{{g.p}}</td>
+            <td><span class="param-value">{{g.val}}</span></td>
+            <td><code>{{g.type}}</code></td>
+            <td><span class="badge" [class]="g.override?'green':'gray'">{{g.override?'✅ Per-client':'❌ Global only'}}</span></td>
+            <td>{{g.note}}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Email Notifications -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">📧 Email Notification Settings</div></div>
+    <table class="data-table">
+      <thead><tr><th>Event</th><th>Recipients</th><th>Enabled</th><th>Last Sent</th></tr></thead>
+      <tbody>
+        @for (e of emails; track e.event) {
+          <tr>
+            <td>{{e.event}}</td>
+            <td class="font-mono" style="font-size:11px">{{e.recip}}</td>
+            <td>
+              <label class="toggle">
+                <input type="checkbox" [checked]="e.enabled" (change)="e.enabled=!e.enabled">
+                <span class="slider"></span>
+              </label>
+            </td>
+            <td class="font-mono" style="font-size:11px">{{e.last}}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Data Retention -->
+  <div class="card mb-20">
+    <div class="card-header"><div class="card-title">🗄️ Data Retention Policy</div></div>
+    <table class="data-table">
+      <thead><tr><th>Data Type</th><th>Retention Period</th><th>Policy</th></tr></thead>
+      <tbody>
+        @for (r of retention; track r.type) {
+          <tr><td>{{r.type}}</td><td><span class="param-value">{{r.period}}</span></td><td>{{r.policy}}</td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex-row">
+    <button class="btn walmart">💾 Save Global Config</button>
+    <button class="btn outline">↩ Reset to Factory Defaults</button>
+  </div>
+</div>

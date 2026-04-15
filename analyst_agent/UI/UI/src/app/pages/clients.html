@@ -1,0 +1,48 @@
+<div class="page-anim">
+  <div class="grid-4 mb-20">
+    <div class="stat-card"><div class="stat-value text-green">{{ clients().length }}</div><div class="stat-label">Total Clients</div></div>
+    <div class="stat-card"><div class="stat-value text-blue">{{ clients().length }}</div><div class="stat-label">Active</div></div>
+    <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">Suspended</div></div>
+    <div class="stat-card"><div class="stat-label" style="margin-top:4px">Data Source</div><div class="font-mono" style="font-size:13px;color:var(--accent-cyan);margin-top:6px">PostgreSQL</div></div>
+  </div>
+
+  <div class="flex-row mb-20">
+    <button class="btn outline" (click)="loadClients()">🔄 Refresh</button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state"><div class="spinner">⏳</div><div>Loading clients...</div></div>
+  }
+
+  @if (!loading()) {
+    <div class="section-heading">📋 All Clients</div>
+    <div class="card mb-24">
+      <table class="data-table">
+        <thead>
+          <tr><th>ID</th><th>Client Name</th><th>Code</th><th>Registered</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          @for (c of clients(); track c.client_id) {
+            <tr [class.selected]="selected()?.client_id === c.client_id">
+              <td class="font-mono">{{ c.client_id }}</td>
+              <td>{{ c.client_name }}</td>
+              <td class="font-mono">{{ c.client_code }}</td>
+              <td style="font-size:12px">{{ formatDate(c.created_at) }}</td>
+              <td><button class="btn outline sm" (click)="selectClient(c)">▶ View</button></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    @if (selected(); as s) {
+      <div class="section-heading">🔍 Client Detail — {{ s.client_id }} · {{ s.client_name }}</div>
+      <div class="card" style="padding:20px">
+        <div class="detail-row"><span class="detail-label">Client ID</span><span class="param-value font-mono">{{ s.client_id }}</span></div>
+        <div class="detail-row"><span class="detail-label">Client Name</span><span>{{ s.client_name }}</span></div>
+        <div class="detail-row"><span class="detail-label">Client Code</span><span class="param-value font-mono">{{ s.client_code }}</span></div>
+        <div class="detail-row"><span class="detail-label">Registered</span><span class="param-value">{{ formatDate(s.created_at) }}</span></div>
+      </div>
+    }
+  }
+</div>

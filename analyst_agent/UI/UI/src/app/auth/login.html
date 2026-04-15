@@ -1,0 +1,56 @@
+<div class="login-bg">
+  <div class="login-card">
+    <div class="login-top-bar"></div>
+    <div class="login-logo">📊 <span>Predictive</span> Analytics</div>
+    <p class="login-sub">Churn Prediction & Retention Platform · v4.0</p>
+
+    @if (isMock) {
+      <div class="mock-banner">🧪 Dev / Mock Mode — no backend needed</div>
+    }
+
+    <div class="role-tabs">
+      <button class="role-tab" [class.active]="role()==='admin'"  (click)="selectRole('admin')">👤 Admin</button>
+      <button class="role-tab" [class.active]="role()==='client'" (click)="selectRole('client')">🏢 Client</button>
+    </div>
+
+    <label class="form-label">Email Address</label>
+    <input
+      class="form-input mb-16"
+      type="email"
+      [ngModel]="email()"
+      (ngModelChange)="email.set($event)"
+      placeholder="Enter your email"
+      [disabled]="loading()"
+      autocomplete="email" />
+
+    <label class="form-label">Password</label>
+    <input
+      class="form-input mb-20"
+      type="password"
+      [ngModel]="password()"
+      (ngModelChange)="password.set($event)"
+      [placeholder]="isMock ? 'Any password works in mock mode' : 'Enter your password'"
+      [disabled]="loading()"
+      autocomplete="current-password"
+      (keyup.enter)="login()" />
+
+    @if (error()) {
+      <div class="err-msg">⚠️ {{ error() }}</div>
+    }
+
+    <button
+      class="btn walmart lg"
+      style="width:100%;margin-top:4px"
+      [disabled]="loading()"
+      (click)="login()">
+      {{ loading() ? 'Signing in…' : 'Sign In →' }}
+    </button>
+
+    <p class="login-links" style="margin-top:14px">
+      New client? <a routerLink="/register" style="font-weight:600">Create Account</a>
+    </p>
+    <p class="login-links" style="margin-top:6px">
+      <a href="#">Forgot password?</a> · <a href="#">Contact IT Support</a>
+    </p>
+  </div>
+</div>

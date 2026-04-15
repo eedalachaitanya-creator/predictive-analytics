@@ -1,0 +1,86 @@
+<div class="page-anim">
+  <div class="upload-page-header mb-20">
+    <p class="text-muted" style="font-size:12px">Upload all master files · Supports Excel (.xlsx) and CSV (.csv) · 13 masters across 5 groups</p>
+    <div class="flex-row" style="margin-top:8px">
+      <div class="stat-mini"><strong>{{ uploadedCount() }}</strong> / 13 uploaded</div>
+    </div>
+  </div>
+
+  @for (grp of masters; track grp.group) {
+    <div class="card mb-20">
+      <div class="card-header">
+        <div>
+          <div class="card-title">{{ grp.icon }} {{ grp.group }}</div>
+          <div class="card-subtitle">{{ grp.desc }}</div>
+        </div>
+      </div>
+      <div style="padding:20px">
+        <div [class]="grp.items.length === 3 ? 'grid-3' : 'grid-2'">
+          @for (m of grp.items; track m.key) {
+            <div>
+              <div class="group-label">{{ m.icon }} {{ m.label }}</div>
+              <div class="file-type-row">
+                @for (fmt of m.formats; track fmt) {
+                  <span class="badge blue">{{ fmt }}</span>
+                }
+              </div>
+
+              <!-- Uploading state -->
+              @if (isUploading(m.key)) {
+                <div class="upload-zone uploading">
+                  <div class="upload-spinner">⏳</div>
+                  <div class="hint">Uploading {{ getInfo(m.key)?.fileName }}…</div>
+                  <div class="progress-bar" style="margin-top:10px">
+                    <div class="fill" style="width:60%;animation:pulse 1s infinite"></div>
+                  </div>
+                </div>
+              }
+
+              <!-- Uploaded state -->
+              @else if (isUploaded(m.key)) {
+                <div class="upload-zone uploaded">
+                  <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+                    <div>
+                      <div class="upload-success">✅ {{ getInfo(m.key)?.fileName }}</div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+                        {{ getInfo(m.key)?.rowCount | number }} rows &nbsp;·&nbsp;
+                        {{ formatSize(getInfo(m.key)?.fileSize ?? 0) }}
+                      </div>
+                    </div>
+                    <button class="btn danger sm" style="flex-shrink:0" (click)="remove(m.key)">✕ Remove</button>
+                  </div>
+                </div>
+              }
+
+              <!-- Error state -->
+              @else if (getInfo(m.key)?.status === 'error') {
+                <div class="upload-zone error" (click)="fileInput.click()" (dragover)="onDragOver($event)" (drop)="onDrop($event, m.key)">
+                  <div style="color:var(--accent-red);font-size:13px">❌ Upload failed — click to retry</div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px">{{ getInfo(m.key)?.errorMessage }}</div>
+                </div>
+                <input #fileInput type="file" [accept]="m.accept" style="display:none" (change)="onFileSelected($event, m.key)">
+              }
+
+              <!-- Idle state -->
+              @else {
+                <div class="upload-zone" (click)="fileInput.click()" (dragover)="onDragOver($event)" (drop)="onDrop($event, m.key)">
+                  <div class="icon">⬆</div>
+                  <div class="hint">Drop file here or Browse</div>
+                  <div class="cols">{{ m.columns }}</div>
+                  @if (m.required) { <div class="req">(Required)</div> }
+                  <button class="btn outline sm" style="margin-top:10px" (click)="$event.stopPropagation(); fileInput.click()">Browse File…</button>
+                </div>
+                <input #fileInput type="file" [accept]="m.accept" style="display:none" (change)="onFileSelected($event, m.key)">
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
+  <div class="notice info">
+    ⚙️ Configuration &amp; Rules (Vendor Config · Value-Tier · Business Segment · Value Proposition) are set directly in the ⚙️ Settings tab — no file upload needed for these.<br><br>
+    💡 All uploaded files are validated automatically. Required columns must be present. Date columns must use ISO 8601 format (YYYY-MM-DD). Duplicate primary keys will be flagged.
+  </div>
+</div>

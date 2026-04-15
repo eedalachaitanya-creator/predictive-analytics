@@ -1,0 +1,111 @@
+<div class="login-bg">
+  <div class="login-card">
+    <div class="login-top-bar"></div>
+    <div class="login-logo">📊 <span>Predictive</span> Analytics</div>
+    <p class="login-sub">Create your account to get started</p>
+
+    <!-- Success State -->
+    @if (success()) {
+      <div class="success-box">
+        <div style="font-size:32px;margin-bottom:12px">🎉</div>
+        <div style="font-size:16px;font-weight:600;margin-bottom:8px">Account Created!</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          Your company has been registered successfully.
+        </div>
+        <div class="client-id-box">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Your Client ID</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent-blue);letter-spacing:1px">{{ newClientId() }}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin:12px 0">
+          You can now sign in with your email and password.
+        </div>
+        <a routerLink="/login" class="btn walmart lg" style="width:100%;display:block;text-align:center;text-decoration:none;margin-top:8px">
+          Go to Sign In →
+        </a>
+      </div>
+    }
+
+    <!-- Registration Form -->
+    @if (!success()) {
+      <div class="form-section-label">Company Details</div>
+
+      <label class="form-label">Company Name</label>
+      <input
+        class="form-input mb-12"
+        type="text"
+        [ngModel]="companyName()"
+        (ngModelChange)="companyName.set($event)"
+        placeholder="e.g., Costco Wholesale"
+        [disabled]="loading()" />
+
+      <label class="form-label">Company Code</label>
+      <input
+        class="form-input mb-16"
+        type="text"
+        [ngModel]="companyCode()"
+        (ngModelChange)="companyCode.set($event)"
+        placeholder="e.g., COSTCO (max 10 chars)"
+        maxlength="10"
+        style="text-transform:uppercase"
+        [disabled]="loading()" />
+
+      <div class="form-section-label" style="margin-top:8px">Your Account</div>
+
+      <label class="form-label">Full Name</label>
+      <input
+        class="form-input mb-12"
+        type="text"
+        [ngModel]="contactName()"
+        (ngModelChange)="contactName.set($event)"
+        placeholder="e.g., John Smith"
+        [disabled]="loading()" />
+
+      <label class="form-label">Email Address</label>
+      <input
+        class="form-input mb-12"
+        type="email"
+        [ngModel]="contactEmail()"
+        (ngModelChange)="contactEmail.set($event)"
+        placeholder="e.g., john@costco.com"
+        [disabled]="loading()"
+        autocomplete="email" />
+
+      <label class="form-label">Password</label>
+      <input
+        class="form-input mb-12"
+        type="password"
+        [ngModel]="password()"
+        (ngModelChange)="password.set($event)"
+        placeholder="Min 6 characters"
+        [disabled]="loading()"
+        autocomplete="new-password" />
+
+      <label class="form-label">Confirm Password</label>
+      <input
+        class="form-input mb-20"
+        type="password"
+        [ngModel]="confirmPassword()"
+        (ngModelChange)="confirmPassword.set($event)"
+        placeholder="Re-enter your password"
+        [disabled]="loading()"
+        autocomplete="new-password"
+        (keyup.enter)="register()" />
+
+      @if (error()) {
+        <div class="err-msg">⚠️ {{ error() }}</div>
+      }
+
+      <button
+        class="btn walmart lg"
+        style="width:100%;margin-top:4px"
+        [disabled]="loading()"
+        (click)="register()">
+        {{ loading() ? 'Creating account…' : 'Create Account →' }}
+      </button>
+
+      <p class="login-links">
+        Already have an account? <a routerLink="/login">Sign In</a>
+      </p>
+    }
+  </div>
+</div>

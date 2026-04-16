@@ -1,0 +1,89 @@
+version: "3.9"
+
+# ============================================================
+# Analyst Agent — Docker Compose
+# Sprint 0 | Task 1.4
+#
+# Services:
+#   postgres  — PostgreSQL 15 (walmart_crp DB)
+#   redis     — Redis 7 (task queue + session cache)
+#   api       — FastAPI (analyst agent REST API)
+#
+# Usage:
+#   docker compose up --build          # start everything
+#   docker compose down -v             # stop and remove volumes
+# ============================================================
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: crp_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-walmart_crp}
+      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Auto-run schema on first start (mount in order)
+      - ./db/schema_postgresql.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./db/add_new_tables.sql:/docker-entrypoint-initdb.d/02_add_tables.sql
+      - ./db/walmart_crp_data_postgresql.sql:/docker-entrypoint-initdb.d/03_seed_data.sql
+      - ./db/schema_migration_v2.sql:/docker-entrypoint-initdb.d/04_migration_v2.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-walmart_crp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: crp_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI ────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crp_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL:  postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-walmart_crp}
+      REDIS_URL:     redis://redis:6379/0
+      SECRET_KEY:    ${SECRET_KEY:-change-me-in-production}
+      ENVIRONMENT:   ${ENVIRONMENT:-development}
+      LOG_LEVEL:     ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app        # hot-reload in dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:

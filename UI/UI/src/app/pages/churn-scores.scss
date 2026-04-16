@@ -1,0 +1,224 @@
+// ── Summary Cards ──────────────────────────────────────
+.score-summary {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition);
+
+  &:hover { border-color: var(--border-bright); transform: translateY(-1px); }
+  &.active { border-color: var(--accent-blue); background: rgba(26,111,212,.06); }
+  &.high .summary-value { color: #EF4444; }
+  &.medium .summary-value { color: #F59E0B; }
+  &.low .summary-value { color: #10B981; }
+  &.avg .summary-value { color: var(--accent-blue); }
+}
+
+.summary-value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.summary-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+// ── Filter Bar ──────────────────────────────────────────
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 250px;
+
+  input { flex: 1; max-width: 350px; }
+}
+
+.filter-pills {
+  display: flex;
+  gap: 8px;
+}
+
+.pill-clear {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 0 2px;
+}
+
+.page-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+// ── Table ──────────────────────────────────────────────
+.churn-table {
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  tr {
+    cursor: pointer;
+    transition: background 0.15s;
+    &:hover { background: rgba(26,111,212,.03); }
+    &.selected { background: rgba(26,111,212,.06); }
+    &.high-risk { border-left: 3px solid #EF4444; }
+  }
+}
+
+.rank-cell {
+  font-weight: 700;
+  color: var(--text-muted);
+  font-size: 12px;
+  width: 50px;
+}
+
+.customer-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.customer-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+// ── Probability Bar ────────────────────────────────────
+.prob-cell {
+  min-width: 140px;
+}
+
+.prob-value {
+  font-weight: 700;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.prob-bar {
+  height: 6px;
+  background: var(--bg-base);
+  border-radius: 3px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.prob-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.driver-cell {
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ── Detail Panel ───────────────────────────────────────
+.detail-row td {
+  padding: 0 !important;
+  border: none !important;
+}
+
+.detail-panel {
+  background: linear-gradient(135deg, #F8FAFF 0%, #F0F6FF 100%);
+  border: 1px solid rgba(26,111,212,.12);
+  border-radius: 8px;
+  margin: 4px 8px 12px;
+  padding: 20px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.detail-section {
+  .detail-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-blue);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(26,111,212,.12);
+  }
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 3px 0;
+
+  .dl {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+}
+
+.detail-meta {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+// ── Pagination ─────────────────────────────────────────
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 12px 0;
+}
+
+.page-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+// ── Empty / Loading States ─────────────────────────────
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.loading-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}

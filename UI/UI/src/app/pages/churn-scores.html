@@ -1,0 +1,178 @@
+<div class="page-anim">
+
+  <!-- Summary Cards -->
+  <div class="score-summary">
+    <div class="summary-card" [class.active]="riskFilter()===''" (click)="filterByRisk('')">
+      <div class="summary-value">{{ summary().total_scored }}</div>
+      <div class="summary-label">Total Scored</div>
+    </div>
+    <div class="summary-card high" [class.active]="riskFilter()==='HIGH'" (click)="filterByRisk('HIGH')">
+      <div class="summary-value">{{ summary().high_risk }}</div>
+      <div class="summary-label">High Risk</div>
+    </div>
+    <div class="summary-card medium" [class.active]="riskFilter()==='MEDIUM'" (click)="filterByRisk('MEDIUM')">
+      <div class="summary-value">{{ summary().medium_risk }}</div>
+      <div class="summary-label">Medium Risk</div>
+    </div>
+    <div class="summary-card low" [class.active]="riskFilter()==='LOW'" (click)="filterByRisk('LOW')">
+      <div class="summary-value">{{ summary().low_risk }}</div>
+      <div class="summary-label">Low Risk</div>
+    </div>
+    <div class="summary-card avg">
+      <div class="summary-value">{{ probPercent(summary().avg_probability) }}</div>
+      <div class="summary-label">Avg Churn Prob</div>
+    </div>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="filter-bar">
+    <div class="search-box">
+      <input type="text"
+             class="form-input"
+             placeholder="Search by customer name or ID..."
+             [ngModel]="searchQuery()"
+             (ngModelChange)="searchQuery.set($event)"
+             (keyup.enter)="onSearch()" />
+      <button class="btn outline sm" (click)="onSearch()">Search</button>
+      @if (searchQuery()) {
+        <button class="btn ghost sm" (click)="clearSearch()">Clear</button>
+      }
+    </div>
+    <div class="filter-pills">
+      @if (riskFilter()) {
+        <span class="badge" [class]="riskColor(riskFilter())">
+          {{ riskIcon(riskFilter()) }} {{ riskFilter() }} Risk
+          <button class="pill-clear" (click)="filterByRisk('')">&times;</button>
+        </span>
+      }
+    </div>
+    <div class="page-info">
+      {{ totalRows() }} customers &middot; Page {{ page() }} of {{ totalPages() }}
+    </div>
+  </div>
+
+  <!-- Loading -->
+  @if (loading()) {
+    <div class="loading-state"><div class="spinner">&#9203;</div><div>Loading churn scores...</div></div>
+  }
+
+  <!-- Error -->
+  @if (error() && !loading()) {
+    <div class="notice warning mb-20">
+      &#9888;&#65039; {{ error() }}
+      <button class="btn outline sm" style="margin-left:12px" (click)="loadScores()">&#8635; Retry</button>
+    </div>
+  }
+
+  <!-- No Data -->
+  @if (!loading() && !error() && scores().length === 0) {
+    <div class="empty-state">
+      <div style="font-size:36px;margin-bottom:12px">&#128202;</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">No churn scores yet</div>
+      <div style="font-size:13px;color:var(--text-muted)">Upload your data and run the pipeline to generate churn predictions.</div>
+    </div>
+  }
+
+  <!-- Scores Table -->
+  @if (!loading() && scores().length > 0) {
+    <div class="card">
+      <table class="data-table churn-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Customer</th>
+            <th>Churn Probability</th>
+            <th>Risk</th>
+            <th>Orders</th>
+            <th>Spend</th>
+            <th>Tier</th>
+            <th>Top Driver</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of scores(); track s.customer_id; let i = $index) {
+            <tr [class.selected]="selectedCustomer()?.customer_id === s.customer_id"
+                [class.high-risk]="s.risk_tier === 'HIGH'"
+                (click)="selectCustomer(s)">
+              <td class="rank-cell">{{ (page() - 1) * pageSize() + i + 1 }}</td>
+              <td>
+                <div class="customer-name">{{ s.customer_name }}</div>
+                <div class="customer-id">{{ s.customer_id }}</div>
+              </td>
+              <td>
+                <div class="prob-cell">
+                  <span class="prob-value">{{ probPercent(s.churn_probability) }}</span>
+                  <div class="prob-bar">
+                    <div class="prob-fill"
+                         [style.width]="probBarWidth(s.churn_probability)"
+                         [style.background]="probBarColor(s.churn_probability)">
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge" [class]="riskColor(s.risk_tier)">{{ riskIcon(s.risk_tier) }} {{ s.risk_tier }}</span></td>
+              <td>{{ s.total_orders }}</td>
+              <td>{{ formatCurrency(s.total_spend) }}</td>
+              <td><span class="badge" [class]="tierColor(s.tier)">{{ s.tier }}</span></td>
+              <td class="driver-cell">{{ s.driver_1 }}</td>
+              <td><button class="btn ghost sm">&#9654;</button></td>
+            </tr>
+
+            <!-- Expandable Detail Row -->
+            @if (selectedCustomer()?.customer_id === s.customer_id) {
+              <tr class="detail-row">
+                <td colspan="9">
+                  <div class="detail-panel">
+                    <div class="detail-grid">
+                      <div class="detail-section">
+                        <div class="detail-title">Customer Info</div>
+                        <div class="detail-item"><span class="dl">Name</span><span>{{ s.customer_name }}</span></div>
+                        <div class="detail-item"><span class="dl">Email</span><span class="font-mono">{{ s.customer_email }}</span></div>
+                        <div class="detail-item"><span class="dl">Customer ID</span><span class="font-mono">{{ s.customer_id }}</span></div>
+                        <div class="detail-item"><span class="dl">Value Tier</span><span class="badge" [class]="tierColor(s.tier)">{{ s.tier }}</span></div>
+                      </div>
+                      <div class="detail-section">
+                        <div class="detail-title">Churn Analysis</div>
+                        <div class="detail-item"><span class="dl">Probability</span><span style="font-weight:700" [style.color]="probBarColor(s.churn_probability)">{{ probPercent(s.churn_probability) }}</span></div>
+                        <div class="detail-item"><span class="dl">Risk Tier</span><span class="badge" [class]="riskColor(s.risk_tier)">{{ s.risk_tier }}</span></div>
+                        <div class="detail-item"><span class="dl">Driver 1</span><span>{{ s.driver_1 || '&#8212;' }}</span></div>
+                        <div class="detail-item"><span class="dl">Driver 2</span><span>{{ s.driver_2 || '&#8212;' }}</span></div>
+                        <div class="detail-item"><span class="dl">Driver 3</span><span>{{ s.driver_3 || '&#8212;' }}</span></div>
+                      </div>
+                      <div class="detail-section">
+                        <div class="detail-title">RFM Scores</div>
+                        <div class="detail-item"><span class="dl">Recency</span><span>{{ s.rfm_recency }} / 5</span></div>
+                        <div class="detail-item"><span class="dl">Frequency</span><span>{{ s.rfm_frequency }} / 5</span></div>
+                        <div class="detail-item"><span class="dl">Monetary</span><span>{{ s.rfm_monetary }} / 5</span></div>
+                        <div class="detail-item"><span class="dl">Total RFM</span><span style="font-weight:700">{{ s.rfm_total }} / 15</span></div>
+                      </div>
+                      <div class="detail-section">
+                        <div class="detail-title">Activity</div>
+                        <div class="detail-item"><span class="dl">Total Orders</span><span>{{ s.total_orders }}</span></div>
+                        <div class="detail-item"><span class="dl">Total Spend</span><span>{{ formatCurrency(s.total_spend) }}</span></div>
+                        <div class="detail-item"><span class="dl">Avg Order</span><span>{{ formatCurrency(s.avg_order_value) }}</span></div>
+                        <div class="detail-item"><span class="dl">Avg Rating</span><span>{{ s.avg_rating > 0 ? s.avg_rating.toFixed(1) + ' / 5' : '&#8212;' }}</span></div>
+                        <div class="detail-item"><span class="dl">Tickets</span><span>{{ s.total_tickets }}</span></div>
+                      </div>
+                    </div>
+                    <div class="detail-meta">
+                      Scored: {{ s.scored_at ? (s.scored_at | date:'medium') : '&#8212;' }} &middot; Model: {{ s.model_version }}
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination">
+      <button class="btn outline sm" [disabled]="page() <= 1" (click)="goToPage(page() - 1)">&#8592; Prev</button>
+      <span class="page-label">Page {{ page() }} of {{ totalPages() }}</span>
+      <button class="btn outline sm" [disabled]="page() >= totalPages()" (click)="goToPage(page() + 1)">Next &#8594;</button>
+    </div>
+  }
+</div>

@@ -1,0 +1,80 @@
+.kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+.chart-row { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:20px; }
+.chart-placeholder { height:180px; background:linear-gradient(135deg,#EBF1FB 0%,#F0F6FF 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:12px; border:1px dashed var(--border-bright); }
+
+/* ── Clickable Segment Bars ──────────────────────────────────────── */
+.seg-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: rgba(59, 130, 246, 0.06);
+  }
+}
+
+.seg-active {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.seg-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── Drill-down Expandable Table ─────────────────────────────────── */
+.seg-drilldown {
+  margin: 4px 0 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface, #fff);
+  overflow: hidden;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; max-height: 0; }
+  to   { opacity: 1; max-height: 600px; }
+}
+
+.drilldown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th {
+    background: var(--bg-muted, #f8fafc);
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-light, #f1f5f9);
+    vertical-align: middle;
+  }
+
+  tbody tr:hover {
+    background: rgba(59, 130, 246, 0.04);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+/* Badge color additions for tiers */
+.badge.purple { background: #EDE9FE; color: #7C3AED; }
+.badge.brown  { background: #FEF3C7; color: #92400E; }

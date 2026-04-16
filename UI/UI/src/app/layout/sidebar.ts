@@ -26,6 +26,7 @@ export class SidebarComponent {
     { path: '/app/downloads',  label: 'Downloads',   icon: '📥' },
     { path: '/app/chat',       label: 'Agent Chat',  icon: '🤖' },
     { path: '/app/messages',   label: 'Messages',    icon: '💬' },
+    { path: '/app/scout',     label: 'Scout Agent',  icon: '🔍' },
   ];
 
   adminNav: NavItem[] = [
@@ -35,6 +36,7 @@ export class SidebarComponent {
     { path: '/app/monitor',   label: 'Monitor',    icon: '📡' },
     { path: '/app/analytics', label: 'Analytics',  icon: '📈' },
     { path: '/app/audit',     label: 'Audit',      icon: '🔒' },
+    { path: '/app/scout', label: 'Scout Agent', icon: '🔍' },
   ];
 
   logout() { this.auth.logout(); }

@@ -1,0 +1,132 @@
+<!-- KPI Cards -->
+<div class="grid-4 mb-24">
+  <div class="stat-card"><div class="stat-value">{{ totalProducts() }}</div><div class="stat-label">Tracked Products</div></div>
+  <div class="stat-card"><div class="stat-value">{{ totalPlatforms() }}</div><div class="stat-label">Active Platforms</div></div>
+  <div class="stat-card"><div class="stat-value">{{ alertCount() }}</div><div class="stat-label">Price Alerts</div></div>
+  <div class="stat-card">
+    <div class="stat-value" [class]="avgChange() > 5 ? 'text-red' : avgChange() > 0 ? 'text-yellow' : ''">
+      {{ avgChange() | number:'1.1-1' }}%
+    </div>
+    <div class="stat-label">Avg Price Change</div>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="flex-row mb-20">
+  <button class="btn primary" (click)="runMonitor()" [disabled]="monitoring()">
+    @if (monitoring()) { <span class="spin"></span> Running… } @else { 🔄 Run Price Monitor }
+  </button>
+  <button class="btn outline" (click)="loadData()">↻ Refresh</button>
+  @if (monitorResult()) { <span class="badge green">{{ monitorResult() }}</span> }
+</div>
+
+<!-- Alerts Table -->
+@if (alerts().length) {
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🔔 Recent Price Alerts</div>
+      <span class="badge blue">{{ alerts().length }} alerts</span>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width:32px"></th>
+            <th>Product</th>
+            <th>Platform</th>
+            <th>Old Price</th>
+            <th>New Price</th>
+            <th>Change</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (a of alerts(); track a.id) {
+            <tr [class.unread]="!a.acknowledged">
+              <td>{{ changeIcon(a) }}</td>
+              <td><strong>{{ a.product_name }}</strong></td>
+              <td><span class="badge gray">{{ a.platform }}</span></td>
+              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price) : '—' }}</td>
+              <td class="font-mono"><strong>{{ fmt(a.new_price) }}</strong></td>
+              <td [class]="changeClass(a)"><strong>{{ fmtChange(a) }}</strong></td>
+              <td class="text-muted">{{ timeAgo(a.detected_at) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}
+
+<!-- Products Grid Table -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">📦 Tracked Products</div>
+    <div class="card-subtitle">Click a product to view price history</div>
+  </div>
+
+  @if (loading()) {
+    <div class="empty-state">Loading products…</div>
+  } @else if (!products().length) {
+    <div class="empty-state">
+      <div style="font-size:32px;margin-bottom:8px;opacity:.4">📦</div>
+      No products tracked yet — search for products in the Search tab
+    </div>
+  } @else {
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="sticky-col">Product</th>
+            @for (p of platforms(); track p) { <th>{{ p }}</th> }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of products(); track row.product_name) {
+            <tr class="clickable" (click)="loadHistory(row.product_name)" [class.selected]="selectedProduct() === row.product_name">
+              <td class="sticky-col"><strong>{{ row.product_name }}</strong></td>
+              @for (p of platforms(); track p) {
+                <td class="font-mono">
+                  @if (row[p]?.price) {
+                    <a [href]="row[p].url" target="_blank" class="price-link" (click)="$event.stopPropagation()">
+                      {{ fmt(row[p].price, row[p].currency) }}
+                    </a>
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+              }
+            </tr>
+
+            @if (selectedProduct() === row.product_name) {
+              <tr>
+                <td [attr.colspan]="platforms().length + 1" class="history-cell">
+                  @if (historyLoading()) {
+                    <div class="text-muted" style="padding:16px">Loading price history…</div>
+                  } @else if (priceHistory().length) {
+                    <div class="history-wrap">
+                      <table class="data-table history-inner">
+                        <thead><tr><th>Platform</th><th>Price</th><th>Date</th></tr></thead>
+                        <tbody>
+                          @for (h of priceHistory(); track $index) {
+                            <tr>
+                              <td><span class="badge gray">{{ h.platform }}</span></td>
+                              <td class="font-mono">{{ fmt(h.price, h.currency) }}</td>
+                              <td class="text-muted">{{ h.scraped_at | date:'medium' }}</td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  } @else {
+                    <div class="text-muted" style="padding:16px">No price history available</div>
+                  }
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

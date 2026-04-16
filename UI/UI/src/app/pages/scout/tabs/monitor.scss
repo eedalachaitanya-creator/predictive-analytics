@@ -1,0 +1,36 @@
+.spin {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-state { padding: 32px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+.table-scroll { overflow-x: auto; }
+
+.sticky-col {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--bg-card); min-width: 180px;
+}
+thead .sticky-col { background: #F5F8FF; }
+
+.clickable { cursor: pointer; transition: background 0.15s; }
+.clickable:hover td { background: var(--bg-hover) !important; }
+.clickable.selected td { background: rgba(26,111,212,0.04) !important; }
+
+.price-link {
+  color: var(--accent-blue); text-decoration: none; font-weight: 500;
+  transition: color 0.15s;
+}
+.price-link:hover { color: var(--text-primary); text-decoration: underline; }
+
+.history-cell {
+  padding: 0 !important; background: var(--bg-base) !important;
+  border-left: 3px solid var(--accent-blue);
+}
+.history-wrap { padding: 12px 20px; animation: pageFade 0.2s ease; }
+.history-inner { font-size: 12px; }
+.history-inner th { background: transparent !important; }
+
+tr.unread td { background: rgba(26,111,212,0.03); }

@@ -1,0 +1,103 @@
+<!-- Search -->
+<div class="card mb-20" style="padding: 16px 20px">
+  <div class="search-input-wrap">
+    <span class="search-icon">⚖️</span>
+    <input
+      class="search-input"
+      placeholder="Enter product name to compare prices across platforms"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)"
+      (keydown)="onKeydown($event)"
+      [disabled]="loading()" />
+    <button class="btn primary" (click)="compare()" [disabled]="loading() || !query().trim()">
+      @if (loading()) { <span class="spinner"></span> Comparing… } @else { Compare }
+    </button>
+  </div>
+</div>
+
+@if (error()) {
+  <div class="notice warning mb-20">⚠️ {{ error() }}</div>
+}
+
+<!-- Results -->
+@if (result(); as r) {
+
+  <!-- Entity Groups (matched products) -->
+  @if (r.entities?.length) {
+    @for (group of r.entities; track group.entity_id) {
+      <div class="compare-group card mb-20">
+        <div class="card-header">
+          <div>
+            <div class="card-title">
+              <span class="entity-badge">🔗 Matched</span>
+              {{ group.listings[0]?.title | slice:0:60 }}
+            </div>
+            @if (savings(group.listings); as s) {
+              <div class="card-subtitle">
+                Save up to <strong class="text-green">{{ formatPrice(s.amount, group.listings[0].price.currency) }}</strong>
+                ({{ s.pct | number:'1.0-0' }}%) by choosing the cheapest platform
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="compare-cards">
+          @for (l of group.listings; track l.platform) {
+            <div class="compare-card" [class.best]="isBest(l, group.listings)">
+              @if (isBest(l, group.listings)) {
+                <div class="best-banner">✨ Best Price</div>
+              }
+              <div class="cc-platform">
+                <span class="badge gray">{{ l.platform }}</span>
+              </div>
+              <div class="cc-price" [class.text-green]="isBest(l, group.listings)">
+                {{ formatPrice(l.price.value, l.price.currency) }}
+              </div>
+              <div class="cc-title">{{ l.title | slice:0:80 }}</div>
+              <div class="cc-meta">
+                <span class="badge" [ngClass]="l.availability === 'in_stock' ? 'green' : 'red'">
+                  {{ l.availability === 'in_stock' ? 'In Stock' : l.availability }}
+                </span>
+                <span class="text-muted">{{ l.product_details?.manufacturer }}</span>
+              </div>
+              <a [href]="l.url" target="_blank" class="btn sm outline cc-link">View on {{ l.platform }} ↗</a>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  }
+
+  <!-- Unmatched (different products) -->
+  @if (r.unmatched?.length) {
+    <div class="section-heading">
+      <span class="entity-badge warn">⚠️ Different Products</span>
+      These listings could not be matched as the same product
+    </div>
+    <div class="compare-cards mb-20">
+      @for (l of r.unmatched; track l.platform) {
+        <div class="compare-card unmatched">
+          <div class="cc-platform"><span class="badge yellow">{{ l.platform }}</span></div>
+          <div class="cc-price">{{ formatPrice(l.price.value, l.price.currency) }}</div>
+          <div class="cc-title">{{ l.title | slice:0:80 }}</div>
+          <a [href]="l.url" target="_blank" class="btn sm outline cc-link">View ↗</a>
+        </div>
+      }
+    </div>
+  }
+
+  @if (!r.entities?.length && !r.unmatched?.length) {
+    <div class="notice info">No comparison data found. Try searching for this product first.</div>
+  }
+}
+
+<!-- Empty -->
+@if (!result() && !loading() && !error()) {
+  <div class="empty-hero">
+    <div class="empty-icon">⚖️</div>
+    <div class="empty-text">Compare prices for a product you've already searched</div>
+    <div class="text-muted" style="margin-top: 6px; font-size: 12px">
+      Entity resolution automatically groups the same product across different platforms
+    </div>
+  </div>
+}

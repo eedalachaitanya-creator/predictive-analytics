@@ -1,0 +1,166 @@
+<!-- Mode Toggle -->
+<div class="pill-tabs mb-20">
+  <div class="pt" [class.active]="mode() === 'single'" (click)="mode.set('single')">🔍 Single Search</div>
+  <div class="pt" [class.active]="mode() === 'bulk'" (click)="mode.set('bulk')">📄 Bulk Upload</div>
+</div>
+
+<!-- Platform Selector -->
+<div class="card mb-20">
+  <div class="card-header">
+    <div class="card-title">Platforms</div>
+    <div class="flex-row">
+      <button class="btn sm ghost" (click)="selectAll()">Select All</button>
+      <button class="btn sm ghost" (click)="selectNone()">Clear</button>
+    </div>
+  </div>
+  <div class="chip-row">
+    @for (p of platforms(); track p) {
+      <button class="chip" [class.active]="selected().has(p)" (click)="togglePlatform(p)">
+        @if (selected().has(p)) { <span class="chip-check">✓</span> }
+        {{ p }}
+      </button>
+    }
+    @if (!platforms().length) {
+      <span class="text-muted" style="padding:14px">No platforms configured — add them in the Platforms tab</span>
+    }
+  </div>
+</div>
+
+<!-- Single Search -->
+@if (mode() === 'single') {
+  <div class="card search-card mb-20">
+    <div class="search-row">
+      <div class="search-field">
+        <span class="sf-icon">🔍</span>
+        <input
+          class="sf-input"
+          type="text"
+          placeholder="Search product — e.g. 'NIVEA lip balm', 'Samsung Galaxy S24'"
+          [value]="query()"
+          (input)="query.set($any($event.target).value)"
+          (keydown)="onKeydown($event)"
+          [disabled]="searching()" />
+      </div>
+      <button class="btn primary" (click)="search()" [disabled]="searching() || !query().trim() || !selected().size">
+        @if (searching()) { <span class="spin"></span> Searching… } @else { Search }
+      </button>
+    </div>
+  </div>
+}
+
+<!-- Bulk Upload -->
+@if (mode() === 'bulk') {
+  <div class="card mb-20">
+    <div style="padding:20px">
+      @if (!bulkFile()) {
+        <div class="upload-zone" [class.dragover]="bulkDragover()"
+          (dragover)="onDragOver($event)" (dragleave)="onDragLeave()" (drop)="onDrop($event)" (click)="fileInput.click()">
+          <div class="icon">📁</div>
+          <div class="hint">Drop a CSV or Excel file here, or click to browse</div>
+          <div class="cols">One product name per row. Column: <code>name</code> or <code>product_name</code></div>
+          <input #fileInput type="file" accept=".csv,.xlsx,.xls" hidden (change)="onFileSelect($event)" />
+        </div>
+      } @else {
+        <div class="upload-zone uploaded">
+          <div class="icon">✅</div>
+          <div class="hint">{{ bulkFile()!.name }}</div>
+          <div class="cols">{{ (bulkFile()!.size / 1024).toFixed(1) }} KB</div>
+          <div class="flex-row" style="justify-content:center;margin-top:12px">
+            <button class="btn sm ghost" (click)="clearFile()">Remove</button>
+            <button class="btn sm primary" (click)="searchBulk()" [disabled]="searching() || !selected().size">
+              @if (searching()) { <span class="spin"></span> Processing… } @else { Search All }
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+}
+
+<!-- Error -->
+@if (error()) { <div class="notice warning mb-20">⚠️ {{ error() }}</div> }
+
+<!-- Results -->
+@if (results().length) {
+  <div class="section-heading">Results — {{ results().length }} product{{ results().length > 1 ? 's' : '' }}</div>
+
+  @for (product of results(); track product.name; let i = $index) {
+    <div class="card result-card mb-16">
+      <div class="result-head" (click)="toggleExpand(i)">
+        <div class="rh-left">
+          <span class="rh-name">{{ product.name }}</span>
+          <span class="badge blue">{{ product.listings.length }} listing{{ product.listings.length !== 1 ? 's' : '' }}</span>
+          @if (bestPrice(product.listings); as best) {
+            <span class="badge green">Best: {{ fmt(best.price) }}</span>
+          }
+        </div>
+        <div class="rh-right">
+          @if (product.platform_status) {
+            @for (entry of product.platform_status | keyvalue; track entry.key) {
+              <span class="ps-item">{{ statusIcon(entry.value) }} {{ entry.key }}</span>
+            }
+          }
+          <span class="expand-arrow">{{ expandedRow() === i ? '▲' : '▼' }}</span>
+        </div>
+      </div>
+
+      @if (product.listings.length) {
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Platform</th><th>Product</th><th>Price</th><th>Availability</th><th>Updated</th><th></th></tr></thead>
+            <tbody>
+              @for (l of product.listings; track l.platform) {
+                <tr>
+                  <td><span class="badge gray">{{ l.platform }}</span></td>
+                  <td class="td-title" [title]="l.title">{{ l.title.length > 65 ? l.title.slice(0,65) + '…' : l.title }}</td>
+                  <td>
+                    <span class="price-val" [class.text-green]="isBest(l, product.listings)">{{ fmt(l.price) }}</span>
+                  </td>
+                  <td>
+                    <span class="badge" [ngClass]="l.availability === 'in_stock' ? 'green' : l.availability === 'out_of_stock' ? 'red' : 'gray'">
+                      {{ l.availability === 'in_stock' ? 'In Stock' : l.availability === 'out_of_stock' ? 'Out of Stock' : l.availability }}
+                    </span>
+                  </td>
+                  <td class="text-muted">{{ l.last_updated | date:'short' }}</td>
+                  <td><a [href]="l.url" target="_blank" class="btn sm outline">View ↗</a></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <div class="empty-state">No listings found for this product</div>
+      }
+
+      @if (expandedRow() === i && product.listings.length) {
+        <div class="detail-section">
+          @for (l of product.listings; track l.platform) {
+            <div class="detail-block">
+              <div class="db-head">
+                <span class="badge blue">{{ l.platform }}</span>
+                <span class="text-muted">{{ l.product_details?.manufacturer }}</span>
+              </div>
+              @if (l.product_details?.description) {
+                <p class="db-desc">{{ l.product_details.description.length > 200 ? l.product_details.description.slice(0,200) + '…' : l.product_details.description }}</p>
+              }
+              @if (specKeys(l.product_details?.specifications || {}).length) {
+                <div class="spec-grid">
+                  @for (key of specKeys(l.product_details.specifications); track key) {
+                    <div class="spec-item">
+                      <span class="spec-k">{{ key }}</span>
+                      <span class="spec-v">{{ l.product_details.specifications[key] }}</span>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+}
+
+@if (!results().length && !searching() && !error()) {
+  <div class="empty-hero"><div class="eh-icon">🔍</div><div class="eh-text">Search for a product to compare prices across platforms</div></div>
+}

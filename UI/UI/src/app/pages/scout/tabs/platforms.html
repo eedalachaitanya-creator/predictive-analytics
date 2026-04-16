@@ -1,0 +1,103 @@
+<!-- Add Website -->
+<div class="card mb-20">
+  <div class="card-header">
+    <div class="card-title">➕ Add Website</div>
+    <div class="card-subtitle">Enter a website name or domain — search URL is auto-detected</div>
+  </div>
+  <div class="add-form">
+    <input
+      class="form-input"
+      placeholder="e.g. 'flipkart', 'myntra', 'shop.drberg.com'"
+      [value]="newName()"
+      (input)="newName.set($any($event.target).value); clearMessages()"
+      (keydown)="onAddKeydown($event)"
+      [disabled]="adding()"
+      style="flex: 1" />
+    <button class="btn primary" (click)="addWebsite()" [disabled]="adding() || !newName().trim()">
+      @if (adding()) {
+        <span class="spinner"></span> Detecting…
+      } @else {
+        Add Website
+      }
+    </button>
+  </div>
+
+  @if (adding()) {
+    <div class="notice info" style="margin: 0 20px 16px">
+      🔍 Running 5-strategy detection pipeline: domain resolution → browser simulation → URL extraction → form parsing → heuristic guessing…
+    </div>
+  }
+</div>
+
+<!-- Messages -->
+@if (error()) { <div class="notice warning mb-16">⚠️ {{ error() }}</div> }
+@if (success()) { <div class="notice success mb-16">✅ {{ success() }}</div> }
+
+<!-- Websites Table -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">🌐 Configured Platforms</div>
+    <span class="badge blue">{{ websites().length }} sites</span>
+  </div>
+
+  @if (loading()) {
+    <div class="empty-state">Loading platforms…</div>
+  } @else if (!websites().length) {
+    <div class="empty-state">
+      <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.4">🌐</div>
+      No platforms configured yet — add one above
+    </div>
+  } @else {
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Name</th>
+          <th>Search URL</th>
+          <th>Encoding</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (site of websites(); track site.name; let i = $index) {
+          <tr>
+            <td>
+              <label class="toggle" (click)="$event.stopPropagation()">
+                <input type="checkbox" [checked]="site.active" (change)="toggleActive(site)" />
+                <span class="slider"></span>
+              </label>
+            </td>
+            <td>
+              <strong>{{ site.name }}</strong>
+              @if (!site.active) { <span class="badge gray" style="margin-left: 6px">Disabled</span> }
+            </td>
+            <td>
+              @if (editingIdx() === i) {
+                <div class="edit-url-row">
+                  <input
+                    class="form-input"
+                    [value]="editUrl()"
+                    (input)="editUrl.set($any($event.target).value)"
+                    style="font-family: 'DM Mono', monospace; font-size: 11px" />
+                  <button class="btn sm success" (click)="saveEdit(site)">Save</button>
+                  <button class="btn sm ghost" (click)="cancelEdit()">Cancel</button>
+                </div>
+              } @else {
+                <code class="url-code" [title]="site.search_url">{{ site.search_url | slice:0:60 }}{{ site.search_url.length > 60 ? '…' : '' }}</code>
+              }
+            </td>
+            <td><span class="badge gray">{{ site.encoding }}</span></td>
+            <td>
+              <div class="action-btns">
+                @if (editingIdx() !== i) {
+                  <button class="btn sm outline" (click)="startEdit(i)" title="Edit search URL">✏️</button>
+                }
+                <button class="btn sm danger" (click)="deleteWebsite(site)" title="Delete website">🗑️</button>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

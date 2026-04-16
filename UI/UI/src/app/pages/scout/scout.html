@@ -1,0 +1,29 @@
+<div class="page-anim scout-page">
+  <!-- Header -->
+  <div class="scout-header">
+    <div>
+      <h1 class="scout-title">Scout Agent</h1>
+      <p class="scout-subtitle">Competitive price intelligence across e-commerce platforms</p>
+    </div>
+  </div>
+
+  <!-- Tab Navigation -->
+  <div class="pill-tabs scout-tabs">
+    @for (tab of tabs; track tab.id) {
+      <div class="pt" [class.active]="activeTab() === tab.id" (click)="setTab(tab.id)">
+        <span class="tab-icon">{{ tab.icon }}</span>
+        {{ tab.label }}
+      </div>
+    }
+  </div>
+
+  <!-- Tab Content -->
+  <div class="tab-content">
+    @switch (activeTab()) {
+      @case ('monitor')   { <scout-monitor /> }
+      @case ('search')    { <scout-search /> }
+      @case ('compare')   { <scout-compare /> }
+      @case ('platforms')  { <scout-platforms /> }
+    }
+  </div>
+</div>

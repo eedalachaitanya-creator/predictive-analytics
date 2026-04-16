@@ -1,0 +1,39 @@
+.scout-page {
+  padding: 28px 32px;
+}
+
+.scout-header {
+  margin-bottom: 22px;
+}
+
+.scout-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+}
+
+.scout-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.scout-tabs {
+  margin-bottom: 24px;
+}
+
+.scout-tabs .pt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-icon {
+  font-size: 14px;
+}
+
+.tab-content {
+  animation: pageFade 0.18s ease;
+}

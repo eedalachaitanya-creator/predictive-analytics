@@ -41,6 +41,11 @@ class SettingsUpdate(BaseModel):
     high_ltv_threshold: Optional[float] = None
     mid_ltv_threshold: Optional[float] = None
     max_discount_pct: Optional[float] = None
+    # Display names for customer tiers — do not affect MV logic, only UI labels
+    tier_label_platinum: Optional[str] = None
+    tier_label_gold: Optional[str] = None
+    tier_label_silver: Optional[str] = None
+    tier_label_bronze: Optional[str] = None
 
 
 @router.get("/settings")
@@ -65,7 +70,9 @@ def get_settings(
                            recent_order_gap_window, prediction_mode, tier_method,
                            custom_platinum_min, custom_gold_min, custom_silver_min, custom_bronze_min,
                            high_ltv_threshold, mid_ltv_threshold, max_discount_pct,
-                           reference_date_mode, reference_date, fiscal_year_start
+                           reference_date_mode, reference_date, fiscal_year_start,
+                           tier_label_platinum, tier_label_gold,
+                           tier_label_silver, tier_label_bronze
                     FROM client_config
                     WHERE client_id = :cid
                 """),
@@ -97,6 +104,10 @@ def get_settings(
             "reference_date_mode": row[18],
             "reference_date": row[19].isoformat() if row[19] else None,
             "fiscal_year_start": row[20].isoformat() if row[20] else None,
+            "tier_label_platinum": row[21] or '💎 Platinum',
+            "tier_label_gold":     row[22] or '🥇 Gold',
+            "tier_label_silver":   row[23] or '🥈 Silver',
+            "tier_label_bronze":   row[24] or '🥉 Bronze',
         }
 
     except HTTPException:
@@ -136,6 +147,10 @@ def update_settings(
         "high_ltv_threshold": req.high_ltv_threshold,
         "mid_ltv_threshold": req.mid_ltv_threshold,
         "max_discount_pct": req.max_discount_pct,
+        "tier_label_platinum": req.tier_label_platinum,
+        "tier_label_gold":     req.tier_label_gold,
+        "tier_label_silver":   req.tier_label_silver,
+        "tier_label_bronze":   req.tier_label_bronze,
     }
 
     for col, val in field_map.items():

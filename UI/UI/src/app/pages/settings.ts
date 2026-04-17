@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
+import { TierLabelService } from '../services/tier-label.service';
 
 @Component({
   selector: 'app-settings',
@@ -14,6 +15,7 @@ import { AuthService } from '../services/auth.service';
 export class SettingsComponent implements OnInit {
   private api = inject(ApiService);
   private auth = inject(AuthService);
+  private tierLabels = inject(TierLabelService);
   private clientId = this.auth.getClientId();
 
   // Pipeline rules (loaded from database)
@@ -21,9 +23,14 @@ export class SettingsComponent implements OnInit {
   repeatThreshold = signal(2);
   highValuePct = signal(75);
   recentGapWindow = signal(3);
-  predMode = signal('full');
   tierMethod = signal('quartile');
   platMin = signal(500); goldMin = signal(250); silverMin = signal(100); bronzeMin = signal(0);
+
+  // Value-tier display labels — persisted per client so they survive reload
+  tierLabelPlatinum = signal('💎 Platinum');
+  tierLabelGold     = signal('🥇 Gold');
+  tierLabelSilver   = signal('🥈 Silver');
+  tierLabelBronze   = signal('🥉 Bronze');
 
   // State
   loading = signal(true);
@@ -68,12 +75,16 @@ export class SettingsComponent implements OnInit {
         this.repeatThreshold.set(cfg.min_repeat_orders ?? 2);
         this.highValuePct.set(cfg.high_value_percentile ?? 75);
         this.recentGapWindow.set(cfg.recent_order_gap_window ?? 3);
-        this.predMode.set(cfg.prediction_mode ?? 'full');
         this.tierMethod.set(cfg.tier_method ?? 'quartile');
         this.platMin.set(cfg.custom_platinum_min ?? 500);
         this.goldMin.set(cfg.custom_gold_min ?? 250);
         this.silverMin.set(cfg.custom_silver_min ?? 100);
         this.bronzeMin.set(cfg.custom_bronze_min ?? 0);
+
+        this.tierLabelPlatinum.set(cfg.tier_label_platinum ?? '💎 Platinum');
+        this.tierLabelGold.set(    cfg.tier_label_gold     ?? '🥇 Gold');
+        this.tierLabelSilver.set(  cfg.tier_label_silver   ?? '🥈 Silver');
+        this.tierLabelBronze.set(  cfg.tier_label_bronze   ?? '🥉 Bronze');
 
         // Build vendor config display from real data
         this.vendorCfg.set([
@@ -104,12 +115,15 @@ export class SettingsComponent implements OnInit {
       min_repeat_orders: this.repeatThreshold(),
       high_value_percentile: this.highValuePct(),
       recent_order_gap_window: this.recentGapWindow(),
-      prediction_mode: this.predMode(),
       tier_method: this.tierMethod(),
       custom_platinum_min: this.platMin(),
       custom_gold_min: this.goldMin(),
       custom_silver_min: this.silverMin(),
       custom_bronze_min: this.bronzeMin(),
+      tier_label_platinum: this.tierLabelPlatinum(),
+      tier_label_gold:     this.tierLabelGold(),
+      tier_label_silver:   this.tierLabelSilver(),
+      tier_label_bronze:   this.tierLabelBronze(),
     };
 
     this.api.put<any>(`/settings?clientId=${this.clientId}`, body).subscribe({
@@ -118,6 +132,9 @@ export class SettingsComponent implements OnInit {
         setTimeout(() => this.saved.set(false), 2500);
         // Reload to show updated vendor config table
         this.loadSettings();
+        // Tell the global tier-label cache to re-fetch so any OTHER open page
+        // (Dashboard, Churn Scores, Messages) picks up the new names instantly.
+        this.tierLabels.refresh();
       },
       error: (err) => {
         this.error.set(err?.error?.detail ?? 'Failed to save settings');

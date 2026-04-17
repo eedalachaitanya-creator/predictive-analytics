@@ -22,19 +22,35 @@
 <!-- Results -->
 @if (result(); as r) {
 
-  <!-- Entity Groups (matched products) -->
-  @if (r.entities?.length) {
-    @for (group of r.entities; track group.entity_id) {
+  <!-- Summary -->
+  @if (r.summary) {
+    <div class="grid-4 mb-20">
+      <div class="stat-card"><div class="stat-value">{{ r.summary.total_entities }}</div><div class="stat-label">Total Products</div></div>
+      <div class="stat-card"><div class="stat-value">{{ r.summary.cross_platform }}</div><div class="stat-label">Cross-Platform</div></div>
+      <div class="stat-card"><div class="stat-value">{{ r.summary.single_platform }}</div><div class="stat-label">Single Platform</div></div>
+      <div class="stat-card">
+        <div class="stat-value text-green">{{ r.summary.best_savings | number:'1.0-1' }}%</div>
+        <div class="stat-label">Best Savings</div>
+      </div>
+    </div>
+  }
+
+  <!-- Comparable Entities (found on 2+ platforms) -->
+  @if (r.comparable?.length) {
+    @for (entity of r.comparable; track entity.entity_id) {
       <div class="compare-group card mb-20">
         <div class="card-header">
           <div>
             <div class="card-title">
               <span class="entity-badge">🔗 Matched</span>
-              {{ group.listings[0]?.title | slice:0:60 }}
+              {{ entity.product }}
             </div>
-            @if (savings(group.listings); as s) {
+            @if (entity.brand) {
+              <span class="badge gray" style="margin-left: 8px">{{ entity.brand }}</span>
+            }
+            @if (savings(entity); as s) {
               <div class="card-subtitle">
-                Save up to <strong class="text-green">{{ formatPrice(s.amount, group.listings[0].price.currency) }}</strong>
+                Save up to <strong class="text-green">{{ formatPrice(s.amount) }}</strong>
                 ({{ s.pct | number:'1.0-0' }}%) by choosing the cheapest platform
               </div>
             }
@@ -42,25 +58,18 @@
         </div>
 
         <div class="compare-cards">
-          @for (l of group.listings; track l.platform) {
-            <div class="compare-card" [class.best]="isBest(l, group.listings)">
-              @if (isBest(l, group.listings)) {
+          @for (p of entity.platforms; track p.platform) {
+            <div class="compare-card" [class.best]="isCheapest(p, entity)">
+              @if (isCheapest(p, entity)) {
                 <div class="best-banner">✨ Best Price</div>
               }
               <div class="cc-platform">
-                <span class="badge gray">{{ l.platform }}</span>
+                <span class="badge gray">{{ p.platform }}</span>
               </div>
-              <div class="cc-price" [class.text-green]="isBest(l, group.listings)">
-                {{ formatPrice(l.price.value, l.price.currency) }}
+              <div class="cc-price" [class.text-green]="isCheapest(p, entity)">
+                {{ formatPrice(p.price) }}
               </div>
-              <div class="cc-title">{{ l.title | slice:0:80 }}</div>
-              <div class="cc-meta">
-                <span class="badge" [ngClass]="l.availability === 'in_stock' ? 'green' : 'red'">
-                  {{ l.availability === 'in_stock' ? 'In Stock' : l.availability }}
-                </span>
-                <span class="text-muted">{{ l.product_details?.manufacturer }}</span>
-              </div>
-              <a [href]="l.url" target="_blank" class="btn sm outline cc-link">View on {{ l.platform }} ↗</a>
+              <a [href]="p.url" target="_blank" class="btn sm outline cc-link">View on {{ p.platform }} ↗</a>
             </div>
           }
         </div>
@@ -68,25 +77,24 @@
     }
   }
 
-  <!-- Unmatched (different products) -->
-  @if (r.unmatched?.length) {
+  <!-- Single Platform (found on only 1 platform) -->
+  @if (r.single_platform?.length) {
     <div class="section-heading">
-      <span class="entity-badge warn">⚠️ Different Products</span>
-      These listings could not be matched as the same product
+      <span class="entity-badge warn">📌 Single Platform</span>
+      These products were only found on one platform
     </div>
     <div class="compare-cards mb-20">
-      @for (l of r.unmatched; track l.platform) {
+      @for (item of r.single_platform; track item.entity_id) {
         <div class="compare-card unmatched">
-          <div class="cc-platform"><span class="badge yellow">{{ l.platform }}</span></div>
-          <div class="cc-price">{{ formatPrice(l.price.value, l.price.currency) }}</div>
-          <div class="cc-title">{{ l.title | slice:0:80 }}</div>
-          <a [href]="l.url" target="_blank" class="btn sm outline cc-link">View ↗</a>
+          <div class="cc-platform"><span class="badge yellow">{{ item.platform }}</span></div>
+          <div class="cc-price">{{ item.price ? formatPrice(item.price.price) : '—' }}</div>
+          <div class="cc-title">{{ item.product }}</div>
         </div>
       }
     </div>
   }
 
-  @if (!r.entities?.length && !r.unmatched?.length) {
+  @if (!r.comparable?.length && !r.single_platform?.length) {
     <div class="notice info">No comparison data found. Try searching for this product first.</div>
   }
 }

@@ -37,7 +37,6 @@ export interface SearchResult {
   name: string;
   listings: Listing[];
   platform_status?: Record<string, string>;
-  entities?: EntityGroup[];
 }
 
 export interface SearchResponse {
@@ -59,8 +58,12 @@ export interface PriceAlert {
   platform: string;
   old_price: number | null;
   new_price: number;
-  change_pct: number | null;
-  created_at: string;
+  change_amount: number | null;
+  change_percent: number | null;
+  direction: string;
+  url: string;
+  detected_at: string;
+  acknowledged: boolean;
 }
 
 export interface PricePoint {
@@ -70,15 +73,34 @@ export interface PricePoint {
   platform: string;
 }
 
-export interface EntityGroup {
+export interface ComparePlatformEntry {
+  platform: string;
+  price: number;
+  url: string;
+}
+
+export interface ComparableEntity {
   entity_id: string;
-  listings: Listing[];
+  product: string;
+  brand: string;
+  variant: string;
+  cheapest: { platform: string; price: number } | null;
+  price_spread: { min: number; max: number; diff_percent: number; savings: number } | null;
+  platforms: ComparePlatformEntry[];
+}
+
+export interface SinglePlatformEntity {
+  entity_id: string;
+  product: string;
+  platform: string;
+  price: { platform: string; price: number } | null;
 }
 
 export interface CompareResult {
   query: string;
-  entities: EntityGroup[];
-  unmatched: Listing[];
+  comparable: ComparableEntity[];
+  single_platform: SinglePlatformEntity[];
+  summary: { total_entities: number; cross_platform: number; single_platform: number; best_savings: number };
 }
 
 export interface MonitorResult {
@@ -116,7 +138,7 @@ export class ScoutService {
     const formData = new FormData();
     formData.append('file', file);
     if (platforms.length) {
-      formData.append('platforms', JSON.stringify(platforms));
+      formData.append('platforms', platforms.join(','));
     }
     return this.http.post<SearchResponse>(`${SCOUT_API}/upload/file`, formData)
       .pipe(catchError(this.handleError));
@@ -131,22 +153,22 @@ export class ScoutService {
 
   // ── Price History & Alerts ──────────────────────────────────────
 
-  getPriceHistory(query: string): Observable<{ product: string; history: PricePoint[] }> {
-    return this.http.get<{ product: string; history: PricePoint[] }>(
+  getPriceHistory(query: string): Observable<{ product_name: string; platforms: Record<string, PricePoint[]>; total_points: number }> {
+    return this.http.get<{ product_name: string; platforms: Record<string, PricePoint[]>; total_points: number }>(
       `${SCOUT_API}/price-history/${encodeURIComponent(query)}`
     ).pipe(catchError(this.handleError));
   }
 
-  getAlerts(unreadOnly = false): Observable<{ alerts: PriceAlert[] }> {
-    const q = unreadOnly ? '?unread=true' : '';
-    return this.http.get<{ alerts: PriceAlert[] }>(`${SCOUT_API}/alerts${q}`)
+  getAlerts(unreadOnly = false): Observable<{ unread_count: number; alerts: PriceAlert[] }> {
+    const q = unreadOnly ? '?unacknowledged_only=true' : '';
+    return this.http.get<{ unread_count: number; alerts: PriceAlert[] }>(`${SCOUT_API}/alerts${q}`)
       .pipe(catchError(this.handleError));
   }
 
   // ── Monitor ─────────────────────────────────────────────────────
 
   runMonitor(): Observable<MonitorResult> {
-    return this.http.post<MonitorResult>(`${SCOUT_API}/monitor/run`, {})
+    return this.http.post<MonitorResult>(`${SCOUT_API}/price-monitor/run`, {})
       .pipe(catchError(this.handleError));
   }
 
@@ -173,7 +195,7 @@ export class ScoutService {
   }
 
   deactivateWebsite(name: string): Observable<any> {
-    return this.http.post(`${SCOUT_API}/websites/${encodeURIComponent(name)}/deactivate`, {})
+    return this.http.delete(`${SCOUT_API}/websites/${encodeURIComponent(name)}`)
       .pipe(catchError(this.handleError));
   }
 

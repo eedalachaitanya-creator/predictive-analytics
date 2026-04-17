@@ -83,7 +83,11 @@ export class ScoutSearchTab implements OnInit {
 
   fmt(p: any): string {
     if (!p || !p.value || p.value <= 0) return '—';
-    return (p.currency === 'INR' ? '₹' : p.currency === 'USD' ? '$' : p.currency) + p.value.toLocaleString();
+    const symbols: Record<string, string> = {
+      INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
+      AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
+    };
+    return (symbols[p.currency] || p.currency + ' ') + p.value.toLocaleString();
   }
 
   statusIcon(s?: string): string { return s === 'found' ? '✅' : s === 'not_found' ? '❌' : '⏳'; }

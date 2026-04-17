@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ScoutService, CompareResult, Listing, EntityGroup } from '../../../services/scout.service';
+import { ScoutService, CompareResult, ComparableEntity, ComparePlatformEntry } from '../../../services/scout.service';
 
 @Component({
   selector: 'scout-compare',
@@ -42,30 +42,21 @@ export class ScoutCompareTab {
     if (e.key === 'Enter') this.compare();
   }
 
-  bestInGroup(listings: Listing[]): Listing | null {
-    const valid = listings.filter(l => l.price.value > 0);
-    if (!valid.length) return null;
-    return valid.reduce((min, l) => l.price.value < min.price.value ? l : min);
+  savings(entity: ComparableEntity): { amount: number; pct: number } | null {
+    if (!entity.price_spread) return null;
+    return { amount: entity.price_spread.savings, pct: entity.price_spread.diff_percent };
   }
 
-  savings(group: Listing[]): { amount: number; pct: number } | null {
-    const valid = group.filter(l => l.price.value > 0);
-    if (valid.length < 2) return null;
-    const prices = valid.map(l => l.price.value);
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    if (max === min) return null;
-    return { amount: max - min, pct: ((max - min) / max) * 100 };
+  isCheapest(entry: ComparePlatformEntry, entity: ComparableEntity): boolean {
+    return entity.cheapest !== null && entry.price === entity.cheapest.price;
   }
 
-  isBest(listing: Listing, group: Listing[]): boolean {
-    const best = this.bestInGroup(group);
-    return best !== null && listing.price.value === best.price.value;
-  }
-
-  formatPrice(val: number, currency: string = 'INR'): string {
+  formatPrice(val: number, currency: string = 'USD'): string {
     if (!val || val <= 0) return '—';
-    const sym = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency;
-    return `${sym}${val.toLocaleString()}`;
+    const symbols: Record<string, string> = {
+      INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
+      AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
+    };
+    return `${symbols[currency] || currency + ' '}${val.toLocaleString()}`;
   }
 }

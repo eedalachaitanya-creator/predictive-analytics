@@ -46,8 +46,8 @@
               <td>{{ changeIcon(a) }}</td>
               <td><strong>{{ a.product_name }}</strong></td>
               <td><span class="badge gray">{{ a.platform }}</span></td>
-              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price) : '—' }}</td>
-              <td class="font-mono"><strong>{{ fmt(a.new_price) }}</strong></td>
+              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, currencyFor(a.platform)) : '—' }}</td>
+              <td class="font-mono"><strong>{{ fmt(a.new_price, currencyFor(a.platform)) }}</strong></td>
               <td [class]="changeClass(a)"><strong>{{ fmtChange(a) }}</strong></td>
               <td class="text-muted">{{ timeAgo(a.detected_at) }}</td>
             </tr>

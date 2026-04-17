@@ -88,14 +88,43 @@ export class ScoutMonitorTab implements OnInit {
     this.historyLoading.set(true);
     this.priceHistory.set([]);
     this.svc.getPriceHistory(name).subscribe({
-      next: (res: any) => { this.priceHistory.set(res.history || []); this.historyLoading.set(false); },
+      next: (res: any) => {
+        // Backend returns { platforms: { "amazon": [points], "flipkart": [points] } }
+        // Flatten into a single array with platform added to each point
+        const platforms = res.platforms || {};
+        const flat: any[] = [];
+        for (const [platform, points] of Object.entries(platforms)) {
+          for (const point of (points as any[])) {
+            flat.push({ ...point, platform });
+          }
+        }
+        // Sort by date descending
+        flat.sort((a, b) => new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime());
+        this.priceHistory.set(flat);
+        this.historyLoading.set(false);
+      },
       error: () => this.historyLoading.set(false)
     });
   }
 
   fmt(val: number, cur: string = 'INR'): string {
     if (!val || val <= 0) return '—';
-    return (cur === 'INR' ? '₹' : cur === 'USD' ? '$' : cur) + val.toLocaleString();
+    const symbols: Record<string, string> = {
+      INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
+      AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
+    };
+    return (symbols[cur] || cur + ' ') + val.toLocaleString();
+  }
+
+  currencyFor(platform: string): string {
+    const p = platform.toLowerCase();
+    // Indian platforms use INR
+    if (p.endsWith('.in') || ['flipkart', 'myntra', 'nykaa', 'beato', 'fastandup.in', 'ikea'].includes(p)) return 'INR';
+    // US/global platforms use USD
+    if (['amazon', 'walmart', 'target', 'ebay'].includes(p)) return 'USD';
+    // EU platforms
+    if (p === 'fast and up') return 'EUR';
+    return 'INR';
   }
 
   changeIcon(a: any): string { return a.direction === 'down' ? '📉' : a.direction === 'up' ? '📈' : '🆕'; }

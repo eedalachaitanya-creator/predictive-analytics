@@ -2,6 +2,7 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StrategistService, MarketTrend } from '../../../services/strategist.service';
+import { AuthService } from '../../../services/auth.service';
 
 @Component({
   selector: 'strategist-trend',
@@ -11,7 +12,9 @@ import { StrategistService, MarketTrend } from '../../../services/strategist.ser
   styleUrls: ['./trend.scss']
 })
 export class StrategistTrendTab implements OnInit {
-  private svc = inject(StrategistService);
+  private svc  = inject(StrategistService);
+  private auth = inject(AuthService);
+  clientId     = this.auth.getClientId();
 
   query    = signal('');
   loading  = signal(false);
@@ -24,7 +27,7 @@ export class StrategistTrendTab implements OnInit {
 
   loadProducts() {
     // Load product names from entity_listings via sample-request endpoint
-    this.svc.getSampleRequest('CLT-001').subscribe({
+    this.svc.getSampleRequest(this.clientId).subscribe({
       next: (res: any) => {
         const names = (res?.scout_output?.products || []).map((p: any) => p.name);
         this.products.set(names);

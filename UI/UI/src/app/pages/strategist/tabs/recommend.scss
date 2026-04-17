@@ -131,3 +131,13 @@
 .stat-value { font-weight: 500; color: var(--text-primary); }
 .stat-value.margin.good { color: #059669; }
 .stat-value.margin.warn { color: #D97706; }
+
+/* Competitor price chips */
+.comp-chips-wrap { margin-top: 4px; }
+.comp-chips-label { font-size: 11px; color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.comp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.comp-chip { display: flex; align-items: center; gap: 5px; background: var(--bg-highlight, #f3f4f6); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px; font-size: 12px; }
+.comp-icon { font-size: 13px; }
+.comp-platform { color: var(--text-muted); text-transform: capitalize; }
+.comp-price { font-weight: 600; color: var(--text-primary); }
+.comp-empty { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 4px; }

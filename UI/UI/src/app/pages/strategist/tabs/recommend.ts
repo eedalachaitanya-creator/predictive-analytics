@@ -1,8 +1,15 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StrategistService, StrategistRequest, PricingRecommendation, ScoutProduct } from '../../../services/strategist.service';
 import { AuthService } from '../../../services/auth.service';
+
+interface ProductRow {
+  name:     string;
+  cost:     string;
+  listings: string;            // raw JSON kept internally — never shown to client
+  platforms: { name: string; price: number }[];  // parsed for display only
+}
 
 @Component({
   selector: 'strategist-recommend',
@@ -16,7 +23,7 @@ export class StrategistRecommendTab implements OnInit {
   private auth = inject(AuthService);
   clientId     = this.auth.getClientId();
 
-  products      = signal<{ name: string; cost: string; listings: string }[]>([]);
+  products      = signal<ProductRow[]>([]);
   savedCosts    = signal<Record<string, number>>({});
   useChurn      = signal(false);
   churnJson     = signal('');
@@ -34,15 +41,23 @@ export class StrategistRecommendTab implements OnInit {
 
   loadSample() {
     this.loadingSample.set(true);
-    // Load Scout products and saved costs in parallel
     this.svc.getSampleRequest(this.clientId).subscribe({
       next: (res: any) => {
-        const mapped = (res.scout_output?.products || []).map((p: ScoutProduct) => ({
-          name: p.name, cost: '', listings: JSON.stringify(p.listings)
-        }));
-        this.products.set(mapped.length ? mapped : [{ name: '', cost: '', listings: '' }]);
+        const mapped = (res.scout_output?.products || []).map((p: ScoutProduct) => {
+          const listings = p.listings || [];
+          const platforms = listings.map((l: any) => ({
+            name:  l.platform,
+            price: l.price?.value || 0
+          })).filter((l: any) => l.price > 0);
+          return {
+            name:     p.name,
+            cost:     '',
+            listings: JSON.stringify(listings),   // kept internally for API call
+            platforms,
+          };
+        });
+        this.products.set(mapped.length ? mapped : [{ name: '', cost: '', listings: '', platforms: [] }]);
 
-        // Load saved cost prices to show in results
         this.svc.getCosts(this.clientId).subscribe({
           next: (costsRes: any) => {
             const costs: Record<string, number> = {};
@@ -54,16 +69,21 @@ export class StrategistRecommendTab implements OnInit {
         this.loadingSample.set(false);
       },
       error: () => {
-        this.products.set([{ name: '', cost: '', listings: '' }]);
+        this.products.set([{ name: '', cost: '', listings: '', platforms: [] }]);
         this.loadingSample.set(false);
       }
     });
   }
 
-  addProduct()             { this.products.update(p => [...p, { name: '', cost: '', listings: '' }]); }
-  removeProduct(i: number) { this.products.update(p => p.filter((_, idx) => idx !== i)); }
+  addProduct() {
+    this.products.update(p => [...p, { name: '', cost: '', listings: '', platforms: [] }]);
+  }
 
-  updateProduct(i: number, field: 'name' | 'cost' | 'listings', value: string) {
+  removeProduct(i: number) {
+    this.products.update(p => p.filter((_, idx) => idx !== i));
+  }
+
+  updateProduct(i: number, field: 'name' | 'cost', value: string) {
     this.products.update(p => {
       const updated = [...p];
       updated[i] = { ...updated[i], [field]: value };
@@ -88,12 +108,12 @@ export class StrategistRecommendTab implements OnInit {
     });
 
     const req: StrategistRequest = {
-      client_id: this.clientId,
-      scout_output: { status: 'ok', products: scoutProducts },
-      our_costs: ourCosts,
+      client_id:         this.clientId,
+      scout_output:      { status: 'ok', products: scoutProducts },
+      our_costs:         ourCosts,
       target_margin_pct: this.targetMargin(),
-      min_margin_pct: this.minMargin(),
-      undercut_pct: this.undercutPct(),
+      min_margin_pct:    this.minMargin(),
+      undercut_pct:      this.undercutPct(),
     };
 
     if (this.useChurn() && this.churnJson().trim()) {
@@ -118,7 +138,6 @@ export class StrategistRecommendTab implements OnInit {
     });
   }
 
-  // Get saved cost price for a product from DB (product_costs table)
   getCostPrice(productName: string): number | null {
     return this.savedCosts()[productName] || null;
   }
@@ -131,7 +150,13 @@ export class StrategistRecommendTab implements OnInit {
     return 'gray';
   }
 
-  trendIcon(t: string)  { return t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️'; }
-  fmtPrice(n: number)   { return n ? '₹' + n.toFixed(2) : '—'; }
-  fmtPct(n: number)     { return (n || 0).toFixed(1) + '%'; }
+  trendIcon(t: string) { return t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️'; }
+  fmtPrice(n: number)  { return n ? '₹' + n.toFixed(2) : '—'; }
+  fmtPct(n: number)    { return (n || 0).toFixed(1) + '%'; }
+  platformIcon(p: string) {
+    const icons: Record<string, string> = {
+      amazon: '🛒', flipkart: '🏪', meesho: '🛍', myntra: '👗', snapdeal: '🏷'
+    };
+    return icons[p?.toLowerCase()] || '🌐';
+  }
 }

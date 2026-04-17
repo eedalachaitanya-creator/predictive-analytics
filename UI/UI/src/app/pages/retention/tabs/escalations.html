@@ -26,7 +26,7 @@
           <div class="esc-card-top">
             <div class="esc-left">
               <span class="badge" [class]="tierColor(row.risk_tier)">{{ row.risk_tier }}</span>
-              <span class="mono">{{ row.customer_id }}</span>
+              <span class="customer-label">{{ row.customer_id }}</span>
             </div>
             <div class="esc-prob">
               <span class="prob-big">{{ fmtProb(row.churn_probability) }}</span>

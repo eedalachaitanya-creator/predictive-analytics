@@ -15,7 +15,7 @@
     <div class="empty-state">
       <div class="empty-icon">📋</div>
       <div>No interventions yet</div>
-      <div class="empty-sub">Run the pipeline with dry_run=false to generate and save offers</div>
+      <div class="empty-sub">Turn off Preview mode and run the pipeline to generate and save offers</div>
     </div>
   }
 
@@ -24,7 +24,6 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>ID</th>
             <th>Customer</th>
             <th>Risk</th>
             <th>Channel</th>
@@ -39,8 +38,7 @@
         <tbody>
           @for (row of rows(); track row.intervention_id) {
             <tr>
-              <td class="mono">{{ row.intervention_id }}</td>
-              <td class="mono">{{ row.customer_id }}</td>
+              <td class="font-medium">{{ row.customer_id }}</td>
               <td><span class="badge sm" [class]="riskColor(row.risk_tier)">{{ row.risk_tier }}</span></td>
               <td>{{ channelIcon(row.channel) }} {{ row.channel }}</td>
               <td>{{ fmtPct(row.discount_pct) }}</td>

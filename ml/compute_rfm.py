@@ -232,8 +232,8 @@ def _compute_derived_columns(engine, df):
                 FROM line_items
                 GROUP BY client_id, customer_id, product_id
             ) li
-            JOIN products p ON li.product_id = p.product_id
-            JOIN categories c ON p.category_id = c.category_id
+            JOIN products p ON li.client_id = p.client_id AND li.product_id = p.product_id
+            JOIN categories c ON p.client_id = c.client_id AND p.category_id = c.category_id
             WHERE li.rn = 1
         """), engine)
         df = df.merge(top_cat_df, on=['client_id', 'customer_id'], how='left')
@@ -321,9 +321,27 @@ def save_rfm_to_db(engine, df):
     log.info("  Saving %d rows to customer_rfm_features (%d columns) ...",
              len(db_df), len(db_df.columns))
 
-    # Step 3: TRUNCATE + bulk INSERT
+    # Step 3: Per-client DELETE + bulk INSERT
+    #
+    # WHY per-client and not TRUNCATE:
+    #   The schema is multi-tenant. TRUNCATE wipes ALL clients' rows, so
+    #   running this for CLT-001 would delete CLT-002's RFM data too.
+    #   We only clear the client(s) we're about to re-insert.
+    clients_in_batch = db_df['client_id'].dropna().unique().tolist()
+    log.info("  Clearing existing rows for %d client(s): %s",
+             len(clients_in_batch), clients_in_batch)
+
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE customer_rfm_features"))
+        if clients_in_batch:
+            conn.execute(
+                text("DELETE FROM customer_rfm_features WHERE client_id = ANY(:cids)"),
+                {"cids": clients_in_batch},
+            )
+        else:
+            # Defensive fallback — shouldn't happen in practice since the MV
+            # always tags rows with client_id, but if we ever get a batch
+            # with no client_id at all, leave the table untouched.
+            log.warning("  No client_id values found in batch — skipping delete")
 
     db_df.to_sql(
         'customer_rfm_features',
@@ -1111,7 +1129,7 @@ def plot_recent_vs_overall_gap(X, y, plot_dir):
 
 
 def generate_plots(df, X, y):
-    """Orchestrate all plot generation."""
+    """Orchestrate all plot generation. Each plot is non-fatal."""
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -1125,17 +1143,27 @@ def generate_plots(df, X, y):
     plot_dir = OUTPUT_DIR / "plots"
     plot_dir.mkdir(exist_ok=True)
 
-    plot_churn_distribution(y, plot_dir)
-    plot_feature_correlations(X, y, plot_dir)
-    plot_correlation_heatmap(X, y, plot_dir)
-    plot_rfm_distributions(X, plot_dir)
-    plot_active_vs_churned(X, y, plot_dir)
-    plot_mean_vs_median_gap(X, y, plot_dir)
-    plot_tier_distribution(df, plot_dir)
-    plot_repeat_vs_onetime(df, plot_dir)
-    plot_recent_vs_overall_gap(X, y, plot_dir)
+    plot_funcs = [
+        ("churn_distribution",      lambda: plot_churn_distribution(y, plot_dir)),
+        ("feature_correlations",    lambda: plot_feature_correlations(X, y, plot_dir)),
+        ("correlation_heatmap",     lambda: plot_correlation_heatmap(X, y, plot_dir)),
+        ("rfm_distributions",       lambda: plot_rfm_distributions(X, plot_dir)),
+        ("active_vs_churned",       lambda: plot_active_vs_churned(X, y, plot_dir)),
+        ("mean_vs_median_gap",      lambda: plot_mean_vs_median_gap(X, y, plot_dir)),
+        ("tier_distribution",       lambda: plot_tier_distribution(df, plot_dir)),
+        ("repeat_vs_onetime",       lambda: plot_repeat_vs_onetime(df, plot_dir)),
+        ("recent_vs_overall_gap",   lambda: plot_recent_vs_overall_gap(X, y, plot_dir)),
+    ]
 
-    log.info("  Plots saved to: %s", plot_dir)
+    succeeded = 0
+    for name, func in plot_funcs:
+        try:
+            func()
+            succeeded += 1
+        except Exception as e:
+            log.warning("  Plot '%s' failed (non-fatal): %s", name, e)
+
+    log.info("  Plots saved to: %s (%d/%d succeeded)", plot_dir, succeeded, len(plot_funcs))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1191,10 +1219,13 @@ def main():
     feature_df.to_csv(OUTPUT_DIR / "feature_matrix.csv", index=False)
     log.info("  Feature matrix saved: %s", OUTPUT_DIR / "feature_matrix.csv")
 
-    # Step 4: Run EDA
+    # Step 4: Run EDA (non-fatal — feature CSVs are already saved above)
     if not args.no_eda:
-        report = run_eda(df, X, y)
-        print("\n" + report)
+        try:
+            report = run_eda(df, X, y)
+            print("\n" + report)
+        except Exception as e:
+            log.warning("EDA report generation failed (non-fatal): %s", e)
 
         if not args.no_plots:
             generate_plots(df, X, y)

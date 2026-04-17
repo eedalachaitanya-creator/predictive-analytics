@@ -139,6 +139,40 @@ MV_TRIGGER_TABLES = {"customers", "orders", "line_items", "products",
                      "customer_reviews", "support_tickets"}
 
 
+# ── Conflict behavior per master type ────────────────────────────────────────
+# When committing staging → real, a row's primary key may already exist (user
+# re-uploading the same file, or a prior commit that was partially re-applied).
+# Without explicit ON CONFLICT handling every such row raises UniqueViolation
+# and rolls back the entire batch — which is brittle and makes retries
+# impossible.
+#
+# Strategy:
+#   - Catalog / dimension tables → UPSERT ('update'): re-uploads refresh the
+#     non-PK columns, so corrected data overwrites old.
+#   - Transactional / fact tables → SKIP ('nothing'): we never silently
+#     overwrite a historical order, line_item, review, or ticket. A duplicate
+#     PK is simply ignored and the rest of the batch goes through.
+#
+# Format: master_type → (pk_columns_tuple, action)
+COMMIT_CONFLICT = {
+    # Dimension / catalog (UPSERT — safe to refresh)
+    "category":         (("client_id", "category_id"),         "update"),
+    "sub_category":     (("client_id", "sub_category_id"),     "update"),
+    "sub_sub_category": (("client_id", "sub_sub_category_id"), "update"),
+    "brand":            (("client_id", "brand_id"),            "update"),
+    "vendor":           (("client_id", "vendor_id"),           "update"),
+    "product":          (("client_id", "product_id"),          "update"),
+    "price":            (("client_id", "price_id"),            "update"),
+    "vendor_map":       (("client_id", "pv_id"),               "update"),
+    "customer":         (("client_id", "customer_id"),         "update"),
+    # Fact / transactional (DO NOTHING — don't overwrite history)
+    "order":            (("client_id", "order_id"),            "nothing"),
+    "line_items":       (("client_id", "line_item_id"),        "nothing"),
+    "customer_reviews": (("client_id", "review_id"),           "nothing"),
+    "support_tickets":  (("client_id", "ticket_id"),           "nothing"),
+}
+
+
 # ── Commit order ─────────────────────────────────────────────────────────────
 # When committing a batch, we INSERT from staging → real in this order.
 # With DEFERRABLE FKs, order doesn't affect correctness (all checks happen at
@@ -211,6 +245,44 @@ def _staging_table_for(master_type: str) -> str:
     """Return the staging table name for a given master type (e.g. 'customer' → 'staging_customers')."""
     real_table, _ = MASTER_TYPE_TO_TABLE[master_type]
     return f"staging_{real_table}"
+
+
+def _count_batch_staging_rows(conn, batch_id: str, client_id: str) -> int:
+    """
+    Return the total number of staging rows for a batch across ALL staging
+    tables. Used to detect orphaned pending batches (batch_id exists but every
+    staging table is empty), which can happen when a user uploads a file then
+    hits Remove — the staging rows go away but the upload_batches row stays
+    with status='pending'.
+    """
+    total = 0
+    for master_type in COMMIT_ORDER:
+        real_table, _ = MASTER_TYPE_TO_TABLE[master_type]
+        staging_table = f"staging_{real_table}"
+        row = conn.execute(
+            text(f"SELECT COUNT(*) FROM {staging_table} "
+                 f"WHERE batch_id = :bid AND client_id = :cid"),
+            {"bid": batch_id, "cid": client_id},
+        ).fetchone()
+        total += (row[0] if row else 0)
+    return total
+
+
+def _cleanup_empty_batch(conn, batch_id: str, client_id: str) -> bool:
+    """
+    If `batch_id` has zero staging rows across every staging table, delete
+    the upload_batches row so a fresh upload starts with a fresh batch.
+    Returns True if the batch was cleaned up, False if it still has rows.
+    """
+    remaining = _count_batch_staging_rows(conn, batch_id, client_id)
+    if remaining == 0:
+        conn.execute(
+            text("DELETE FROM upload_batches WHERE batch_id = :bid AND status = 'pending'"),
+            {"bid": batch_id},
+        )
+        log.info("Cleaned up empty pending batch %s for client %s", batch_id, client_id)
+        return True
+    return False
 
 
 def _load_df_to_staging(df: pd.DataFrame, master_type: str, client_id: str) -> dict:
@@ -794,6 +866,11 @@ def delete_upload(
         )
         deleted = result.rowcount
 
+        # If removing this master_type left the batch with zero staging rows
+        # across all tables, delete the upload_batches row too. Otherwise
+        # /uploads/batch would keep returning a ghost "0-file" pending batch.
+        batch_cleaned = _cleanup_empty_batch(conn, batch_id, clientId)
+
     # Also remove the saved file from disk (best-effort)
     try:
         for f in os.listdir(UPLOAD_DIR):
@@ -802,7 +879,12 @@ def delete_upload(
     except Exception:
         pass
 
-    return {"deleted": deleted, "masterType": master_type, "batchId": batch_id}
+    return {
+        "deleted": deleted,
+        "masterType": master_type,
+        "batchId": batch_id,
+        "batchCleaned": batch_cleaned,
+    }
 
 
 # ── Commit / discard endpoints ───────────────────────────────────────────────
@@ -865,6 +947,12 @@ def _commit_batch(conn, batch_id: str, client_id: str) -> dict:
     The caller must have already opened a transaction and run
     SET CONSTRAINTS ALL DEFERRED — so FK checks on transactional tables
     (orders, line_items, etc.) happen at COMMIT, not after each INSERT.
+
+    Each INSERT uses ON CONFLICT handling driven by COMMIT_CONFLICT:
+      - dimension tables get UPSERT so re-uploads refresh non-PK columns
+      - fact tables get DO NOTHING so historical records aren't overwritten
+    This makes commit replay-safe: a batch that partially conflicts with
+    existing data no longer blows up the whole transaction.
     """
     per_type_rows = {}
     mv_needs_refresh = False
@@ -872,22 +960,41 @@ def _commit_batch(conn, batch_id: str, client_id: str) -> dict:
     for master_type in COMMIT_ORDER:
         real_table, expected_cols = MASTER_TYPE_TO_TABLE[master_type]
         staging_table = f"staging_{real_table}"
+        pk_cols, action = COMMIT_CONFLICT[master_type]
 
         # Only insert columns that exist in the real table (skip batch_id, staging_row_id)
         col_list = ", ".join(expected_cols)
+        pk_list = ", ".join(pk_cols)
 
-        # INSERT real = staging, omitting staging-only columns
+        # Build ON CONFLICT clause based on strategy for this master_type.
+        if action == "update":
+            # Update every non-PK column to the staging value (EXCLUDED.col).
+            non_pk_cols = [c for c in expected_cols if c not in pk_cols]
+            if non_pk_cols:
+                set_clause = ", ".join(
+                    f"{c} = EXCLUDED.{c}" for c in non_pk_cols
+                )
+                conflict_sql = f"ON CONFLICT ({pk_list}) DO UPDATE SET {set_clause}"
+            else:
+                # Table has no non-PK columns — nothing to update, just skip.
+                conflict_sql = f"ON CONFLICT ({pk_list}) DO NOTHING"
+        else:  # 'nothing'
+            conflict_sql = f"ON CONFLICT ({pk_list}) DO NOTHING"
+
         insert_sql = text(f"""
             INSERT INTO {real_table} ({col_list})
             SELECT {col_list}
             FROM {staging_table}
             WHERE batch_id = :bid AND client_id = :cid
+            {conflict_sql}
         """)
         result = conn.execute(insert_sql, {"bid": batch_id, "cid": client_id})
-        inserted = result.rowcount
-        per_type_rows[master_type] = inserted
+        # rowcount counts affected rows (inserts + updates for UPSERT; inserts
+        # only for DO NOTHING). Use it as the "rows committed" metric.
+        affected = result.rowcount
+        per_type_rows[master_type] = affected
 
-        if inserted > 0 and real_table in MV_TRIGGER_TABLES:
+        if affected > 0 and real_table in MV_TRIGGER_TABLES:
             mv_needs_refresh = True
 
     # Clear this batch's staging rows (other pending batches — none for this

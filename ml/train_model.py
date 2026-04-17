@@ -113,6 +113,16 @@ LEAKY_COLS = [
     'spend_last_90d_usd',          # 100% zero for churned (= churn definition)
     'orders_last_180d',            # Partially leaky (20% zero for churned)
     'spend_last_180d_usd',         # Partially leaky (20% zero for churned)
+    # ── Tenure-based leaks ──────────────────────────────────────────────
+    # In the synthetic data, churned customers were generated with older
+    # signup dates (they've been around long enough to churn), so
+    # account_age_days and related date fields correlate with the target
+    # almost as strongly as recency does. Model global importance for
+    # account_age_days was 0.16 (#2 feature) with every top-risk customer
+    # showing it as their #1 SHAP driver — classic target leak via tenure.
+    'account_age_days',            # Tenure proxy for churn in synthetic data
+    'first_order_date',            # Raw date form of account age
+    'last_order_date',             # Derived from recency (same concern)
 ]
 
 # Threshold for dropping highly correlated features
@@ -1410,17 +1420,7 @@ def run_pipeline_for_model(
     # ─ Feature importance
     importance_df = get_feature_importances(model, feature_names, model_type)
 
-    # ─ Plots
-    if not args.no_plots:
-        generate_all_plots(y_test, metrics, importance_df, cv_results, model_type, PLOT_DIR)
-
-    # ─ Training report
-    report_path = generate_training_report(
-        model_type, metrics, cv_results, importance_df,
-        cleaning_log, feature_names, original_shape, REPORT_DIR
-    )
-
-    # ─ Save model
+    # ─ Save model FIRST (before plots/reports — so model is persisted even if plots crash)
     metadata = {
         'model_type': model_type,
         'training_date': datetime.now().isoformat(),
@@ -1440,6 +1440,19 @@ def run_pipeline_for_model(
     }
     model_path = MODEL_DIR / f"churn_model_{model_type}.joblib"
     save_model(model, scaler, feature_names, metadata, model_path)
+
+    # ─ Plots (non-fatal — model is already saved above)
+    if not args.no_plots:
+        try:
+            generate_all_plots(y_test, metrics, importance_df, cv_results, model_type, PLOT_DIR)
+        except Exception as e:
+            log.warning("Plot generation failed (non-fatal): %s", e)
+
+    # ─ Training report
+    report_path = generate_training_report(
+        model_type, metrics, cv_results, importance_df,
+        cleaning_log, feature_names, original_shape, REPORT_DIR
+    )
 
     return {
         'model': model,

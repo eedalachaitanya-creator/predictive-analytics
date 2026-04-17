@@ -547,12 +547,15 @@ def main():
                 bundle['model'], feature_names, model_type
             )
 
-            # Precision-recall curve
+            # Precision-recall curve (non-fatal)
             if not args.no_plots:
-                plot_precision_recall_curve(
-                    y_test, metrics['y_proba'], model_type,
-                    metrics['avg_precision'], PLOT_DIR
-                )
+                try:
+                    plot_precision_recall_curve(
+                        y_test, metrics['y_proba'], model_type,
+                        metrics['avg_precision'], PLOT_DIR
+                    )
+                except Exception as plot_err:
+                    log.warning("PR curve plot failed (non-fatal): %s", plot_err)
 
             all_results.append(metrics)
 
@@ -570,9 +573,12 @@ def main():
     log.info("")
     log.info("Best model: %s (AUC-ROC: %.4f)", best_model, best['auc_roc'])
 
-    # 5. Comparison chart
+    # 5. Comparison chart (non-fatal)
     if not args.no_plots and len(all_results) > 1:
-        plot_model_comparison_chart(all_results, PLOT_DIR)
+        try:
+            plot_model_comparison_chart(all_results, PLOT_DIR)
+        except Exception as plot_err:
+            log.warning("Comparison chart failed (non-fatal): %s", plot_err)
 
     # 6. Text report
     report_text = generate_evaluation_report(all_results, best_model)

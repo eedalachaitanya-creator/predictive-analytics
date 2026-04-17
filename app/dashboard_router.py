@@ -586,9 +586,9 @@ def get_dashboard_orders(
                     ROUND(COUNT(CASE WHEN li.item_status = 'Returned' THEN 1 END) * 100.0
                           / NULLIF(COUNT(*), 0), 1) AS return_rate
                 FROM line_items li
-                JOIN products p ON li.product_id = p.product_id
-                LEFT JOIN categories cat ON p.category_id = cat.category_id
-                LEFT JOIN brands b ON p.brand_id = b.brand_id
+                JOIN products p ON li.client_id = p.client_id AND li.product_id = p.product_id
+                LEFT JOIN categories cat ON p.client_id = cat.client_id AND p.category_id = cat.category_id
+                LEFT JOIN brands b ON p.client_id = b.client_id AND p.brand_id = b.brand_id
                 WHERE li.client_id = :cid
                 GROUP BY p.product_id, p.product_name, cat.category_name, b.brand_name
                 ORDER BY order_count DESC
@@ -668,9 +668,9 @@ def get_dashboard_orders(
             r = conn.execute(text("""
                 SELECT COUNT(DISTINCT v.vendor_id)
                 FROM vendors v
-                JOIN product_vendor_mapping pvm ON v.vendor_id = pvm.vendor_id
-                JOIN line_items li ON pvm.product_id = li.product_id
-                    AND li.client_id = :cid
+                JOIN product_vendor_mapping pvm ON v.client_id = pvm.client_id AND v.vendor_id = pvm.vendor_id
+                JOIN line_items li ON pvm.client_id = li.client_id AND pvm.product_id = li.product_id
+                WHERE v.client_id = :cid
             """), {"cid": clientId})
             total = r.scalar() or 0
             pages = math.ceil(total / page_size) if total > 0 else 0
@@ -688,10 +688,10 @@ def get_dashboard_orders(
                     ROUND(COUNT(CASE WHEN li.item_status = 'Returned' THEN 1 END) * 100.0
                           / NULLIF(COUNT(*), 0), 1) AS return_rate
                 FROM vendors v
-                JOIN product_vendor_mapping pvm ON v.vendor_id = pvm.vendor_id
-                JOIN products p ON pvm.product_id = p.product_id
-                JOIN line_items li ON p.product_id = li.product_id
-                    AND li.client_id = :cid
+                JOIN product_vendor_mapping pvm ON v.client_id = pvm.client_id AND v.vendor_id = pvm.vendor_id
+                JOIN products p ON pvm.client_id = p.client_id AND pvm.product_id = p.product_id
+                JOIN line_items li ON p.client_id = li.client_id AND p.product_id = li.product_id
+                WHERE v.client_id = :cid
                 GROUP BY v.vendor_id, v.vendor_name
                 ORDER BY total_revenue DESC NULLS LAST
                 LIMIT :limit OFFSET :offset

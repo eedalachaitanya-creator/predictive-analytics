@@ -161,16 +161,24 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
     start_time = datetime.now()
 
     try:
-        # ── Clear old output files before starting ────────────────────
+        # ── Clear old output + model files before starting ────────────
         # This prevents stale files from a previous client's run from
-        # being saved under the current client's ID in Stage 10.
+        # being saved under the current client's ID in Stage 10,
+        # and prevents old models from being evaluated against new data.
+        import shutil
         output_path = ML_DIR / "output"
         if output_path.is_dir():
-            import shutil
             for f in output_path.iterdir():
                 if f.is_file() and not f.name.startswith("."):
                     f.unlink()
             log.info("Cleared old output files from %s", output_path)
+
+        models_path = ML_DIR / "models"
+        if models_path.is_dir():
+            for f in models_path.iterdir():
+                if f.is_file() and f.suffix == ".joblib":
+                    f.unlink()
+            log.info("Cleared old model files from %s", models_path)
 
         # Stage 1: Validate DB connection
         _update_stage(job, 0, "running", "Checking database...")
@@ -202,11 +210,15 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         # Stage 4: Compute RFM features
         _update_stage(job, 3, "running", f"Computing RFM features for {client_id}...")
         ok, msg = _run_python_module("ml.compute_rfm", ["--db-url", _DB_URL, "--client-id", client_id])
+        if not ok:
+            ok, msg = _run_python_module("ml.compute_rfm", ["--db-url", _DB_URL, "--no-plots", "--client-id", client_id])
         _update_stage(job, 3, "done" if ok else "error", msg[:200])
 
         # Stage 5: Train ML models
         _update_stage(job, 4, "running", f"Training models for {client_id}...")
         ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id])
+        if not ok:
+            ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--no-plots", "--client-id", client_id])
         _update_stage(job, 4, "done" if ok else "error", msg[:200])
 
         # Stage 6: Evaluate models

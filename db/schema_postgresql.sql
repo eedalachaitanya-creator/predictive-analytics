@@ -28,86 +28,105 @@ CREATE TABLE IF NOT EXISTS client_config (
     created_at             TIMESTAMPTZ   DEFAULT NOW()
 );
 
--- 2. Categories
+-- 2. Categories (multi-tenant: each client has own categories)
 CREATE TABLE IF NOT EXISTS categories (
-    category_id   INT PRIMARY KEY,
-    category_name VARCHAR(100) NOT NULL
+    client_id     VARCHAR(20)  NOT NULL,
+    category_id   INT          NOT NULL,
+    category_name VARCHAR(100) NOT NULL,
+    PRIMARY KEY (client_id, category_id)
 );
+CREATE INDEX IF NOT EXISTS idx_categories_client ON categories(client_id);
 
--- 3. Sub-Categories
+-- 3. Sub-Categories (no FK to categories — upload order must not matter)
 CREATE TABLE IF NOT EXISTS sub_categories (
-    sub_category_id   INT PRIMARY KEY,
+    client_id         VARCHAR(20)  NOT NULL,
+    sub_category_id   INT          NOT NULL,
     sub_category_name VARCHAR(100) NOT NULL,
-    category_id       INT NOT NULL REFERENCES categories(category_id)
+    category_id       INT          NOT NULL,
+    PRIMARY KEY (client_id, sub_category_id)
 );
+CREATE INDEX IF NOT EXISTS idx_sub_categories_client ON sub_categories(client_id);
 
--- 4. Sub-Sub-Categories
+-- 4. Sub-Sub-Categories (no FKs — upload order must not matter)
 CREATE TABLE IF NOT EXISTS sub_sub_categories (
-    sub_sub_category_id   INT PRIMARY KEY,
+    client_id             VARCHAR(20)  NOT NULL,
+    sub_sub_category_id   INT          NOT NULL,
     sub_sub_category_name VARCHAR(150) NOT NULL,
-    sub_category_id       INT NOT NULL REFERENCES sub_categories(sub_category_id),
-    category_id           INT NOT NULL REFERENCES categories(category_id)
+    sub_category_id       INT          NOT NULL,
+    category_id           INT          NOT NULL,
+    PRIMARY KEY (client_id, sub_sub_category_id)
 );
+CREATE INDEX IF NOT EXISTS idx_sub_sub_categories_client ON sub_sub_categories(client_id);
 
 -- 5. Vendors
 CREATE TABLE IF NOT EXISTS vendors (
-    vendor_id          INT PRIMARY KEY,
+    client_id          VARCHAR(20)  NOT NULL,
+    vendor_id          INT          NOT NULL,
     vendor_name        VARCHAR(150) NOT NULL,
     vendor_description TEXT,
     vendor_contact_no  VARCHAR(30),
     vendor_address     TEXT,
-    vendor_email       VARCHAR(150)
+    vendor_email       VARCHAR(150),
+    PRIMARY KEY (client_id, vendor_id)
 );
+CREATE INDEX IF NOT EXISTS idx_vendors_client ON vendors(client_id);
 
 -- 6. Brands
 CREATE TABLE IF NOT EXISTS brands (
-    brand_id          INT PRIMARY KEY,
+    client_id         VARCHAR(20)  NOT NULL,
+    brand_id          INT          NOT NULL,
     brand_name        VARCHAR(100) NOT NULL,
     brand_description TEXT,
-    vendor_id         INT REFERENCES vendors(vendor_id),
+    vendor_id         INT,
     active            SMALLINT DEFAULT 1,
     not_available     SMALLINT DEFAULT 0,
-    category_hint     VARCHAR(100)
+    category_hint     VARCHAR(100),
+    PRIMARY KEY (client_id, brand_id)
 );
+CREATE INDEX IF NOT EXISTS idx_brands_client ON brands(client_id);
 
 -- 7. Products (product_price_id FK added after product_prices is created)
 CREATE TABLE IF NOT EXISTS products (
-    product_id          INT PRIMARY KEY,
+    client_id           VARCHAR(20)  NOT NULL,
+    product_id          INT          NOT NULL,
     sku                 VARCHAR(50)  NOT NULL,
     product_name        VARCHAR(200) NOT NULL,
-    category_id         INT REFERENCES categories(category_id),
-    sub_category_id     INT REFERENCES sub_categories(sub_category_id),
-    sub_sub_category_id INT REFERENCES sub_sub_categories(sub_sub_category_id),
-    brand_id            INT REFERENCES brands(brand_id),
+    category_id         INT,
+    sub_category_id     INT,
+    sub_sub_category_id INT,
+    brand_id            INT,
     product_price_id    INT,
     rating              NUMERIC(3,1),
     active              SMALLINT DEFAULT 1,
-    not_available       SMALLINT DEFAULT 0
+    not_available       SMALLINT DEFAULT 0,
+    PRIMARY KEY (client_id, product_id)
 );
+CREATE INDEX IF NOT EXISTS idx_products_client ON products(client_id);
 
 -- 8. Product Price Master
 CREATE TABLE IF NOT EXISTS product_prices (
-    price_id        INT PRIMARY KEY,
-    product_id      INT NOT NULL REFERENCES products(product_id),
+    client_id       VARCHAR(20)   NOT NULL,
+    price_id        INT           NOT NULL,
+    product_id      INT           NOT NULL,
     qty_range_label VARCHAR(50),
-    qty_min         INT NOT NULL,
+    qty_min         INT           NOT NULL,
     qty_max         INT,
-    unit_price_usd  NUMERIC(10,2) NOT NULL
+    unit_price_usd  NUMERIC(10,2) NOT NULL,
+    cost_price_usd  NUMERIC(10,2),          -- supplier cost; enables margin-safe discounts
+    PRIMARY KEY (client_id, price_id)
 );
-
--- Add deferred FK from products → product_prices (avoids circular load issue)
-ALTER TABLE products
-    ADD CONSTRAINT fk_products_price
-    FOREIGN KEY (product_price_id) REFERENCES product_prices(price_id)
-    DEFERRABLE INITIALLY DEFERRED;
+CREATE INDEX IF NOT EXISTS idx_product_prices_client ON product_prices(client_id);
 
 -- 9. Product-Vendor Mapping
 CREATE TABLE IF NOT EXISTS product_vendor_mapping (
-    pv_id       INT PRIMARY KEY,
-    product_id  INT NOT NULL REFERENCES products(product_id),
-    brand_id    INT REFERENCES brands(brand_id),
-    vendor_id   INT REFERENCES vendors(vendor_id)
+    client_id   VARCHAR(20) NOT NULL,
+    pv_id       INT         NOT NULL,
+    product_id  INT         NOT NULL,
+    brand_id    INT,
+    vendor_id   INT,
+    PRIMARY KEY (client_id, pv_id)
 );
+CREATE INDEX IF NOT EXISTS idx_pvm_client ON product_vendor_mapping(client_id);
 
 -- ============================================================
 -- SECTION 2: CUSTOMER & TRANSACTION TABLES
@@ -162,7 +181,7 @@ CREATE TABLE IF NOT EXISTS line_items (
     line_item_id           VARCHAR(30)   NOT NULL,
     order_id               VARCHAR(50)   NOT NULL,
     customer_id            VARCHAR(30)   NOT NULL,
-    product_id             INT           NOT NULL REFERENCES products(product_id),
+    product_id             INT           NOT NULL,
     quantity               INT           NOT NULL DEFAULT 1,
     unit_price_usd         NUMERIC(10,2),
     final_line_total_usd   NUMERIC(10,2),
@@ -311,7 +330,7 @@ CREATE TABLE IF NOT EXISTS customer_reviews (
     client_id    VARCHAR(20)   NOT NULL,
     review_id    VARCHAR(30)   NOT NULL,
     customer_id  VARCHAR(30)   NOT NULL,
-    product_id   INT           REFERENCES products(product_id),
+    product_id   INT,
     order_id     VARCHAR(50),
     rating       SMALLINT      CHECK (rating BETWEEN 1 AND 5),
     review_text  TEXT,

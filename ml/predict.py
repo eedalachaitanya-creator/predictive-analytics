@@ -455,82 +455,124 @@ def compute_churn_drivers(
     top_n: int = 3
 ) -> pd.DataFrame:
     """
-    Identify the top N churn drivers per customer.
+    Identify the top N churn drivers per customer using SHAP values.
 
-    For tree-based models (XGBoost, RandomForest), uses the global feature
-    importances weighted by each customer's feature values to determine
-    which features contributed most to their individual churn prediction.
+    SHAP = signed, per-customer contribution of each feature to the
+    predicted log-odds of churn. This replaces the previous logic
+    (|scaled_value| * global_importance), which had two bugs:
 
-    For each customer, the "contribution" of feature f is:
-        contribution_f = |feature_value_f| * global_importance_f
+      1. Used np.abs on feature values — so a PROTECTIVE signal (e.g.,
+         high rfm_frequency_score meaning the customer orders a lot)
+         got counted as a churn driver just because it had a large
+         absolute value. SHAP is signed, so protective features have
+         NEGATIVE SHAP and are filtered out here.
 
-    The top N features by contribution become driver_1, driver_2, driver_3.
+      2. Weighted every customer by the same global feature importance,
+         which meant high-importance features dominated the top-3 for
+         almost every customer. SHAP is computed per-row, so each
+         customer gets their own personalized contributions.
 
-    Feature names are cleaned up for readability:
-        'days_since_last_order' → 'Days Since Last Order'
-        'total_spend_usd'      → 'Total Spend USD'
+    We keep only features with POSITIVE SHAP (features that actually
+    pushed THIS customer toward churn) and rank them descending.
+
+    For XGBoost models, TreeSHAP is built-in (no extra library needed).
+    For other tree / linear models we fall back to the `shap` package
+    if it's installed.
 
     Args:
-        model: Trained classifier with feature_importances_ attribute
-        X_score: Feature matrix (customers × features)
+        model: Trained classifier (XGBoost, RandomForest, LogReg, ...)
+        X_score: Scaled feature matrix (customers × features)
         top_n: Number of top drivers to extract (default: 3)
 
     Returns:
-        DataFrame with columns: driver_1, driver_2, ..., driver_N
+        DataFrame with columns: driver_1, driver_2, ..., driver_N.
+        Entries are None when no feature pushed the customer toward churn.
     """
-    log.info("Computing per-customer churn drivers...")
+    log.info("Computing per-customer churn drivers (SHAP)...")
 
     feature_names = list(X_score.columns)
     n_customers = len(X_score)
 
-    # Get global feature importances from the model
-    if hasattr(model, 'feature_importances_'):
-        importances = model.feature_importances_
-    elif hasattr(model, 'coef_'):
-        # Logistic regression — use absolute coefficient values
-        importances = np.abs(model.coef_[0])
-    else:
-        log.warning("  Model has no feature_importances_ or coef_ — drivers will be empty")
+    # ── 1. Compute signed SHAP contributions (positive → pushes toward churn) ──
+    shap_values = None
+    try:
+        # Prefer XGBoost's built-in TreeSHAP — no extra dependency required.
+        try:
+            import xgboost as xgb
+        except ImportError:
+            xgb = None
+
+        if xgb is not None and isinstance(model, xgb.XGBClassifier):
+            booster = model.get_booster()
+            dmatrix = xgb.DMatrix(X_score.values, feature_names=feature_names)
+            # pred_contribs shape: (n_rows, n_features + 1); last column is bias
+            contribs = booster.predict(dmatrix, pred_contribs=True)
+            shap_values = contribs[:, :-1]
+        else:
+            # Fallback for RandomForest / GradientBoosting / LogReg: use `shap`.
+            import shap as _shap
+            if hasattr(model, 'feature_importances_'):
+                explainer = _shap.TreeExplainer(model)
+            elif hasattr(model, 'coef_'):
+                explainer = _shap.LinearExplainer(model, X_score)
+            else:
+                raise RuntimeError(
+                    "Unsupported model type for SHAP — needs tree_importances_ or coef_"
+                )
+            sv = explainer.shap_values(X_score)
+            # Binary classifiers in sklearn return a list [neg_class, pos_class]
+            shap_values = sv[1] if isinstance(sv, list) else sv
+    except Exception as e:
+        log.warning(
+            "  SHAP computation failed (%s) — drivers will be empty. "
+            "Install the 'shap' package for non-XGBoost models.", e
+        )
         return pd.DataFrame({
             f'driver_{i+1}': [None] * n_customers for i in range(top_n)
         })
-
-    # Normalize importances to [0, 1]
-    imp_max = importances.max()
-    if imp_max > 0:
-        importances_norm = importances / imp_max
-    else:
-        importances_norm = importances
-
-    # Compute per-customer contributions:
-    #   contribution = |scaled_feature_value| * global_importance
-    X_abs = np.abs(X_score.values)
-    contributions = X_abs * importances_norm[np.newaxis, :]
 
     def _clean_feature_name(name: str) -> str:
         """Convert snake_case feature name to readable label."""
         return name.replace('_', ' ').replace('usd', 'USD').replace('pct', '%').title()
 
-    # Extract top N drivers per customer
+    # ── 2. For each customer, keep only features that pushed TOWARD churn ──
     driver_cols = {f'driver_{i+1}': [] for i in range(top_n)}
 
     for row_idx in range(n_customers):
-        row_contributions = contributions[row_idx]
-        top_indices = np.argsort(row_contributions)[::-1][:top_n]
+        row_shap = shap_values[row_idx]
+
+        # Zero out protective features (negative SHAP) so they are never
+        # ranked. This fixes the "high RFM frequency shown as a driver" bug.
+        churn_push = np.where(row_shap > 0, row_shap, 0.0)
+
+        top_indices = np.argsort(churn_push)[::-1][:top_n]
 
         for rank, feat_idx in enumerate(top_indices):
             col_key = f'driver_{rank + 1}'
-            driver_cols[col_key].append(_clean_feature_name(feature_names[feat_idx]))
+            if churn_push[feat_idx] <= 0:
+                # No more features actually push toward churn for this customer
+                driver_cols[col_key].append(None)
+            else:
+                driver_cols[col_key].append(_clean_feature_name(feature_names[feat_idx]))
 
     drivers_df = pd.DataFrame(driver_cols)
-    log.info("  Extracted top %d drivers for %d customers", top_n, n_customers)
+    log.info("  Extracted top %d drivers (SHAP-based) for %d customers",
+             top_n, n_customers)
 
-    # Log the most common top driver across all customers
+    # Log driver-1 distribution — should vary across customers now,
+    # not collapse to the same 1-2 global features.
     if len(drivers_df) > 0:
-        top_driver_counts = drivers_df['driver_1'].value_counts().head(5)
-        log.info("  Most common #1 driver:")
-        for name, count in top_driver_counts.items():
-            log.info("    %s — %d customers (%.0f%%)", name, count, 100 * count / n_customers)
+        non_null = drivers_df['driver_1'].dropna()
+        if len(non_null) > 0:
+            top_driver_counts = non_null.value_counts().head(5)
+            log.info("  Most common #1 driver:")
+            for name, count in top_driver_counts.items():
+                log.info("    %s — %d customers (%.0f%%)",
+                         name, count, 100 * count / n_customers)
+        n_no_driver = int(drivers_df['driver_1'].isna().sum())
+        if n_no_driver > 0:
+            log.info("  %d customers have NO positive-SHAP churn drivers "
+                     "(low-risk profiles)", n_no_driver)
 
     return drivers_df
 
@@ -634,8 +676,9 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
         churn_probability, risk_tier, churn_label_simulated,
         model_version, batch_run_id
 
-    We map our DataFrame columns to match this schema, then TRUNCATE
-    (not DROP) to preserve the FK from retention_interventions.
+    We map our DataFrame columns to match this schema, then clear
+    only the client(s) in this batch (NOT TRUNCATE) to preserve both
+    the FK from retention_interventions AND other clients' scores.
     """
     log.info("Saving scores to database...")
     from sqlalchemy import create_engine, text, inspect
@@ -645,9 +688,25 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
     inspector = inspect(engine)
 
     if 'churn_scores' in inspector.get_table_names():
-        # Table exists with teammate's schema — truncate and insert matching rows
+        # Table exists with teammate's schema — clear only this run's
+        # clients, then insert matching rows.
+        #
+        # WHY per-client DELETE instead of TRUNCATE:
+        #   The schema is multi-tenant. TRUNCATE wipes every client's
+        #   scores, so scoring CLT-001 alone would wipe CLT-002's predictions.
+        #   We restrict the delete to clients present in the current batch.
+        clients_in_batch = score_df['client_id'].dropna().unique().tolist()
+        log.info("  Clearing existing churn_scores for %d client(s): %s",
+                 len(clients_in_batch), clients_in_batch)
+
         with engine.connect() as conn:
-            conn.execute(text("TRUNCATE TABLE churn_scores CASCADE"))
+            if clients_in_batch:
+                conn.execute(
+                    text("DELETE FROM churn_scores WHERE client_id = ANY(:cids)"),
+                    {"cids": clients_in_batch},
+                )
+            else:
+                log.warning("  No client_id values in score_df — skipping delete")
             conn.commit()
 
         # Map our columns to the teammate's schema

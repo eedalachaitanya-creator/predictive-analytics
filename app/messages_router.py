@@ -351,7 +351,7 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
             SELECT li.customer_id, p.product_name,
                    SUM(li.quantity) AS qty
             FROM line_items li
-            JOIN products p ON li.product_id = p.product_id
+            JOIN products p ON li.client_id = p.client_id AND li.product_id = p.product_id
             WHERE li.client_id = :cid
             GROUP BY li.customer_id, p.product_name
             ORDER BY li.customer_id, qty DESC
@@ -364,9 +364,41 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
     except Exception as e:
         log.warning("Could not fetch top products: %s", e)
 
+    # ── Step 3b: Compute max safe discount per customer ──
+    #    max_safe_discount = avg margin % across their purchased products
+    #    This prevents offering discounts that push the price below cost.
+    #    Example: product costs $7, sells for $10 → margin = 30%
+    #             → max safe discount = 30% (any more and client loses money)
+    customer_max_discount: dict = {}
+    try:
+        margin_rows = db.execute(text("""
+            SELECT li.customer_id,
+                   ROUND(AVG(
+                       CASE WHEN pp.unit_price_usd > 0 AND pp.cost_price_usd IS NOT NULL
+                            THEN ((pp.unit_price_usd - pp.cost_price_usd) / pp.unit_price_usd) * 100
+                            ELSE NULL
+                       END
+                   ), 1) AS avg_margin_pct
+            FROM line_items li
+            JOIN products p ON li.client_id = p.client_id AND li.product_id = p.product_id
+            JOIN product_prices pp ON p.client_id = pp.client_id AND p.product_price_id = pp.price_id
+            WHERE li.client_id = :cid
+              AND pp.cost_price_usd IS NOT NULL
+            GROUP BY li.customer_id
+        """), {"cid": client_id}).fetchall()
+        for r in margin_rows:
+            if r.avg_margin_pct is not None:
+                customer_max_discount[r.customer_id] = float(r.avg_margin_pct)
+        log.info("Loaded margin data for %d customers (avg margin: %.1f%%)",
+                 len(customer_max_discount),
+                 sum(customer_max_discount.values()) / max(len(customer_max_discount), 1))
+    except Exception as e:
+        log.warning("Could not compute margins (cost_price_usd may not exist yet): %s", e)
+
     # ── Step 4: Generate drafts ──
     drafts = []
     outreach_records = []
+    margin_capped_count = 0
 
     for row in rows:
         # Map DB risk_tier to template risk_level
@@ -386,13 +418,27 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
         if not tpl.get("active", True):
             continue
 
+        # ── Margin safety check ──
+        # Cap the template discount so the client never sells below cost.
+        # We keep a 2% buffer so the client still makes *some* profit.
+        template_discount = float(tpl["discount_pct"])
+        max_margin = customer_max_discount.get(row.customer_id)
+        safe_discount = template_discount
+
+        if max_margin is not None and max_margin > 0:
+            # Leave 2% margin buffer so client still profits
+            max_safe = max(max_margin - 2.0, 0)
+            if template_discount > max_safe:
+                safe_discount = round(max_safe, 1)
+                margin_capped_count += 1
+
         # Build customer data dict for placeholder filling
         customer_data = {
             "customer_name":         row.customer_name or "Valued Customer",
             "customer_tier":         row.customer_tier or "Bronze",
             "days_since_last_order": row.days_since_last_order or 0,
             "last_order_date":       str(row.last_order_date or ""),
-            "discount_pct":          tpl["discount_pct"],
+            "discount_pct":          safe_discount,
             "top_product":           top_products.get(row.customer_id, "your favourites"),
             "recommended_product":   "our top picks",
             "support_email":         "support@store.com",
@@ -412,7 +458,7 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
             totalSpend=float(row.total_spend or 0),
             subject=filled_subject,
             body=filled_body,
-            discountPct=float(tpl["discount_pct"]),
+            discountPct=safe_discount,
             channel=tpl["channel"],
         )
         drafts.append(draft)
@@ -427,8 +473,12 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
                 "msg":      filled_body,
                 "channel":  tpl["channel"],
                 "days":     int(row.days_since_last_order or 0),
-                "disc":     float(tpl["discount_pct"]),
+                "disc":     safe_discount,
             })
+
+    if margin_capped_count > 0:
+        log.info("Margin safety: capped discount for %d/%d customers to protect client profit",
+                 margin_capped_count, len(drafts))
 
     # ── Step 5: Save to outreach_messages if requested ──
     if req.saveToDb and outreach_records:
@@ -449,11 +499,13 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
             db.rollback()
 
     log.info("Generated %d outreach drafts", len(drafts))
+    margin_msg = f" ({margin_capped_count} capped by margin)" if margin_capped_count > 0 else ""
     return {
         "success": True,
-        "message": f"Generated {len(drafts)} outreach emails",
+        "message": f"Generated {len(drafts)} outreach emails{margin_msg}",
         "drafts": [d.model_dump() for d in drafts],
         "total": len(drafts),
+        "marginCapped": margin_capped_count,
     }
 
 

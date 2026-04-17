@@ -21,6 +21,7 @@ Requirements:
 
 import os
 import logging
+from contextvars import ContextVar
 from typing import Optional
 from pathlib import Path
 
@@ -45,6 +46,32 @@ DB_URL = os.getenv("DATABASE_URL", os.getenv("DB_URL", ""))
 
 # ── Model cache (loaded once, reused) ──
 _model_cache = {}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MULTI-TENANT CONTEXT
+# ═══════════════════════════════════════════════════════════════════════════
+# Holds the authenticated client_id for the current request. Set by the
+# chat router (via graph.ask_agent) before the LangGraph invocation, read by
+# every tool. This is the ONLY source of tenant identity — the LLM cannot
+# override it, so a Costco-logged-in user cannot ever see Walmart rows.
+# ContextVar is async/thread-safe and isolated per request.
+# ═══════════════════════════════════════════════════════════════════════════
+
+current_client_id: ContextVar[str | None] = ContextVar("current_client_id", default=None)
+
+
+def _get_client_id() -> str:
+    """Return the client_id for the currently authenticated request.
+
+    Raises if no client_id was set — better to fail loudly than leak data.
+    """
+    cid = current_client_id.get()
+    if not cid:
+        raise RuntimeError(
+            "No client_id in context — tool called outside an authenticated "
+            "request. Refusing to query without tenant scoping."
+        )
+    return cid
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -113,21 +140,19 @@ def _load_model_bundle():
 
 @tool
 def query_database(sql_query: str) -> str:
-    """
-    Run a read-only SQL query against the PostgreSQL database.
-    Use this to explore customer data, orders, reviews, tickets, and features.
+    """Run a read-only PostgreSQL SELECT query.
 
-    IMPORTANT RULES:
-    - Only SELECT queries are allowed (no INSERT, UPDATE, DELETE, DROP, etc.)
-    - Always LIMIT results to 50 rows max unless the user asks for more
-    - Key tables: mv_customer_features, customers, orders, line_items,
-      customer_reviews, support_tickets, churn_scores
+    Rules:
+    - SELECT only. No INSERT/UPDATE/DELETE/DROP.
+    - Always add LIMIT 50 unless the user asks for more.
+    - Multi-tenant: every query MUST filter by the current client using the
+      bind parameter :client_id in a WHERE clause. The backend binds it to
+      the authenticated tenant. Never hard-code a client id.
+    - Example: SELECT COUNT(*) FROM churn_scores
+      WHERE client_id = :client_id AND risk_tier = 'HIGH'
 
-    Args:
-        sql_query: A valid PostgreSQL SELECT query
-
-    Returns:
-        Query results as a formatted string (or error message)
+    Key tables: churn_scores, customers, orders, customer_reviews,
+    support_tickets, mv_customer_features.
     """
     # Safety: block write operations
     normalized = sql_query.strip().upper()
@@ -137,8 +162,25 @@ def query_database(sql_query: str) -> str:
         if normalized.startswith(keyword):
             return f"ERROR: {keyword} queries are not allowed. Only SELECT queries are permitted."
 
+    # Multi-tenant enforcement: the query must reference :client_id. We use
+    # a SQL-native bind param (no quotes around it in the query text) because
+    # the previous approach of embedding a placeholder in a quoted string
+    # caused Llama to over-escape the single quotes and produce invalid JSON
+    # in its tool call, which Groq's validator rejected.
+    if ":client_id" not in sql_query:
+        return (
+            "ERROR: every SQL query must include the bind parameter :client_id "
+            "in a WHERE clause so results are scoped to the current tenant. "
+            "Example: SELECT COUNT(*) FROM churn_scores "
+            "WHERE client_id = :client_id AND risk_tier = 'HIGH' LIMIT 50"
+        )
+
     try:
-        df = _run_query(sql_query)
+        cid = _get_client_id()
+        # SQLAlchemy binds :client_id to the authenticated tenant. No string
+        # substitution, no escaping, no quoting — the LLM cannot pick a
+        # different tenant id.
+        df = _run_query(sql_query, {"client_id": cid})
 
         if df.empty:
             return "Query returned 0 rows."
@@ -191,12 +233,17 @@ def predict_churn(customer_ids: str) -> str:
         # Parse customer IDs
         ids = [cid.strip() for cid in customer_ids.split(',')]
 
-        # Fetch features from database (parameterized)
+        # Multi-tenant scoping
+        tenant = _get_client_id()
+
+        # Fetch features from database (parameterized, scoped to tenant)
         placeholders = ', '.join([f":id_{i}" for i in range(len(ids))])
         params = {f"id_{i}": cid for i, cid in enumerate(ids)}
+        params["cid"] = tenant
         sql = f"""
             SELECT * FROM mv_customer_features
-            WHERE customer_id IN ({placeholders})
+            WHERE client_id = :cid
+              AND customer_id IN ({placeholders})
         """
         df = _run_query(sql, params)
 
@@ -274,17 +321,21 @@ def get_customer_profile(customer_id: str) -> str:
     """
     try:
         cid = customer_id.strip()
-        params = {"cid": cid}
+        tenant = _get_client_id()
+        # Every query is scoped by (client_id, customer_id) — even if two
+        # tenants happen to share a customer_id, the tenant filter keeps them
+        # apart. `tid` = tenant id, `cid` = customer id.
+        params = {"cid": cid, "tid": tenant}
 
         # 1. Customer features from materialized view
         features_sql = """
             SELECT * FROM mv_customer_features
-            WHERE customer_id = :cid
+            WHERE client_id = :tid AND customer_id = :cid
         """
         df_feat = _run_query(features_sql, params)
 
         if df_feat.empty:
-            return f"Customer '{cid}' not found in mv_customer_features."
+            return f"Customer '{cid}' not found for this tenant."
 
         row = df_feat.iloc[0]
 
@@ -293,7 +344,7 @@ def get_customer_profile(customer_id: str) -> str:
             SELECT order_id, order_date, order_value_usd, discount_usd,
                    order_status, payment_method
             FROM orders
-            WHERE customer_id = :cid
+            WHERE client_id = :tid AND customer_id = :cid
             ORDER BY order_date DESC
             LIMIT 5
         """
@@ -304,7 +355,7 @@ def get_customer_profile(customer_id: str) -> str:
             SELECT review_id, rating, sentiment, review_date,
                    SUBSTRING(review_text, 1, 80) AS review_snippet
             FROM customer_reviews
-            WHERE customer_id = :cid
+            WHERE client_id = :tid AND customer_id = :cid
             ORDER BY review_date DESC
             LIMIT 3
         """
@@ -314,7 +365,8 @@ def get_customer_profile(customer_id: str) -> str:
         tickets_sql = """
             SELECT ticket_id, ticket_type, priority, status, opened_date
             FROM support_tickets
-            WHERE customer_id = :cid AND LOWER(status) != 'resolved'
+            WHERE client_id = :tid AND customer_id = :cid
+              AND LOWER(status) != 'resolved'
             ORDER BY opened_date DESC
             LIMIT 5
         """
@@ -406,7 +458,11 @@ def get_risk_summary() -> str:
         Formatted risk summary with distribution and statistics
     """
     try:
-        # Try database first
+        tenant = _get_client_id()
+
+        # Try database first — scoped to this tenant and their own latest run.
+        # NOTE: MAX(scored_at) is also scoped by client_id — otherwise one
+        # tenant's newer run would hide another tenant's most recent scores.
         try:
             sql = """
                 SELECT
@@ -418,14 +474,17 @@ def get_risk_summary() -> str:
                     COUNT(CASE WHEN risk_tier = 'MEDIUM' THEN 1 END) AS medium_risk,
                     COUNT(CASE WHEN risk_tier = 'LOW' THEN 1 END) AS low_risk
                 FROM churn_scores
-                WHERE scored_at = (SELECT MAX(scored_at) FROM churn_scores)
+                WHERE client_id = :cid
+                  AND scored_at = (
+                      SELECT MAX(scored_at) FROM churn_scores WHERE client_id = :cid
+                  )
             """
-            df = _run_query(sql)
+            df = _run_query(sql, {"cid": tenant})
             if not df.empty and df.iloc[0]['total_customers'] > 0:
                 r = df.iloc[0]
                 total = int(r['total_customers'])
                 return (
-                    f"CHURN RISK SUMMARY (from database):\n\n"
+                    f"CHURN RISK SUMMARY for {tenant} (from database):\n\n"
                     f"  Total Scored Customers: {total}\n"
                     f"  Avg Churn Probability:  {r['avg_prob']}\n"
                     f"  Min / Max:              {r['min_prob']} / {r['max_prob']}\n\n"
@@ -437,18 +496,22 @@ def get_risk_summary() -> str:
         except Exception:
             pass
 
-        # Fallback: read from CSV
+        # Fallback: read from CSV and filter to this tenant only.
         csv_path = OUTPUT_DIR / "churn_scores.csv"
         if csv_path.exists():
             df = pd.read_csv(csv_path)
+            if 'client_id' in df.columns:
+                df = df[df['client_id'] == tenant]
             total = len(df)
+            if total == 0:
+                return f"No churn scores found for tenant {tenant}. Run the pipeline first."
             high = (df['risk_level'] == 'HIGH').sum()
             medium = (df['risk_level'] == 'MEDIUM').sum()
             low = (df['risk_level'] == 'LOW').sum()
             avg_prob = df['churn_probability'].mean()
 
             return (
-                f"CHURN RISK SUMMARY (from CSV scores):\n\n"
+                f"CHURN RISK SUMMARY for {tenant} (from CSV scores):\n\n"
                 f"  Total Scored Customers: {total}\n"
                 f"  Avg Churn Probability:  {avg_prob:.4f}\n"
                 f"  Min / Max:              {df['churn_probability'].min():.4f} / {df['churn_probability'].max():.4f}\n\n"
@@ -458,7 +521,7 @@ def get_risk_summary() -> str:
                 f"    LOW:    {low:>4d}  ({100*low/total:.1f}%)\n"
             )
 
-        return "No churn scores found. Run predict.py first."
+        return f"No churn scores found for tenant {tenant}. Run the pipeline first."
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -534,10 +597,18 @@ def search_at_risk_customers(
         List of at-risk customers matching the criteria
     """
     try:
+        tenant = _get_client_id()
+
         # Try reading from CSV first (always available after CLI scoring)
         csv_path = OUTPUT_DIR / "churn_scores.csv"
         if csv_path.exists():
             df = pd.read_csv(csv_path)
+
+            # FIRST: restrict to this tenant. The CSV holds rows for every
+            # client that ran the pipeline, so without this filter we'd
+            # return the other tenants' at-risk customers too.
+            if 'client_id' in df.columns:
+                df = df[df['client_id'] == tenant]
 
             # Apply filters
             mask = df['risk_level'] == risk_level.upper()
@@ -552,10 +623,13 @@ def search_at_risk_customers(
             filtered = filtered.head(limit)
 
             if filtered.empty:
-                return f"No customers found matching: risk={risk_level}, tier={tier}, min_spend={min_spend}"
+                return (
+                    f"No customers found for tenant {tenant} matching: "
+                    f"risk={risk_level}, tier={tier}, min_spend={min_spend}"
+                )
 
             # Format results
-            lines = [f"AT-RISK CUSTOMERS ({risk_level}, {len(filtered)} found):\n"]
+            lines = [f"AT-RISK CUSTOMERS for {tenant} ({risk_level}, {len(filtered)} found):\n"]
 
             display_cols = ['customer_id', 'churn_probability', 'risk_level']
             if 'customer_tier' in filtered.columns:

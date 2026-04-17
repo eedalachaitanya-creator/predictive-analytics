@@ -6,6 +6,98 @@
     </div>
   </div>
 
+  <!-- ── Last Commit Result banner ──────────────────────────────
+       Shown after a successful commit. Lists per-master-type row counts
+       returned by the backend so the user sees exactly what landed in
+       the real tables. Also reports whether mv_customer_features was
+       refreshed. Dismiss via the × button or by starting a new upload.
+  -->
+  @if (uploadSvc.lastCommitResult(); as result) {
+    <div class="card mb-20" style="border:1px solid var(--accent-green, #10b981); background:rgba(16,185,129,0.06)">
+      <div class="card-header">
+        <div>
+          <div class="card-title" style="color:var(--accent-green, #10b981)">
+            ✅ Commit succeeded
+          </div>
+          <div class="card-subtitle">
+            Batch <code style="font-size:11px">{{ result.batchId }}</code> ·
+            Materialized view {{ result.mvRefreshed ? 'refreshed' : 'not refreshed' }}
+            @if (result.mvRefreshWarning) {
+              · <span style="color:var(--accent-red)">MV warning: {{ result.mvRefreshWarning }}</span>
+            }
+          </div>
+        </div>
+        <button class="btn outline sm" (click)="uploadSvc.dismissCommitResult()">✕ Dismiss</button>
+      </div>
+      <div style="padding:16px 20px">
+        <div class="grid-3" style="gap:8px">
+          @for (entry of commitResultEntries(); track entry.key) {
+            <div class="stat-mini" style="display:flex;justify-content:space-between">
+              <span>{{ entry.key }}</span>
+              <strong>{{ entry.value | number }}</strong>
+            </div>
+          }
+        </div>
+        <div class="text-muted" style="font-size:11px;margin-top:10px">
+          Values include both fresh inserts and UPSERTed catalog updates. Fact tables
+          (orders, line_items, reviews, tickets) skip duplicates so their count reflects
+          only newly-inserted rows.
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ── Review & Commit panel ─────────────────────────────────
+       Shown only when the backend reports a pending batch (at least
+       one file staged). Files live in staging_* tables until the
+       user clicks Commit — which runs FK validation and moves them
+       into the real tables, then refreshes mv_customer_features.
+  -->
+  @if (uploadSvc.pendingBatch(); as batch) {
+    <div class="card mb-20" style="border:1px solid var(--accent-orange, #f59e0b); background:rgba(245,158,11,0.05)">
+      <div class="card-header">
+        <div>
+          <div class="card-title">📋 Pending Batch — Review &amp; Commit</div>
+          <div class="card-subtitle">
+            {{ batch.files.length }} file(s) staged · {{ batch.totalRows | number }} total rows ·
+            Batch <code style="font-size:11px">{{ batch.batchId }}</code>
+          </div>
+        </div>
+        <div class="flex-row" style="gap:8px">
+          <button class="btn outline sm"
+                  [disabled]="uploadSvc.discarding() || uploadSvc.committing()"
+                  (click)="discardBatch()">
+            {{ uploadSvc.discarding() ? 'Discarding…' : '✕ Discard' }}
+          </button>
+          <button class="btn primary sm"
+                  [disabled]="uploadSvc.committing() || uploadSvc.discarding() || batch.files.length === 0"
+                  (click)="commitBatch()">
+            {{ uploadSvc.committing() ? 'Committing…' : '✓ Commit to Database' }}
+          </button>
+        </div>
+      </div>
+      <div style="padding:16px 20px">
+        <div class="grid-3" style="gap:8px">
+          @for (f of batch.files; track f.masterType) {
+            <div class="stat-mini" style="display:flex;justify-content:space-between">
+              <span>{{ f.masterType }}</span>
+              <strong>{{ f.rowCount | number }}</strong>
+            </div>
+          }
+        </div>
+        @if (uploadSvc.lastCommitError(); as err) {
+          <div class="notice" style="margin-top:12px;background:rgba(239,68,68,0.08);border-color:var(--accent-red)">
+            ❌ Commit failed: {{ err }}
+          </div>
+        }
+        <div class="text-muted" style="font-size:11px;margin-top:10px">
+          Commit runs FK validation across all staged files then inserts them into the real tables in a single
+          transaction. Materialized view <code>mv_customer_features</code> is refreshed on success.
+        </div>
+      </div>
+    </div>
+  }
+
   @for (grp of masters; track grp.group) {
     <div class="card mb-20">
       <div class="card-header">

@@ -52,8 +52,32 @@ export class ApiService {
   }
 
   private handleError(err: HttpErrorResponse): Observable<never> {
-    const msg = err.error?.message ?? err.message ?? 'Unknown error';
-    console.error('[API]', err.status, msg);
+    // FastAPI raises HTTPException as {"detail": "..."} — try that first.
+    // For validation errors the detail may itself be a list/dict; stringify it.
+    // Legacy endpoints might use {"message": "..."}, so fall back to that,
+    // then Angular's generic err.message, then a static string.
+    const body = err.error;
+    let msg: string;
+    if (body && typeof body === 'object') {
+      const detail = (body as any).detail;
+      if (typeof detail === 'string') {
+        msg = detail;
+      } else if (detail && typeof detail === 'object') {
+        // e.g. FK violation: { message: "...", violations: [...] }
+        msg = detail.message
+          ? `${detail.message} ${JSON.stringify(detail.violations ?? detail)}`
+          : JSON.stringify(detail);
+      } else if (typeof (body as any).message === 'string') {
+        msg = (body as any).message;
+      } else {
+        msg = err.message ?? 'Unknown error';
+      }
+    } else if (typeof body === 'string' && body.length > 0) {
+      msg = body;
+    } else {
+      msg = err.message ?? 'Unknown error';
+    }
+    console.error('[API]', err.status, msg, body);
     return throwError(() => ({ status: err.status, message: msg }));
   }
 }

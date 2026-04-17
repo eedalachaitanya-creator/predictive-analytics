@@ -139,6 +139,7 @@ export interface ProductPrice {
   qty_min: number;
   qty_max: number;
   unit_price_usd: number;
+  cost_price_usd: number | null; // supplier cost — enables margin-safe discounts
 }
 
 
@@ -306,6 +307,45 @@ export interface UploadResponse {
   rowCount: number;
   columns: string[];
   uploadedAt: string;
+}
+
+
+// ── Upload Batch Lifecycle ───────────────────────────────────
+// Multi-tenant staging flow: files land in staging_* tables tied to
+// a pending batch, then user commits (moves to real tables) or discards.
+
+export type BatchStatus = 'pending' | 'committed' | 'discarded';
+
+export interface BatchFileSummary {
+  masterType: MasterType;
+  rowCount: number;
+}
+
+export interface PendingBatch {
+  batchId: string;
+  createdAt: string | null;
+  status: BatchStatus;
+  totalRows: number;
+  files: BatchFileSummary[];
+}
+
+export interface BatchInfoResponse {
+  pendingBatch: PendingBatch | null;
+}
+
+export interface CommitResponse {
+  committed: true;
+  batchId: string;
+  rowsCommitted: Record<string, number>;
+  mvRefreshed: boolean;
+  mvRefreshWarning?: string;
+}
+
+export interface DiscardResponse {
+  discarded: boolean;
+  batchId?: string;
+  rowsDeleted?: number;
+  reason?: string;
 }
 
 

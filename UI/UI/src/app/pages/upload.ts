@@ -70,6 +70,37 @@ export class UploadComponent implements OnInit {
   ngOnInit() {
     // Load any previously uploaded files for this session
     this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
+    // Check if this client already has a pending batch waiting to commit
+    this.refreshBatch();
+  }
+
+  /** Re-fetch pending batch info from the backend. Called after uploads,
+   *  commits, or discards so the Review panel stays in sync. */
+  refreshBatch() {
+    this.uploadSvc.getBatchInfo(this.clientId).subscribe({ error: () => {} });
+  }
+
+  /** Commit the pending batch. On success reload the upload list so the
+   *  UI reflects the now-empty staging area. */
+  commitBatch() {
+    this.uploadSvc.commit(this.clientId).subscribe({
+      next: () => {
+        // After commit, staging is empty — reload to confirm and refresh batch info
+        this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
+      },
+      error: (err) => console.error('Commit failed:', err.message ?? err),
+    });
+  }
+
+  /** Discard the pending batch. Confirm first to avoid accidental data loss. */
+  discardBatch() {
+    if (!confirm('Discard all staged files? This cannot be undone.')) return;
+    this.uploadSvc.discard(this.clientId).subscribe({
+      next: () => {
+        this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
+      },
+      error: (err) => console.error('Discard failed:', err.message ?? err),
+    });
   }
 
   onFileSelected(event: Event, key: MasterType) {
@@ -90,13 +121,28 @@ export class UploadComponent implements OnInit {
   onDragOver(event: DragEvent) { event.preventDefault(); }
 
   private doUpload(key: MasterType, file: File) {
+    // Starting a fresh upload — hide any stale "committed" success banner
+    this.uploadSvc.dismissCommitResult();
     this.uploadSvc.upload(this.clientId, key, file).subscribe({
+      next: () => this.refreshBatch(),  // refresh batch panel so new file shows up
       error: (err) => console.error('Upload failed:', err.message)
     });
   }
 
+  /** Template helper: convert the backend's rowsCommitted dict into a list
+   *  of { key, value } pairs the @for block can iterate. Angular templates
+   *  can't iterate objects directly, so the conversion lives here. */
+  commitResultEntries(): { key: string; value: number }[] {
+    const res = this.uploadSvc.lastCommitResult();
+    if (!res?.rowsCommitted) return [];
+    return Object.entries(res.rowsCommitted).map(([key, value]) => ({ key, value }));
+  }
+
   remove(key: MasterType) {
-    this.uploadSvc.removeUpload(this.clientId, key).subscribe({ error: () => {} });
+    this.uploadSvc.removeUpload(this.clientId, key).subscribe({
+      next: () => this.refreshBatch(),  // batch totals need to shrink after a remove
+      error: () => {},
+    });
   }
 
   getInfo(key: MasterType) { return this.uploadSvc.getUpload(key); }

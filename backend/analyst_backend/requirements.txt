@@ -37,6 +37,7 @@ joblib==1.4.2
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 vaderSentiment==3.3.2
 
-# ── LLM (Groq for outreach email generation) ─────────────────────────────────
-langchain-groq==0.1.6
-langchain-core==0.2.10
+# ── LLM + Agent (Groq for outreach emails, LangGraph for Agent Chat) ─────────
+langchain-groq==1.1.2
+langchain-core==1.2.28
+langgraph>=0.2.0

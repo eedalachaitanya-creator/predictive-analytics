@@ -1,0 +1,26 @@
+<div class="page-anim retention-page">
+  <div class="agent-header">
+    <div>
+      <h1 class="agent-title">Retention Agent</h1>
+      <p class="agent-subtitle">Automated personalised offers for at-risk customers — powered by churn scores and value propositions</p>
+    </div>
+  </div>
+
+  <div class="pill-tabs agent-tabs">
+    @for (tab of tabs; track tab.id) {
+      <div class="pt" [class.active]="activeTab() === tab.id" (click)="setTab(tab.id)">
+        <span class="tab-icon">{{ tab.icon }}</span>
+        {{ tab.label }}
+      </div>
+    }
+  </div>
+
+  <div class="tab-content">
+    @switch (activeTab()) {
+      @case ('run')           { <retention-run /> }
+      @case ('interventions') { <retention-interventions /> }
+      @case ('escalations')   { <retention-escalations /> }
+      @case ('summary')       { <retention-summary /> }
+    }
+  </div>
+</div>

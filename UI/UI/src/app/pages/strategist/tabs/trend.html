@@ -1,0 +1,57 @@
+<div class="trend-layout">
+  <div class="trend-main">
+    <div class="search-row">
+      <input class="form-input" placeholder="Search a product to check its market trend..."
+        [value]="query()" (input)="query.set($any($event.target).value)"
+        (keyup.enter)="lookup()" />
+      <button class="btn primary" [disabled]="loading()" (click)="lookup()">
+        @if (loading()) { Checking... } @else { Check Trend }
+      </button>
+    </div>
+
+    @if (error()) { <div class="error-bar">{{ error() }}</div> }
+
+    @if (result()) {
+      <div class="trend-result" [class]="trendColor(result()!.trend)">
+        <div class="trend-icon-big">{{ trendIcon(result()!.trend) }}</div>
+        <div class="trend-info">
+          <div class="trend-product">{{ result()!.product_name }}</div>
+          <div class="trend-label">{{ result()!.trend | uppercase }}</div>
+          <div class="trend-desc">{{ trendDesc(result()!.trend) }}</div>
+        </div>
+      </div>
+    }
+
+    @if (!result() && !loading() && !error()) {
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div>Search a product or select one below</div>
+      </div>
+    }
+
+    @if (products().length > 0) {
+      <div class="samples-section">
+        <div class="samples-title">Your products</div>
+        <div class="samples-grid">
+          @for (p of products(); track p) {
+            <button class="sample-chip" (click)="lookup(p)">{{ p }}</button>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <div class="trend-history">
+    <div class="history-title">Recent lookups</div>
+    @if (history().length === 0) {
+      <div class="history-empty">No lookups yet</div>
+    }
+    @for (item of history(); track item.product_name) {
+      <div class="history-row" (click)="lookup(item.product_name)">
+        <span class="h-icon">{{ trendIcon(item.trend) }}</span>
+        <span class="h-name">{{ item.product_name }}</span>
+        <span class="badge sm" [class]="trendColor(item.trend)">{{ item.trend }}</span>
+      </div>
+    }
+  </div>
+</div>

@@ -29,7 +29,9 @@ export const routes: Routes = [
       { path: 'churn-scores', loadComponent: () => import('./pages/churn-scores').then(m => m.ChurnScoresComponent), canActivate: [clientGuard] },
       { path: 'chat',       loadComponent: () => import('./pages/chat').then(m => m.ChatComponent),             canActivate: [clientGuard] },
       { path: 'messages',   loadComponent: () => import('./pages/messages').then(m => m.MessagesComponent),     canActivate: [clientGuard] },
-       { path: 'scout', loadComponent: () => import('./pages/scout/scout').then(m => m.ScoutComponent) },
+       { path: 'scout',      loadComponent: () => import('./pages/scout/scout').then(m => m.ScoutComponent) },
+      { path: 'strategist', loadComponent: () => import('./pages/strategist/strategist').then(m => m.StrategistComponent) },
+      { path: 'retention',  loadComponent: () => import('./pages/retention/retention').then(m => m.RetentionComponent) },
       // ── Admin Console (blocked for clients) ──────────────────
       { path: 'clients',   loadComponent: () => import('./pages/clients').then(m => m.ClientsComponent),   canActivate: [adminGuard] },
       { path: 'users',     loadComponent: () => import('./pages/users').then(m => m.UsersComponent),       canActivate: [adminGuard] },

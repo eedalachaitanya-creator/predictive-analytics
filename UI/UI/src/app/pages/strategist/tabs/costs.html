@@ -1,0 +1,66 @@
+<div class="costs-wrap">
+
+  @if (loadingData()) {
+    <div class="loading-state">
+      <span>⏳</span>
+      <span>Loading products...</span>
+    </div>
+  }
+
+  @if (!loadingData()) {
+    <div class="costs-card">
+
+      <div class="costs-head">
+        <div class="costs-title">Product Cost Prices</div>
+        <div class="costs-sub">Enter your cost price for each product. Saved prices are used automatically by the pricing engine.</div>
+      </div>
+
+      <div class="costs-table">
+        <div class="table-header">
+          <span>Product</span>
+          <span>Cost Price (₹)</span>
+          <span>Status</span>
+        </div>
+
+        @if (rows().length === 0 || (rows().length === 1 && !rows()[0].name)) {
+          <div class="server-msg">Start the server to load your products automatically</div>
+        }
+
+        @for (row of rows(); track row.name; let i = $index) {
+          @if (row.name) {
+            <div class="table-row" [class.is-saved]="row.saved">
+              <span class="product-name">{{ row.name }}</span>
+              <div class="cost-input-wrap">
+                <span class="currency-sym">₹</span>
+                <input class="form-input cost-input"
+                  type="number"
+                  placeholder="Enter cost"
+                  [value]="row.cost"
+                  (input)="updateCost(i, $any($event.target).value)" />
+              </div>
+              <span class="status-pill"
+                [class.saved]="row.saved"
+                [class.unsaved]="row.cost && !row.saved">
+                @if (row.saved) { ✓ Saved }
+                @else if (row.cost) { • Unsaved }
+                @else { — }
+              </span>
+            </div>
+          }
+        }
+
+      </div>
+
+      @if (error())   { <div class="error-bar">{{ error() }}</div> }
+      @if (success()) { <div class="success-bar">{{ success() }}</div> }
+
+      <div class="costs-footer">
+        <button class="btn primary" [disabled]="loading()" (click)="save()">
+          @if (loading()) { Saving... } @else { Save Cost Prices }
+        </button>
+      </div>
+
+    </div>
+  }
+
+</div>

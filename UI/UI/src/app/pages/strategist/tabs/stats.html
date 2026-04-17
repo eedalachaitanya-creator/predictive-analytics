@@ -1,0 +1,99 @@
+<div class="stats-wrap">
+  <div class="stats-header">
+    <div>
+      <div class="stats-title">Pipeline Monitor</div>
+      <div class="stats-sub">Latency and run history tracked via Langfuse observability</div>
+    </div>
+    <button class="btn outline sm" (click)="load()">↻ Refresh</button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state"><span>⏳</span><span>Loading stats...</span></div>
+  }
+
+  @if (error() && !loading()) {
+    <div class="info-state">
+      <div class="info-icon">📊</div>
+      <div class="info-title">Langfuse not configured</div>
+      <div class="info-sub">Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in your .env to enable pipeline monitoring</div>
+    </div>
+  }
+
+  @if (!loading() && data() && !error()) {
+
+    <!-- KPI Row -->
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-val">{{ data().total_runs }}</div>
+        <div class="kpi-label">Total Runs</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-val">{{ fmtMs(data().avg_latency_ms) }}</div>
+        <div class="kpi-label">Avg Latency</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-val">${{ (data().total_cost_usd || 0).toFixed(4) }}</div>
+        <div class="kpi-label">Total Cost</div>
+      </div>
+      <div class="kpi-card" [class.active]="data().configured">
+        <div class="kpi-val">{{ data().configured ? '✅ Active' : '❌ Off' }}</div>
+        <div class="kpi-label">Langfuse</div>
+      </div>
+    </div>
+
+    <!-- Node latencies -->
+    @if (nodeKeys().length > 0) {
+      <div class="section-card">
+        <div class="section-title">Pipeline Node Latencies (avg)</div>
+        <div class="node-list">
+          @for (key of nodeKeys(); track key) {
+            <div class="node-row">
+              <span class="node-name">{{ key.replace(/_/g, ' ') }}</span>
+              <div class="bar-track">
+                <div class="bar-fill" [style.width]="barWidth(data().node_latencies[key])"></div>
+              </div>
+              <span class="node-ms">{{ fmtMs(data().node_latencies[key]) }}</span>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Recent runs -->
+    @if (data().recent_runs?.length > 0) {
+      <div class="section-card">
+        <div class="section-title">Recent Runs</div>
+        <table class="runs-table">
+          <thead>
+            <tr>
+              <th>Run ID</th>
+              <th>Products</th>
+              <th>Retention</th>
+              <th>Latency</th>
+              <th>Cost</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (run of data().recent_runs; track run.run_id) {
+              <tr>
+                <td class="mono">{{ run.run_id | slice:0:8 }}...</td>
+                <td>{{ run.product_count || '—' }}</td>
+                <td>{{ run.retention_count || 0 }}</td>
+                <td>{{ fmtMs(run.latency_ms || 0) }}</td>
+                <td>${{ (run.cost_usd || 0).toFixed(4) }}</td>
+                <td class="muted">{{ fmtDate(run.created_at) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        @if (data().dashboard) {
+          <a class="dashboard-link" [href]="data().dashboard" target="_blank">
+            Open Langfuse Dashboard →
+          </a>
+        }
+      </div>
+    }
+
+  }
+</div>

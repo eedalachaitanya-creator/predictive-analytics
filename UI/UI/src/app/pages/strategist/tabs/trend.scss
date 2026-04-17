@@ -1,0 +1,29 @@
+.trend-layout { display: grid; grid-template-columns: 1fr 260px; gap: 24px; align-items: start; }
+.search-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.search-row .form-input { flex: 1; }
+.error-bar { background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #DC2626; margin-bottom: 14px; }
+.trend-result { display: flex; gap: 20px; align-items: center; padding: 24px; border-radius: 12px; margin-bottom: 20px; border: 1px solid; }
+.trend-result.green  { background: #F0FDF4; border-color: #86EFAC; }
+.trend-result.red    { background: #FEF2F2; border-color: #FECACA; }
+.trend-result.blue   { background: #EFF6FF; border-color: #BFDBFE; }
+.trend-icon-big { font-size: 40px; }
+.trend-product { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.trend-label { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.trend-result.green .trend-label  { color: #15803D; }
+.trend-result.red   .trend-label  { color: #DC2626; }
+.trend-result.blue  .trend-label  { color: #1D4ED8; }
+.trend-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 50px 0; color: var(--text-muted); }
+.empty-icon { font-size: 36px; }
+.samples-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.samples-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 10px; }
+.samples-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.sample-chip { background: var(--bg-highlight, #f3f4f6); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; font-size: 12px; color: var(--text-primary); cursor: pointer; transition: background .15s; }
+.sample-chip:hover { background: var(--border); }
+.trend-history { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.history-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 10px; }
+.history-empty { font-size: 13px; color: var(--text-muted); padding: 12px 0; }
+.history-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.history-row:last-child { border-bottom: none; }
+.h-icon { font-size: 14px; }
+.h-name { flex: 1; font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

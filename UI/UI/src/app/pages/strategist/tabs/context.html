@@ -1,0 +1,63 @@
+<div class="context-wrap">
+  <div class="context-header">
+    <div>
+      <div class="context-title">Customer Price Contexts</div>
+      <div class="context-sub">Retention prices set by Strategist Agent — read by Retention Agent to prevent double-discounting</div>
+    </div>
+    <button class="btn outline sm" (click)="load()">↻ Refresh</button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state"><div class="spinner">⏳</div><div>Loading...</div></div>
+  }
+
+  @if (error()) { <div class="error-bar">⚠️ {{ error() }}</div> }
+
+  @if (!loading() && rows().length === 0 && !error()) {
+    <div class="empty-state">
+      <div class="empty-icon">🔁</div>
+      <div>No retention price contexts yet</div>
+      <div class="empty-sub">Run /recommend with a HIGH-risk churn batch to generate retention prices</div>
+    </div>
+  }
+
+  @if (!loading() && rows().length > 0) {
+    <div class="context-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Product</th>
+            <th>Strategy</th>
+            <th>Suggested Price</th>
+            <th>Pre-retention Price</th>
+            <th>Discount Applied</th>
+            <th>Churn Prob</th>
+            <th>Risk Tier</th>
+            <th>Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.context_id) {
+            <tr>
+              <td class="mono">{{ row.customer_id }}</td>
+              <td class="product-name">{{ row.product_name }}</td>
+              <td><span class="badge purple">{{ row.strategy }}</span></td>
+              <td class="price-cell bold">{{ fmtPrice(row.suggested_price) }}</td>
+              <td class="price-cell muted">{{ fmtPrice(row.pre_retention_price) }}</td>
+              <td class="price-cell">{{ fmtPct(row.discount_pct_applied) }}</td>
+              <td>
+                <div class="prob-bar-wrap">
+                  <div class="prob-bar" [style.width]="(row.churn_probability * 100) + '%'"></div>
+                  <span>{{ (row.churn_probability * 100).toFixed(1) }}%</span>
+                </div>
+              </td>
+              <td><span class="badge" [class]="row.risk_tier === 'HIGH' ? 'red' : 'yellow'">{{ row.risk_tier }}</span></td>
+              <td class="muted-sm">{{ fmtDate(row.created_at) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

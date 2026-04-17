@@ -1,0 +1,121 @@
+<div class="summary-wrap">
+  <div class="summary-header">
+    <div>
+      <div class="summary-title">Retention Summary</div>
+      <div class="summary-sub">Aggregate stats for {{ clientId }}</div>
+    </div>
+    <button class="btn outline sm" (click)="load()">↻ Refresh</button>
+  </div>
+
+  @if (loading()) { <div class="loading-state"><div class="spinner">⏳</div><div>Loading...</div></div> }
+  @if (error())   { <div class="error-bar">⚠️ {{ error() }}</div> }
+  @if (msg() && !loading()) {
+    <div class="empty-state">
+      <div class="empty-icon">📊</div>
+      <div>{{ msg() }}</div>
+      <div class="empty-sub">Run the retention pipeline first to generate data</div>
+    </div>
+  }
+
+  @if (!loading() && data()) {
+    <!-- KPI Row -->
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-val">{{ data()!.total_interventions }}</div>
+        <div class="kpi-label">Total Offers</div>
+      </div>
+      <div class="kpi-card red">
+        <div class="kpi-val">{{ data()!.high_risk_count }}</div>
+        <div class="kpi-label">HIGH Risk</div>
+      </div>
+      <div class="kpi-card yellow">
+        <div class="kpi-val">{{ data()!.medium_risk_count }}</div>
+        <div class="kpi-label">MEDIUM Risk</div>
+      </div>
+      <div class="kpi-card orange">
+        <div class="kpi-val">{{ data()!.escalated_count }}</div>
+        <div class="kpi-label">Escalated</div>
+      </div>
+      <div class="kpi-card green">
+        <div class="kpi-val">{{ data()!.accepted_count }}</div>
+        <div class="kpi-label">Accepted</div>
+      </div>
+      <div class="kpi-card purple">
+        <div class="kpi-val">{{ fmtRevenue(data()!.total_revenue_recovered) }}</div>
+        <div class="kpi-label">Revenue Recovered</div>
+      </div>
+    </div>
+
+    <!-- Conversion Rate Bar -->
+    <div class="conv-card">
+      <div class="conv-header">
+        <span class="conv-label">Conversion Rate</span>
+        <span class="conv-pct">{{ fmtPct(data()!.conversion_rate_pct) }}</span>
+      </div>
+      <div class="conv-track">
+        <div class="conv-fill" [style.width]="conversionWidth(data()!.conversion_rate_pct)"></div>
+      </div>
+      <div class="conv-note">{{ data()!.accepted_count }} accepted out of {{ data()!.total_interventions }} total offers</div>
+    </div>
+
+    <!-- Outcome Breakdown -->
+    <div class="breakdown-card">
+      <div class="breakdown-title">Outcome Breakdown</div>
+      <div class="breakdown-rows">
+        <div class="breakdown-row">
+          <span class="br-label">Accepted</span>
+          <div class="br-bar-wrap">
+            <div class="br-bar green" [style.width]="conversionWidth((data()!.accepted_count / (data()!.total_interventions || 1)) * 100)"></div>
+          </div>
+          <span class="br-val green">{{ data()!.accepted_count }}</span>
+        </div>
+        <div class="breakdown-row">
+          <span class="br-label">Declined</span>
+          <div class="br-bar-wrap">
+            <div class="br-bar red" [style.width]="conversionWidth((data()!.declined_count / (data()!.total_interventions || 1)) * 100)"></div>
+          </div>
+          <span class="br-val red">{{ data()!.declined_count }}</span>
+        </div>
+        <div class="breakdown-row">
+          <span class="br-label">No Response</span>
+          <div class="br-bar-wrap">
+            <div class="br-bar gray" [style.width]="conversionWidth((data()!.no_response_count / (data()!.total_interventions || 1)) * 100)"></div>
+          </div>
+          <span class="br-val gray">{{ data()!.no_response_count }}</span>
+        </div>
+        <div class="breakdown-row">
+          <span class="br-label">Pending</span>
+          <div class="br-bar-wrap">
+            <div class="br-bar blue" [style.width]="conversionWidth(((data()!.total_interventions - data()!.accepted_count - data()!.declined_count - data()!.no_response_count) / (data()!.total_interventions || 1)) * 100)"></div>
+          </div>
+          <span class="br-val blue">{{ data()!.total_interventions - data()!.accepted_count - data()!.declined_count - data()!.no_response_count }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Avg Discount -->
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-icon">🏷️</div>
+        <div>
+          <div class="stat-val">{{ fmtPct(data()!.avg_discount_pct) }}</div>
+          <div class="stat-label">Avg Discount Given</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🔔</div>
+        <div>
+          <div class="stat-val">{{ data()!.escalated_count }}</div>
+          <div class="stat-label">Escalated to Human</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">💰</div>
+        <div>
+          <div class="stat-val">{{ fmtRevenue(data()!.total_revenue_recovered) }}</div>
+          <div class="stat-label">Total Revenue Recovered</div>
+        </div>
+      </div>
+    </div>
+  }
+</div>

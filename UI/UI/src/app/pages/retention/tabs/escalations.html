@@ -1,0 +1,49 @@
+<div class="esc-wrap">
+  <div class="esc-header">
+    <div>
+      <div class="esc-title">🔔 Human Escalation Queue</div>
+      <div class="esc-sub">High-value customers (Platinum/Gold) with churn probability ≥ 90% — require personal outreach</div>
+    </div>
+    <button class="btn outline sm" (click)="load()">↻ Refresh</button>
+  </div>
+
+  @if (loading()) { <div class="loading-state"><div class="spinner">⏳</div><div>Loading...</div></div> }
+  @if (error()) { <div class="error-bar">⚠️ {{ error() }}</div> }
+
+  @if (!loading() && rows().length === 0) {
+    <div class="empty-state">
+      <div class="empty-icon">✅</div>
+      <div>No pending escalations</div>
+      <div class="empty-sub">Escalations appear when Platinum/Gold customers exceed 90% churn probability</div>
+    </div>
+  }
+
+  @if (!loading() && rows().length > 0) {
+    <div class="esc-count">{{ rows().length }} customer(s) need personal outreach</div>
+    <div class="esc-list">
+      @for (row of rows(); track row.intervention_id) {
+        <div class="esc-card">
+          <div class="esc-card-top">
+            <div class="esc-left">
+              <span class="badge" [class]="tierColor(row.risk_tier)">{{ row.risk_tier }}</span>
+              <span class="mono">{{ row.customer_id }}</span>
+            </div>
+            <div class="esc-prob">
+              <span class="prob-big">{{ fmtProb(row.churn_probability) }}</span>
+              <span class="prob-label">churn probability</span>
+            </div>
+          </div>
+          <div class="esc-card-body">
+            <div class="esc-message">{{ row.offer_message }}</div>
+            <div class="esc-meta">
+              <span>Channel: {{ row.channel }}</span>
+              <span>Discount: {{ fmtPct(row.discount_pct) }}</span>
+              <span>LTV: {{ fmtLtv(row.customer_ltv_usd) }}</span>
+              <span>Created: {{ fmtDate(row.created_at) }}</span>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

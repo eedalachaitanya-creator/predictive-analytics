@@ -1,0 +1,105 @@
+.costs-wrap { max-width: 720px; }
+
+.loading-state {
+  display: flex; align-items: center; gap: 10px;
+  padding: 40px 0; color: var(--text-muted); font-size: 13px;
+}
+.spinner-sm { font-size: 16px; }
+
+.error-bar {
+  background: #FEF2F2; border: 1px solid #FECACA;
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 13px; color: #DC2626; margin-bottom: 12px;
+}
+.success-bar {
+  background: #F0FDF4; border: 1px solid #BBF7D0;
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 13px; color: #15803D; margin-bottom: 12px;
+}
+
+.costs-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.costs-head { margin-bottom: 20px; }
+.costs-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.costs-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+.costs-table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.table-header {
+  display: grid;
+  grid-template-columns: 1fr 180px 90px;
+  gap: 0;
+  padding: 10px 16px;
+  background: var(--bg-highlight, #f9fafb);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: 1fr 180px 90px;
+  align-items: center;
+  gap: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.table-row:last-child { border-bottom: none; }
+.table-row:hover { background: var(--bg-hover, rgba(0,0,0,.02)); }
+.table-row.is-saved { background: #FAFFF8; }
+
+.product-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  padding-right: 16px;
+  line-height: 1.4;
+}
+
+.cost-input-wrap { position: relative; }
+.currency-sym {
+  position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px; color: var(--text-muted);
+  pointer-events: none;
+}
+.cost-input {
+  padding-left: 24px !important;
+  width: 100%;
+  font-size: 13px;
+}
+
+.status-pill {
+  font-size: 12px;
+  text-align: center;
+}
+.status-pill.saved  { color: #15803D; font-weight: 500; }
+.status-pill.unsaved { color: #D97706; }
+
+.costs-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.server-msg {
+  padding: 20px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}

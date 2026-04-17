@@ -1,0 +1,207 @@
+<div class="rec-layout">
+
+  <!-- LEFT: Config Panel -->
+  <div class="rec-config">
+    <div class="config-section">
+      <div class="section-header">
+        <div class="config-title">Products</div>
+        <button class="btn ghost sm" (click)="loadSample()" [disabled]="loadingSample()">
+          @if (loadingSample()) { Loading... } @else { ↻ Refresh }
+        </button>
+      </div>
+
+      @for (p of products(); track $index; let i = $index) {
+        <div class="product-card">
+          <div class="product-card-header">
+            <span class="product-label">Product {{ i + 1 }}</span>
+            @if (products().length > 1) {
+              <button class="remove-btn" (click)="removeProduct(i)">✕</button>
+            }
+          </div>
+          <input class="form-input" placeholder="Product name"
+            [value]="p.name" (input)="updateProduct(i, 'name', $any($event.target).value)" />
+          <input class="form-input" type="number" placeholder="Cost price in ₹ (optional — uses saved price if blank)"
+            [value]="p.cost" (input)="updateProduct(i, 'cost', $any($event.target).value)" />
+          <textarea class="form-input comp-input" rows="3"
+            placeholder="Competitor pricing data (auto-filled from DB)"
+            [value]="p.listings" (input)="updateProduct(i, 'listings', $any($event.target).value)"></textarea>
+        </div>
+      }
+
+      <button class="add-product-btn" (click)="addProduct()">+ Add another product</button>
+    </div>
+
+    <div class="config-section">
+      <div class="config-title">Pricing Parameters</div>
+      <div class="param-grid">
+        <div class="param-item">
+          <label class="param-label">Target Margin</label>
+          <div class="param-input-wrap">
+            <input class="form-input param-input" type="number"
+              [value]="targetMargin()" (input)="targetMargin.set(+$any($event.target).value)" />
+            <span class="param-unit">%</span>
+          </div>
+        </div>
+        <div class="param-item">
+          <label class="param-label">Minimum Margin</label>
+          <div class="param-input-wrap">
+            <input class="form-input param-input" type="number"
+              [value]="minMargin()" (input)="minMargin.set(+$any($event.target).value)" />
+            <span class="param-unit">%</span>
+          </div>
+        </div>
+        <div class="param-item">
+          <label class="param-label">Undercut By</label>
+          <div class="param-input-wrap">
+            <input class="form-input param-input" type="number"
+              [value]="undercutPct()" (input)="undercutPct.set(+$any($event.target).value)" />
+            <span class="param-unit">%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="config-section churn-section">
+      <label class="churn-toggle">
+        <input type="checkbox" [checked]="useChurn()" (change)="useChurn.set($any($event.target).checked)" />
+        <div class="churn-toggle-text">
+          <span class="churn-label">Enable retention pricing</span>
+          <span class="churn-hint">Applies personalised discounts for at-risk customers</span>
+        </div>
+      </label>
+      @if (useChurn()) {
+        <textarea class="form-input churn-input" rows="4"
+          placeholder="Paste customer churn data here (optional — fetched automatically if omitted)"
+          [value]="churnJson()" (input)="churnJson.set($any($event.target).value)"></textarea>
+      }
+    </div>
+
+    @if (error()) { <div class="error-bar">{{ error() }}</div> }
+
+    <button class="run-btn" [disabled]="loading()" (click)="run()">
+      @if (loading()) { ⏳ &nbsp;Analysing... }
+      @else { 🧠 &nbsp;Get Price Recommendations }
+    </button>
+  </div>
+
+  <!-- RIGHT: Results -->
+  <div class="rec-results">
+
+    @if (loading()) {
+      <div class="loading-state">
+        <div class="loading-icon">🧠</div>
+        <div class="loading-title">Analysing market data...</div>
+        <div class="loading-steps">
+          <div class="step">✓ Loading client configuration</div>
+          <div class="step">✓ Fetching market trends</div>
+          <div class="step active">→ Running pricing engine</div>
+        </div>
+      </div>
+    }
+
+    @if (!loading() && runMeta()) {
+      <div class="run-meta">
+        <span>Completed in {{ runMeta()!.elapsed | number:'1.1-1' }}s</span>
+        @if (runMeta()!.retention_count > 0) {
+          <span class="retention-tag">🎯 {{ runMeta()!.retention_count }} retention offer(s) applied</span>
+        }
+      </div>
+    }
+
+    @if (!loading() && results().length === 0 && !runMeta()) {
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">No recommendations yet</div>
+        <div class="empty-sub">Fill in the product details and click Get Price Recommendations</div>
+      </div>
+    }
+
+    @for (rec of results(); track rec.product_name; let i = $index) {
+      <div class="rec-card" [class.retention]="rec.strategy === 'retention'">
+
+        <div class="rec-top">
+          <div class="rec-name">{{ rec.product_name }}</div>
+          <span class="strategy-tag" [class]="strategyColor(rec.strategy)">
+            {{ rec.strategy === 'undercut' ? '⬇ Undercut' :
+               rec.strategy === 'match'    ? '⇔ Match' :
+               rec.strategy === 'premium'  ? '⬆ Premium' : '🎯 Retention' }}
+          </span>
+        </div>
+
+        <!-- Price comparison row -->
+        <div class="price-comparison">
+          <div class="price-col highlight">
+            <div class="price-col-label">Recommended Price</div>
+            <div class="price-col-value big">{{ fmtPrice(rec.suggested_price) }}</div>
+          </div>
+
+          <div class="price-divider">vs</div>
+
+          <div class="price-col">
+            <div class="price-col-label">Your Cost Price</div>
+            <div class="price-col-value cost">
+              {{ fmtPrice(getCostPrice(rec.product_name) || rec.our_cost) }}
+            </div>
+          </div>
+
+          <div class="price-divider">·</div>
+
+          <div class="price-col">
+            <div class="price-col-label">Lowest Competitor</div>
+            <div class="price-col-value">{{ fmtPrice(rec.competitor_min) }}</div>
+          </div>
+
+          <div class="price-divider">·</div>
+
+          <div class="price-col">
+            <div class="price-col-label">Market Average</div>
+            <div class="price-col-value">{{ fmtPrice(rec.competitor_avg) }}</div>
+          </div>
+
+          <div class="price-divider">·</div>
+
+          <div class="price-col">
+            <div class="price-col-label">Highest Competitor</div>
+            <div class="price-col-value">{{ fmtPrice(rec.competitor_max) }}</div>
+          </div>
+        </div>
+
+        <!-- Margin + trend row -->
+        <div class="rec-stats">
+          <div class="stat-item">
+            <span class="stat-label">Profit Margin</span>
+            <span class="stat-value margin"
+              [class.good]="rec.margin_percent >= 15"
+              [class.warn]="rec.margin_percent < 8">
+              {{ fmtPct(rec.margin_percent) }}
+            </span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Market Trend</span>
+            <span class="stat-value">{{ trendIcon(rec.market_trend) }} {{ rec.market_trend }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Confidence</span>
+            <span class="stat-value">{{ rec.confidence }}</span>
+          </div>
+          @if (rec.flag) {
+            <div class="stat-item">
+              <span class="flag-val">⚠ {{ rec.flag.replace('_', ' ') }}</span>
+            </div>
+          }
+          @if (rec.strategy === 'retention' && rec.pre_retention_price) {
+            <div class="stat-item">
+              <span class="stat-label">Original Price</span>
+              <span class="stat-value muted" style="text-decoration: line-through">{{ fmtPrice(rec.pre_retention_price) }}</span>
+            </div>
+          }
+        </div>
+
+        @if (rec.reasoning) {
+          <div class="reasoning">{{ rec.reasoning }}</div>
+        }
+
+      </div>
+    }
+  </div>
+</div>

@@ -1,0 +1,25 @@
+<div class="page-anim strategist-page">
+  <div class="agent-header">
+    <div>
+      <h1 class="agent-title">Strategist Agent</h1>
+      <p class="agent-subtitle">AI-powered pricing recommendations using competitor data and customer intelligence</p>
+    </div>
+  </div>
+
+  <div class="pill-tabs agent-tabs">
+    @for (tab of tabs; track tab.id) {
+      <div class="pt" [class.active]="activeTab() === tab.id" (click)="setTab(tab.id)">
+        <span class="tab-icon">{{ tab.icon }}</span>
+        {{ tab.label }}
+      </div>
+    }
+  </div>
+
+  <div class="tab-content">
+    @switch (activeTab()) {
+      @case ('recommend') { <strategist-recommend /> }
+      @case ('trend')     { <strategist-trend /> }
+      @case ('stats')     { <strategist-stats /> }
+    }
+  </div>
+</div>

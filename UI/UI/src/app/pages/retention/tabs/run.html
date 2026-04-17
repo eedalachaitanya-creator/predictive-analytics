@@ -1,0 +1,123 @@
+<div class="run-layout">
+  <div class="run-config">
+    <div class="config-card">
+      <div class="config-title">Run Configuration</div>
+
+      <div class="field-group">
+        <label class="field-label">Client</label>
+        <div class="client-badge">{{ clientId }}</div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Target customers</label>
+        <div class="radio-group">
+          <label class="radio-opt">
+            <input type="radio" name="minRisk" value="MEDIUM" [checked]="minRisk() === 'MEDIUM'"
+              (change)="minRisk.set('MEDIUM')" />
+            <span>High and medium risk customers</span>
+          </label>
+          <label class="radio-opt">
+            <input type="radio" name="minRisk" value="HIGH" [checked]="minRisk() === 'HIGH'"
+              (change)="minRisk.set('HIGH')" />
+            <span>High risk customers only</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="toggle-row">
+          <input type="checkbox" [checked]="dryRun()" (change)="dryRun.set($any($event.target).checked)" />
+          <div class="toggle-text">
+            <span class="toggle-label">Preview mode</span>
+            <span class="toggle-hint">Generate offers without sending or saving</span>
+          </div>
+        </label>
+        @if (!dryRun()) {
+          <div class="warning-box">⚠️ Preview mode is off — offers will be saved and sent to customers</div>
+        }
+      </div>
+
+      @if (error()) { <div class="error-bar">{{ error() }}</div> }
+
+      <button class="run-btn" [disabled]="loading()" (click)="run()">
+        @if (loading()) { ⏳ &nbsp;Running... }
+        @else if (dryRun()) { 🔍 &nbsp;Preview Offers }
+        @else { 🚀 &nbsp;Send Retention Offers }
+      </button>
+    </div>
+
+    @if (result()) {
+      <div class="summary-card">
+        <div class="summary-title">Run Summary</div>
+        <div class="summary-meta">
+          @if (result()!.dry_run) { <span class="badge yellow">preview only</span> } @else { <span class="badge green">saved</span> }
+        </div>
+        <div class="summary-grid">
+          @for (key of summaryKeys(result()!.summary); track key) {
+            <div class="summary-item">
+              <div class="s-val">{{ result()!.summary[key] }}</div>
+              <div class="s-key">{{ key.replace(/_/g, ' ') }}</div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <div class="run-results">
+    @if (loading()) {
+      <div class="loading-state">
+        <div class="loading-icon">🎯</div>
+        <div class="loading-title">Generating retention offers...</div>
+        <div class="loading-sub">Fetching at-risk customers and personalising offers</div>
+      </div>
+    }
+
+    @if (!loading() && !result()) {
+      <div class="empty-state">
+        <div class="empty-icon">🎯</div>
+        <div class="empty-title">Ready to run</div>
+        <div class="empty-sub">Configure and run to generate personalised retention offers for at-risk customers</div>
+      </div>
+    }
+
+    @if (!loading() && result() && result()!.interventions.length === 0) {
+      <div class="empty-state">
+        <div class="empty-icon">✅</div>
+        <div class="empty-title">No at-risk customers found</div>
+        <div class="empty-sub">All customers are healthy or the Analyst Agent hasn't run yet</div>
+      </div>
+    }
+
+    @for (item of result()?.interventions || []; track item.customer_id; let i = $index) {
+      <div class="offer-card" [class.escalated]="item.escalated_to_human">
+        <div class="offer-header" (click)="toggleExpand(i)">
+          <div class="offer-left">
+            @if (item.escalated_to_human) { <span class="esc-badge">🔔 Needs personal outreach</span> }
+            <span class="customer-id">{{ item.customer_id }}</span>
+            <span class="badge" [class]="riskColor(item.risk_tier)">{{ item.risk_tier }} risk</span>
+            <span class="channel-pill">{{ channelIcon(item.channel) }} {{ item.channel }}</span>
+          </div>
+          <div class="offer-right">
+            @if (item.discount_pct > 0) {
+              <span class="discount-pill">{{ fmtPct(item.discount_pct) }} discount</span>
+            }
+            <span class="churn-prob">{{ fmtProb(item.churn_probability) }} churn risk</span>
+            <span class="expand-arrow">{{ expanded() === i ? '▲' : '▼' }}</span>
+          </div>
+        </div>
+
+        @if (expanded() === i) {
+          <div class="offer-detail">
+            <div class="offer-message">{{ item.offer_message }}</div>
+            <div class="offer-stats">
+              <span>Lifetime value: {{ fmtLtv(item.customer_ltv_usd) }}</span>
+              <span>Max discount allowed: {{ fmtPct(item.max_allowed_discount) }}</span>
+              <span>Offer type: {{ item.offer_type.replace(/_/g, ' ') }}</span>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</div>

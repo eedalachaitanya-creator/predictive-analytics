@@ -5,10 +5,18 @@ Multi-tenant churn prediction platform for retail businesses. Ingests customer t
 ## Architecture
 
 ```
-UI/UI/          Angular 21 frontend (standalone components, signals)
-app/            FastAPI backend (routers, config, database)
-ml/             ML pipeline (feature engineering, training, prediction, sentiment, outreach)
-db/             PostgreSQL schema & migrations
+predictive-analytics/
+├── UI/UI/                           Angular 21 frontend (standalone components, signals)
+└── backend/
+    └── analyst_backend/             All backend code lives here
+        ├── app/                     FastAPI backend (routers, config, database)
+        ├── ml/                      ML pipeline (features, training, prediction, sentiment, outreach)
+        ├── db/                      PostgreSQL schema & migrations
+        ├── agent/                   LLM agent tools (chat, analyst, scout)
+        ├── scripts/                 Admin / one-off scripts
+        ├── Dockerfile
+        ├── docker-compose.yml
+        └── requirements.txt
 ```
 
 ## Prerequisites
@@ -23,11 +31,13 @@ db/             PostgreSQL schema & migrations
 ### 1. Clone & install Python dependencies
 
 ```bash
-git clone <repo-url> && cd analyst_agent_v3
+git clone <repo-url> && cd predictive-analytics/backend/analyst_backend
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+> All backend commands from here on assume you are in `backend/analyst_backend/`.
 
 ### 2. Create the database
 
@@ -66,6 +76,7 @@ redis-server
 ### 5. Start the backend
 
 ```bash
+# from backend/analyst_backend/
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -74,6 +85,7 @@ Verify: open http://localhost:8000/health — should return `{"status": "healthy
 ### 6. Start the frontend
 
 ```bash
+# from repo root
 cd UI/UI
 npm install
 npm start
@@ -116,7 +128,7 @@ Opens at http://localhost:4200. Login and select a client to begin.
 ## Project Structure
 
 ```
-app/
+backend/analyst_backend/app/
   main.py                  FastAPI entry point
   config.py                Pydantic settings
   database.py              SQLAlchemy engine + session
@@ -125,7 +137,7 @@ app/
   dashboard_router.py      Dashboard KPIs, segments, drill-down
   ...                      Other CRUD routers
 
-ml/
+backend/analyst_backend/ml/
   compute_rfm.py           RFM feature computation + segmentation
   train_model.py           Model training (XGB, RF, LR)
   predict.py               Prediction + tier weighting + risk assignment

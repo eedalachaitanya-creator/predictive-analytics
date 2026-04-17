@@ -500,23 +500,22 @@ def step_predict(
 
         # Run prediction
         log.info("  Running prediction pipeline...")
-        result = predict.predict_pipeline(
+        result = predict.run_scoring_pipeline(
+            source="db",
             db_url=db_url,
             model_path=model_path,
             output_mode="both",
             top_n=10,
         )
 
-        if result["success"]:
-            log.info(f"  Scored {result['total_customers_scored']:,} customers")
-            log.info(f"  Output files: {list(result['output_files'].keys())}")
-            return {
-                "total_customers_scored": result["total_customers_scored"],
-                "output_files": result["output_files"],
-                "summary": result["summary"],
-            }
-        else:
-            raise Exception(result.get("error", "Unknown error"))
+        total_scored = result["summary"]["total_customers"]
+        log.info(f"  Scored {total_scored:,} customers")
+        log.info(f"  Output files: {list(result['output_files'].keys())}")
+        return {
+            "total_customers_scored": total_scored,
+            "output_files": result["output_files"],
+            "summary": result["summary"],
+        }
 
     except Exception as e:
         log.error(f"  Failed: {e}")

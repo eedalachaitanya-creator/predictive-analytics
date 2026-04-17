@@ -1,516 +1,645 @@
--- ============================================================
--- schema_full.sql
--- Customer Retention Platform — Complete PostgreSQL Schema
--- ============================================================
--- Single-file database setup. Creates ALL tables, views, and
--- the materialized feature view in one run. No migrations needed.
 --
--- Usage:  Open in pgAdmin4 → Query Tool → F5
--- ============================================================
+-- PostgreSQL database dump
+--
 
-BEGIN;
+\restrict hT9JReSfvkeiVp2xetkYKxgK1eh3exUeSxQ9PsIdwbG3SIsXZPtgYJmsdyMWvfs
 
--- Enable extension for UUID generation (optional)
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Dumped from database version 18.3 (Postgres.app)
+-- Dumped by pg_dump version 18.3 (Postgres.app)
 
--- ============================================================
--- SECTION 1: REFERENCE / MASTER TABLES
--- ============================================================
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
 
--- 1. Client Config (with all UI-driven dynamic parameters)
-CREATE TABLE IF NOT EXISTS client_config (
-    config_id              SERIAL PRIMARY KEY,
-    client_id              VARCHAR(20)   NOT NULL UNIQUE,
-    client_name            VARCHAR(100)  NOT NULL,
-    client_code            VARCHAR(10)   NOT NULL,
-    currency               VARCHAR(10)   DEFAULT 'USD',
-    timezone               VARCHAR(50)   DEFAULT 'America/Chicago',
-    fiscal_year_start      DATE,
-    churn_window_days      INT           DEFAULT 90,
-    high_ltv_threshold     NUMERIC(10,2) DEFAULT 1000.00,
-    mid_ltv_threshold      NUMERIC(10,2) DEFAULT 200.00,
-    max_discount_pct       NUMERIC(5,2)  DEFAULT 30.00,
-    -- Dynamic config (maps to Settings UI)
-    min_repeat_orders      INT           DEFAULT 2,
-    high_value_percentile  INT           DEFAULT 75,
-    recent_order_gap_window INT          DEFAULT 3,
-    tier_method            VARCHAR(20)   DEFAULT 'quartile',
-    custom_platinum_min    NUMERIC(10,2) DEFAULT 500.00,
-    custom_gold_min        NUMERIC(10,2) DEFAULT 250.00,
-    custom_silver_min      NUMERIC(10,2) DEFAULT 100.00,
-    custom_bronze_min      NUMERIC(10,2) DEFAULT 0.00,
-    reference_date_mode    VARCHAR(10)   DEFAULT 'auto',
-    reference_date         DATE          DEFAULT NULL,
-    prediction_mode        VARCHAR(20)   DEFAULT 'churn',
-    created_at             TIMESTAMPTZ   DEFAULT NOW()
+--
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON SCHEMA public IS '';
+
+
+--
+-- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: active_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.active_tokens (
+    token character varying(64) NOT NULL,
+    user_id character varying(30) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone DEFAULT (now() + '24:00:00'::interval) NOT NULL
 );
 
--- 2. Categories
-CREATE TABLE IF NOT EXISTS categories (
-    category_id   INT PRIMARY KEY,
-    category_name VARCHAR(100) NOT NULL
+
+--
+-- Name: brands; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.brands (
+    brand_id integer NOT NULL,
+    brand_name character varying(100) NOT NULL,
+    brand_description text,
+    vendor_id integer,
+    active smallint DEFAULT 1,
+    not_available smallint DEFAULT 0,
+    category_hint character varying(100),
+    client_id character varying(20) NOT NULL
 );
 
--- 3. Sub-Categories
-CREATE TABLE IF NOT EXISTS sub_categories (
-    sub_category_id   INT PRIMARY KEY,
-    sub_category_name VARCHAR(100) NOT NULL,
-    category_id       INT NOT NULL REFERENCES categories(category_id)
+
+--
+-- Name: business_segments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_segments (
+    segment_id character varying(15) NOT NULL,
+    segment_name character varying(50) NOT NULL,
+    description text,
+    criteria character varying(200),
+    recommended_focus text
 );
 
--- 4. Sub-Sub-Categories
-CREATE TABLE IF NOT EXISTS sub_sub_categories (
-    sub_sub_category_id   INT PRIMARY KEY,
-    sub_sub_category_name VARCHAR(150) NOT NULL,
-    sub_category_id       INT NOT NULL REFERENCES sub_categories(sub_category_id),
-    category_id           INT NOT NULL REFERENCES categories(category_id)
+
+--
+-- Name: categories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.categories (
+    category_id integer NOT NULL,
+    category_name character varying(100) NOT NULL,
+    client_id character varying(20) NOT NULL
 );
 
--- 5. Vendors
-CREATE TABLE IF NOT EXISTS vendors (
-    vendor_id          INT PRIMARY KEY,
-    vendor_name        VARCHAR(150) NOT NULL,
-    vendor_description TEXT,
-    vendor_contact_no  VARCHAR(30),
-    vendor_address     TEXT,
-    vendor_email       VARCHAR(150)
+
+--
+-- Name: chat_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.chat_messages (
+    id integer NOT NULL,
+    client_id character varying(20) DEFAULT 'CLT-001'::character varying NOT NULL,
+    conversation_id character varying(50) NOT NULL,
+    role character varying(10) NOT NULL,
+    content text NOT NULL,
+    tokens_used integer DEFAULT 0,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT chat_messages_role_check CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying])::text[])))
 );
 
--- 6. Brands
-CREATE TABLE IF NOT EXISTS brands (
-    brand_id          INT PRIMARY KEY,
-    brand_name        VARCHAR(100) NOT NULL,
-    brand_description TEXT,
-    vendor_id         INT REFERENCES vendors(vendor_id),
-    active            SMALLINT DEFAULT 1,
-    not_available     SMALLINT DEFAULT 0,
-    category_hint     VARCHAR(100)
+
+--
+-- Name: chat_messages_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.chat_messages_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: chat_messages_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.chat_messages_id_seq OWNED BY public.chat_messages.id;
+
+
+--
+-- Name: churn_scores; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.churn_scores (
+    score_id integer NOT NULL,
+    client_id character varying(20) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    scored_at timestamp with time zone DEFAULT now(),
+    churn_probability numeric(5,4),
+    risk_tier character varying(10),
+    churn_label_simulated boolean DEFAULT false,
+    driver_1 character varying(100),
+    driver_2 character varying(100),
+    driver_3 character varying(100),
+    model_version character varying(20) DEFAULT 'v1.0'::character varying,
+    batch_run_id character varying(50)
 );
 
--- 7. Products
-CREATE TABLE IF NOT EXISTS products (
-    product_id          INT PRIMARY KEY,
-    sku                 VARCHAR(50)  NOT NULL,
-    product_name        VARCHAR(200) NOT NULL,
-    category_id         INT REFERENCES categories(category_id),
-    sub_category_id     INT REFERENCES sub_categories(sub_category_id),
-    sub_sub_category_id INT REFERENCES sub_sub_categories(sub_sub_category_id),
-    brand_id            INT REFERENCES brands(brand_id),
-    product_price_id    INT,
-    rating              NUMERIC(3,1),
-    active              SMALLINT DEFAULT 1,
-    not_available       SMALLINT DEFAULT 0
+
+--
+-- Name: TABLE churn_scores; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.churn_scores IS 'ML model churn risk scores — refreshed nightly';
+
+
+--
+-- Name: churn_scores_score_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.churn_scores_score_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: churn_scores_score_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.churn_scores_score_id_seq OWNED BY public.churn_scores.score_id;
+
+
+--
+-- Name: client_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.client_config (
+    config_id integer NOT NULL,
+    client_id character varying(20) NOT NULL,
+    client_name character varying(100) NOT NULL,
+    client_code character varying(10) NOT NULL,
+    currency character varying(10) DEFAULT 'USD'::character varying,
+    timezone character varying(50) DEFAULT 'America/Chicago'::character varying,
+    fiscal_year_start date,
+    churn_window_days integer DEFAULT 90,
+    high_ltv_threshold numeric(10,2) DEFAULT 1000.00,
+    mid_ltv_threshold numeric(10,2) DEFAULT 200.00,
+    max_discount_pct numeric(5,2) DEFAULT 30.00,
+    min_repeat_orders integer DEFAULT 2,
+    high_value_percentile integer DEFAULT 75,
+    recent_order_gap_window integer DEFAULT 3,
+    tier_method character varying(20) DEFAULT 'quartile'::character varying,
+    custom_platinum_min numeric(10,2) DEFAULT 500.00,
+    custom_gold_min numeric(10,2) DEFAULT 250.00,
+    custom_silver_min numeric(10,2) DEFAULT 100.00,
+    custom_bronze_min numeric(10,2) DEFAULT 0.00,
+    reference_date_mode character varying(10) DEFAULT 'auto'::character varying,
+    reference_date date,
+    prediction_mode character varying(20) DEFAULT 'churn'::character varying,
+    created_at timestamp with time zone DEFAULT now()
 );
 
--- 8. Product Price Master
-CREATE TABLE IF NOT EXISTS product_prices (
-    price_id        INT PRIMARY KEY,
-    product_id      INT NOT NULL REFERENCES products(product_id),
-    qty_range_label VARCHAR(50),
-    qty_min         INT NOT NULL,
-    qty_max         INT,
-    unit_price_usd  NUMERIC(10,2) NOT NULL
+
+--
+-- Name: TABLE client_config; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.client_config IS 'Per-tenant client configuration with UI-driven dynamic parameters';
+
+
+--
+-- Name: client_config_config_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.client_config_config_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: client_config_config_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.client_config_config_id_seq OWNED BY public.client_config.config_id;
+
+
+--
+-- Name: customer_purchase_cycles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_purchase_cycles (
+    cycle_id integer NOT NULL,
+    client_id character varying(20) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    product_id integer NOT NULL,
+    purchase_count integer DEFAULT 0,
+    first_purchase_date date,
+    last_purchase_date date,
+    avg_refill_days numeric(8,1),
+    expected_next_date date,
+    days_overdue integer,
+    missed_refill_count integer DEFAULT 0,
+    is_active_subscriber boolean DEFAULT true,
+    computed_at timestamp with time zone DEFAULT now()
 );
 
--- Add deferred FK from products → product_prices (avoids circular load issue)
-DO $$ BEGIN
-    ALTER TABLE products
-        ADD CONSTRAINT fk_products_price
-        FOREIGN KEY (product_price_id) REFERENCES product_prices(price_id)
-        DEFERRABLE INITIALLY DEFERRED;
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- 9. Product-Vendor Mapping
-CREATE TABLE IF NOT EXISTS product_vendor_mapping (
-    pv_id       INT PRIMARY KEY,
-    product_id  INT NOT NULL REFERENCES products(product_id),
-    brand_id    INT REFERENCES brands(brand_id),
-    vendor_id   INT REFERENCES vendors(vendor_id)
+--
+-- Name: TABLE customer_purchase_cycles; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.customer_purchase_cycles IS 'Per-customer per-product refill pattern tracking';
+
+
+--
+-- Name: customer_purchase_cycles_cycle_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.customer_purchase_cycles_cycle_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: customer_purchase_cycles_cycle_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.customer_purchase_cycles_cycle_id_seq OWNED BY public.customer_purchase_cycles.cycle_id;
+
+
+--
+-- Name: customer_reviews; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_reviews (
+    client_id character varying(20) NOT NULL,
+    review_id character varying(30) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    product_id integer,
+    order_id character varying(50),
+    rating smallint,
+    review_text text,
+    review_date date,
+    sentiment character varying(20),
+    sentiment_score numeric(6,4),
+    CONSTRAINT customer_reviews_rating_check CHECK (((rating >= 1) AND (rating <= 5)))
 );
 
--- ============================================================
--- SECTION 2: CUSTOMER & TRANSACTION TABLES
--- ============================================================
 
--- 10. Customers
-CREATE TABLE IF NOT EXISTS customers (
-    client_id             VARCHAR(20)  NOT NULL,
-    customer_id           VARCHAR(30)  NOT NULL,
-    customer_email        VARCHAR(150),
-    customer_name         VARCHAR(100),
-    customer_phone        VARCHAR(30),
-    account_created_date  DATE,
-    registration_channel  VARCHAR(100),
-    country_code          VARCHAR(5)   DEFAULT 'US',
-    state                 VARCHAR(5),
-    city                  VARCHAR(100),
-    zip_code              VARCHAR(20),
-    shipping_address      TEXT,
-    preferred_device      VARCHAR(50),
-    email_opt_in          BOOLEAN DEFAULT TRUE,
-    sms_opt_in            BOOLEAN DEFAULT FALSE,
-    PRIMARY KEY (client_id, customer_id)
+--
+-- Name: TABLE customer_reviews; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.customer_reviews IS 'Customer product ratings and review text';
+
+
+--
+-- Name: customer_rfm_features; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_rfm_features (
+    client_id character varying(20) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    computed_at timestamp with time zone DEFAULT now(),
+    days_since_last_order integer,
+    last_order_date date,
+    last_order_status character varying(30),
+    total_orders integer DEFAULT 0,
+    orders_last_30d integer DEFAULT 0,
+    orders_last_90d integer DEFAULT 0,
+    orders_last_180d integer DEFAULT 0,
+    avg_orders_per_month numeric(6,2),
+    order_frequency_trend character varying(20),
+    total_spend_usd numeric(12,2) DEFAULT 0,
+    avg_order_value_usd numeric(10,2),
+    spend_last_90d_usd numeric(12,2) DEFAULT 0,
+    spend_last_180d_usd numeric(12,2) DEFAULT 0,
+    ltv_usd numeric(12,2),
+    spend_trend character varying(20),
+    recency_score smallint,
+    frequency_score smallint,
+    monetary_score smallint,
+    rfm_total_score smallint,
+    rfm_segment character varying(50),
+    total_items_purchased integer DEFAULT 0,
+    unique_products_bought integer DEFAULT 0,
+    top_category character varying(100),
+    return_rate_pct numeric(5,2),
+    total_discounts_used integer DEFAULT 0,
+    total_discount_usd numeric(10,2) DEFAULT 0,
+    discount_dependency_pct numeric(5,2),
+    account_age_days integer,
+    customer_tier character varying(20)
 );
 
-CREATE INDEX IF NOT EXISTS idx_customers_email  ON customers(customer_email);
-CREATE INDEX IF NOT EXISTS idx_customers_client ON customers(client_id);
 
--- 11. Orders
-CREATE TABLE IF NOT EXISTS orders (
-    client_id        VARCHAR(20)   NOT NULL,
-    order_id         VARCHAR(50)   NOT NULL,
-    customer_id      VARCHAR(30)   NOT NULL,
-    order_date       TIMESTAMPTZ,
-    order_status     VARCHAR(30),
-    order_value_usd  NUMERIC(10,2),
-    discount_usd     NUMERIC(10,2) DEFAULT 0,
-    coupon_code      VARCHAR(50),
-    payment_method   VARCHAR(50),
-    order_item_count INT,
-    PRIMARY KEY (client_id, order_id),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
+--
+-- Name: TABLE customer_rfm_features; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.customer_rfm_features IS 'Computed RFM + engagement features — refreshed nightly';
+
+
+--
+-- Name: customers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customers (
+    client_id character varying(20) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    customer_email character varying(150),
+    customer_name character varying(100),
+    customer_phone character varying(30),
+    account_created_date date,
+    registration_channel character varying(100),
+    country_code character varying(5) DEFAULT 'US'::character varying,
+    state character varying(5),
+    city character varying(100),
+    zip_code character varying(20),
+    shipping_address text,
+    preferred_device character varying(50),
+    email_opt_in boolean DEFAULT true,
+    sms_opt_in boolean DEFAULT false
 );
 
-CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_orders_date     ON orders(order_date);
-CREATE INDEX IF NOT EXISTS idx_orders_status   ON orders(order_status);
 
--- 12. Line Items
-CREATE TABLE IF NOT EXISTS line_items (
-    client_id              VARCHAR(20)   NOT NULL,
-    line_item_id           VARCHAR(30)   NOT NULL,
-    order_id               VARCHAR(50)   NOT NULL,
-    customer_id            VARCHAR(30)   NOT NULL,
-    product_id             INT           NOT NULL REFERENCES products(product_id),
-    quantity               INT           NOT NULL DEFAULT 1,
-    unit_price_usd         NUMERIC(10,2),
-    final_line_total_usd   NUMERIC(10,2),
-    item_discount_usd      NUMERIC(10,2) DEFAULT 0,
-    item_status            VARCHAR(30),
-    PRIMARY KEY (client_id, line_item_id),
-    FOREIGN KEY (client_id, order_id) REFERENCES orders(client_id, order_id)
+--
+-- Name: TABLE customers; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.customers IS 'Customer master — one row per unique customer per client';
+
+
+--
+-- Name: entities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entities (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    canonical_name text NOT NULL,
+    canonical_brand text,
+    canonical_variant text,
+    query text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_line_items_order    ON line_items(client_id, order_id);
-CREATE INDEX IF NOT EXISTS idx_line_items_customer ON line_items(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_line_items_product  ON line_items(product_id);
 
--- ============================================================
--- SECTION 3: CONFIGURATION & STRATEGY TABLES
--- ============================================================
+--
+-- Name: TABLE entities; Type: COMMENT; Schema: public; Owner: -
+--
 
--- 13. Value-Tier Master
-CREATE TABLE IF NOT EXISTS value_tiers (
-    tier_id          VARCHAR(10) PRIMARY KEY,
-    tier_name        VARCHAR(50) NOT NULL,
-    threshold_type   VARCHAR(20),
-    threshold_value  NUMERIC(10,2),
-    description      TEXT,
-    benefits         TEXT
+COMMENT ON TABLE public.entities IS 'Canonical products tracked for competitive intelligence';
+
+
+--
+-- Name: entity_listings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entity_listings (
+    id integer NOT NULL,
+    entity_id uuid NOT NULL,
+    platform text NOT NULL,
+    product_url text NOT NULL,
+    title text NOT NULL,
+    price numeric(10,2),
+    currency text DEFAULT 'INR'::text NOT NULL,
+    ingredients text,
+    manufacturer text,
+    marketed_by text,
+    availability text DEFAULT 'unknown'::text,
+    last_seen timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- 14. Business Segment Master
-CREATE TABLE IF NOT EXISTS business_segments (
-    segment_id        VARCHAR(15) PRIMARY KEY,
-    segment_name      VARCHAR(50) NOT NULL,
-    description       TEXT,
-    criteria          VARCHAR(200),
-    recommended_focus TEXT
+
+--
+-- Name: TABLE entity_listings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.entity_listings IS 'Per-platform product listings for tracked entities';
+
+
+--
+-- Name: entity_listings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.entity_listings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: entity_listings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.entity_listings_id_seq OWNED BY public.entity_listings.id;
+
+
+--
+-- Name: line_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.line_items (
+    client_id character varying(20) NOT NULL,
+    line_item_id character varying(30) NOT NULL,
+    order_id character varying(50) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    product_id integer NOT NULL,
+    quantity integer DEFAULT 1 NOT NULL,
+    unit_price_usd numeric(10,2),
+    final_line_total_usd numeric(10,2),
+    item_discount_usd numeric(10,2) DEFAULT 0,
+    item_status character varying(30)
 );
 
--- 15. Value Proposition Master
-CREATE TABLE IF NOT EXISTS value_propositions (
-    vp_id            SERIAL PRIMARY KEY,
-    tier_name        VARCHAR(50)  NOT NULL,
-    risk_level       VARCHAR(30)  NOT NULL,
-    action_type      VARCHAR(100),
-    message_template TEXT,
-    discount_pct     NUMERIC(5,2) DEFAULT 0,
-    channel          VARCHAR(50),
-    priority         INT          DEFAULT 5
+
+--
+-- Name: TABLE line_items; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.line_items IS 'Order line items — one row per product per order';
+
+
+--
+-- Name: message_templates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.message_templates (
+    id character varying(20) NOT NULL,
+    client_id character varying(20) NOT NULL,
+    tier_name character varying(20) NOT NULL,
+    risk_level character varying(20) NOT NULL,
+    discount_pct numeric(5,2) DEFAULT 0,
+    channel character varying(50) DEFAULT 'email'::character varying,
+    action_type character varying(100) DEFAULT ''::character varying,
+    message_template text DEFAULT ''::text,
+    priority integer DEFAULT 5,
+    subject text DEFAULT ''::text,
+    body text DEFAULT ''::text,
+    active boolean DEFAULT true,
+    updated_at timestamp with time zone DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_vp_tier_risk ON value_propositions(tier_name, risk_level);
 
--- ============================================================
--- SECTION 4: ANALYST AGENT TABLES (Churn Pipeline)
--- ============================================================
+--
+-- Name: orders; Type: TABLE; Schema: public; Owner: -
+--
 
--- 16. Customer RFM Features
-CREATE TABLE IF NOT EXISTS customer_rfm_features (
-    client_id               VARCHAR(20) NOT NULL,
-    customer_id             VARCHAR(30) NOT NULL,
-    computed_at             TIMESTAMPTZ DEFAULT NOW(),
-    days_since_last_order   INT,
-    last_order_date         DATE,
-    last_order_status       VARCHAR(30),
-    total_orders            INT DEFAULT 0,
-    orders_last_30d         INT DEFAULT 0,
-    orders_last_90d         INT DEFAULT 0,
-    orders_last_180d        INT DEFAULT 0,
-    avg_orders_per_month    NUMERIC(6,2),
-    order_frequency_trend   VARCHAR(20),
-    total_spend_usd         NUMERIC(12,2) DEFAULT 0,
-    avg_order_value_usd     NUMERIC(10,2),
-    spend_last_90d_usd      NUMERIC(12,2) DEFAULT 0,
-    spend_last_180d_usd     NUMERIC(12,2) DEFAULT 0,
-    ltv_usd                 NUMERIC(12,2),
-    spend_trend             VARCHAR(20),
-    recency_score           SMALLINT,
-    frequency_score         SMALLINT,
-    monetary_score          SMALLINT,
-    rfm_total_score         SMALLINT,
-    rfm_segment             VARCHAR(50),
-    total_items_purchased   INT DEFAULT 0,
-    unique_products_bought  INT DEFAULT 0,
-    top_category            VARCHAR(100),
-    return_rate_pct         NUMERIC(5,2),
-    total_discounts_used    INT DEFAULT 0,
-    total_discount_usd      NUMERIC(10,2) DEFAULT 0,
-    discount_dependency_pct NUMERIC(5,2),
-    account_age_days        INT,
-    customer_tier           VARCHAR(20),
-    PRIMARY KEY (client_id, customer_id)
+CREATE TABLE public.orders (
+    client_id character varying(20) NOT NULL,
+    order_id character varying(50) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    order_date timestamp with time zone,
+    order_status character varying(30),
+    order_value_usd numeric(10,2),
+    discount_usd numeric(10,2) DEFAULT 0,
+    coupon_code character varying(50),
+    payment_method character varying(50),
+    order_item_count integer
 );
 
--- 17. Churn Scores
-CREATE TABLE IF NOT EXISTS churn_scores (
-    score_id               SERIAL PRIMARY KEY,
-    client_id              VARCHAR(20)  NOT NULL,
-    customer_id            VARCHAR(30)  NOT NULL,
-    scored_at              TIMESTAMPTZ  DEFAULT NOW(),
-    churn_probability      NUMERIC(5,4),
-    risk_tier              VARCHAR(10),
-    churn_label_simulated  BOOLEAN      DEFAULT FALSE,
-    driver_1               VARCHAR(100),
-    driver_2               VARCHAR(100),
-    driver_3               VARCHAR(100),
-    model_version          VARCHAR(20)  DEFAULT 'v1.0',
-    batch_run_id           VARCHAR(50),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
+
+--
+-- Name: TABLE orders; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.orders IS 'Order header — one row per order';
+
+
+--
+-- Name: products; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.products (
+    product_id integer NOT NULL,
+    sku character varying(50) NOT NULL,
+    product_name character varying(200) NOT NULL,
+    category_id integer,
+    sub_category_id integer,
+    sub_sub_category_id integer,
+    brand_id integer,
+    product_price_id integer,
+    rating numeric(3,1),
+    active smallint DEFAULT 1,
+    not_available smallint DEFAULT 0,
+    client_id character varying(20) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_churn_scores_customer ON churn_scores(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_churn_scores_tier     ON churn_scores(risk_tier);
-CREATE INDEX IF NOT EXISTS idx_churn_scores_scored   ON churn_scores(scored_at DESC);
 
--- 18. Retention Interventions Log
-CREATE TABLE IF NOT EXISTS retention_interventions (
-    intervention_id      SERIAL PRIMARY KEY,
-    client_id            VARCHAR(20)  NOT NULL,
-    customer_id          VARCHAR(30)  NOT NULL,
-    created_at           TIMESTAMPTZ  DEFAULT NOW(),
-    churn_score_id       INT REFERENCES churn_scores(score_id),
-    churn_probability    NUMERIC(5,4),
-    risk_tier            VARCHAR(10),
-    offer_type           VARCHAR(100),
-    discount_pct         NUMERIC(5,2),
-    offer_message        TEXT,
-    channel              VARCHAR(50),
-    customer_ltv_usd     NUMERIC(12,2),
-    max_allowed_discount NUMERIC(5,2),
-    guardrail_passed     BOOLEAN DEFAULT TRUE,
-    escalated_to_human   BOOLEAN DEFAULT FALSE,
-    offer_status         VARCHAR(20)  DEFAULT 'pending',
-    outcome_recorded_at  TIMESTAMPTZ,
-    revenue_recovered    NUMERIC(10,2),
-    langfuse_trace_id    VARCHAR(100),
-    agent_cost_usd       NUMERIC(8,6)
+--
+-- Name: support_tickets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.support_tickets (
+    client_id character varying(20) NOT NULL,
+    ticket_id character varying(30) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    ticket_type character varying(100),
+    priority character varying(20),
+    status character varying(30),
+    channel character varying(50),
+    opened_date timestamp with time zone,
+    resolved_date timestamp with time zone,
+    resolution_time_hrs numeric(8,2)
 );
 
-CREATE INDEX IF NOT EXISTS idx_interventions_customer ON retention_interventions(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_interventions_status   ON retention_interventions(offer_status);
 
--- ============================================================
--- SECTION 5: CUSTOMER FEEDBACK TABLES
--- ============================================================
+--
+-- Name: TABLE support_tickets; Type: COMMENT; Schema: public; Owner: -
+--
 
--- 19. Customer Reviews
-CREATE TABLE IF NOT EXISTS customer_reviews (
-    client_id    VARCHAR(20)   NOT NULL,
-    review_id    VARCHAR(30)   NOT NULL,
-    customer_id  VARCHAR(30)   NOT NULL,
-    product_id   INT           REFERENCES products(product_id),
-    order_id     VARCHAR(50),
-    rating       SMALLINT      CHECK (rating BETWEEN 1 AND 5),
-    review_text  TEXT,
-    review_date  DATE,
-    sentiment    VARCHAR(20),
-    PRIMARY KEY (client_id, review_id),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
-);
+COMMENT ON TABLE public.support_tickets IS 'Customer support ticket log';
 
-CREATE INDEX IF NOT EXISTS idx_reviews_customer   ON customer_reviews(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_reviews_product    ON customer_reviews(product_id);
-CREATE INDEX IF NOT EXISTS idx_reviews_rating     ON customer_reviews(rating);
-CREATE INDEX IF NOT EXISTS idx_reviews_sentiment  ON customer_reviews(sentiment);
 
--- 20. Support Tickets
-CREATE TABLE IF NOT EXISTS support_tickets (
-    client_id            VARCHAR(20)   NOT NULL,
-    ticket_id            VARCHAR(30)   NOT NULL,
-    customer_id          VARCHAR(30)   NOT NULL,
-    ticket_type          VARCHAR(100),
-    priority             VARCHAR(20),
-    status               VARCHAR(30),
-    channel              VARCHAR(50),
-    opened_date          TIMESTAMPTZ,
-    resolved_date        TIMESTAMPTZ,
-    resolution_time_hrs  NUMERIC(8,2),
-    PRIMARY KEY (client_id, ticket_id),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
-);
+--
+-- Name: vw_subscription_products; Type: VIEW; Schema: public; Owner: -
+--
 
-CREATE INDEX IF NOT EXISTS idx_tickets_customer  ON support_tickets(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_tickets_status    ON support_tickets(status);
-CREATE INDEX IF NOT EXISTS idx_tickets_priority  ON support_tickets(priority);
-CREATE INDEX IF NOT EXISTS idx_tickets_type      ON support_tickets(ticket_type);
-
--- ============================================================
--- SECTION 6: SUBSCRIPTION & OUTREACH TABLES
--- ============================================================
-
--- 21. Customer Purchase Cycles
-CREATE TABLE IF NOT EXISTS customer_purchase_cycles (
-    cycle_id              SERIAL PRIMARY KEY,
-    client_id             VARCHAR(20)   NOT NULL,
-    customer_id           VARCHAR(30)   NOT NULL,
-    product_id            INT           NOT NULL REFERENCES products(product_id),
-    purchase_count        INT           DEFAULT 0,
-    first_purchase_date   DATE,
-    last_purchase_date    DATE,
-    avg_refill_days       NUMERIC(8,1),
-    expected_next_date    DATE,
-    days_overdue          INT,
-    missed_refill_count   INT           DEFAULT 0,
-    is_active_subscriber  BOOLEAN       DEFAULT TRUE,
-    computed_at           TIMESTAMPTZ   DEFAULT NOW(),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id),
-    UNIQUE (client_id, customer_id, product_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_cycles_customer
-    ON customer_purchase_cycles(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_cycles_overdue
-    ON customer_purchase_cycles(days_overdue DESC);
-CREATE INDEX IF NOT EXISTS idx_cycles_expected
-    ON customer_purchase_cycles(expected_next_date);
-
--- 22. Outreach Messages
-CREATE TABLE IF NOT EXISTS outreach_messages (
-    message_id        SERIAL PRIMARY KEY,
-    client_id         VARCHAR(20)   NOT NULL,
-    customer_id       VARCHAR(30)   NOT NULL,
-    product_id        INT           REFERENCES products(product_id),
-    message_type      VARCHAR(50)   NOT NULL,
-    trigger_reason    VARCHAR(200),
-    message_text      TEXT          NOT NULL,
-    channel           VARCHAR(30)   NOT NULL,
-    days_overdue      INT,
-    discount_offered  NUMERIC(5,2),
-    sent_at           TIMESTAMPTZ   DEFAULT NOW(),
-    responded_at      TIMESTAMPTZ,
-    responded         BOOLEAN       DEFAULT FALSE,
-    outcome           VARCHAR(50),
-    revenue_recovered NUMERIC(10,2),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_outreach_customer
-    ON outreach_messages(client_id, customer_id);
-CREATE INDEX IF NOT EXISTS idx_outreach_type
-    ON outreach_messages(message_type);
-CREATE INDEX IF NOT EXISTS idx_outreach_outcome
-    ON outreach_messages(outcome);
-
--- ============================================================
--- SECTION 7: VIEWS
--- ============================================================
-
--- 7a. Subscription Product Detection View
-CREATE OR REPLACE VIEW vw_subscription_products AS
-WITH
-
-keyword_flag AS (
-    SELECT
-        product_id,
-        product_name,
-        CASE WHEN LOWER(product_name) LIKE ANY (ARRAY[
-            '%refill%', '%subscription%', '%monthly%', '%daily%',
-            '%vitamin%', '%supplement%', '%tablet%', '%capsule%',
-            '%mg %', '% mg%', '%dose%', '%pill%', '%softgel%',
-            '%gummy%', '%probiotic%', '%omega%', '%protein%',
-            '%insulin%', '%inhaler%', '%drops%', '%syrup%',
-            '%pack of%', '%count)%', '%supply%'
-        ]) THEN TRUE ELSE FALSE END AS is_subscription_by_name
-    FROM products
-),
-
-repeat_counts AS (
-    SELECT customer_id, product_id, COUNT(*) AS purchase_count
-    FROM line_items
-    GROUP BY customer_id, product_id
-),
-
-purchase_gaps AS (
-    SELECT customer_id, product_id,
-        EXTRACT(DAY FROM order_date - LAG(order_date) OVER (
-            PARTITION BY customer_id, product_id ORDER BY order_date
-        )) AS gap_days
-    FROM (
-        SELECT li.customer_id, li.product_id, o.order_date
-        FROM line_items li
-        JOIN orders o ON li.order_id = o.order_id
-    ) ordered_purchases
-),
-
-avg_gaps AS (
-    SELECT customer_id, product_id,
-        AVG(gap_days) AS avg_gap
-    FROM purchase_gaps
-    WHERE gap_days IS NOT NULL
-    GROUP BY customer_id, product_id
-),
-
-behaviour_flag AS (
-    SELECT
-        li.product_id,
-        COUNT(DISTINCT li.customer_id)                                  AS total_buyers,
-        COUNT(DISTINCT CASE
-            WHEN rc.purchase_count >= 3 THEN li.customer_id END)        AS repeat_buyers,
-        ROUND(AVG(ag.avg_gap)::NUMERIC, 1)                              AS avg_refill_days,
-        ROUND(STDDEV(ag.avg_gap)::NUMERIC, 1)                           AS stddev_refill_days
-    FROM line_items li
-    LEFT JOIN repeat_counts rc
-           ON li.customer_id = rc.customer_id
-          AND li.product_id  = rc.product_id
-    LEFT JOIN avg_gaps ag
-           ON li.customer_id = ag.customer_id
-          AND li.product_id  = ag.product_id
-    GROUP BY li.product_id
-),
-
-combined AS (
-    SELECT
-        p.product_id,
-        p.product_name,
-        p.category_id,
-        kf.is_subscription_by_name,
-        COALESCE(bf.repeat_buyers, 0)       AS repeat_buyers,
-        COALESCE(bf.total_buyers, 0)        AS total_buyers,
-        COALESCE(bf.avg_refill_days, 0)     AS avg_refill_days,
-        COALESCE(bf.stddev_refill_days, 0)  AS stddev_refill_days,
-        CASE WHEN bf.total_buyers > 0
-              AND (bf.repeat_buyers * 1.0 / bf.total_buyers) >= 0.30
-              AND COALESCE(bf.stddev_refill_days, 999) < 15
-             THEN TRUE ELSE FALSE END       AS is_subscription_by_behaviour
-    FROM products p
-    LEFT JOIN keyword_flag   kf ON p.product_id = kf.product_id
-    LEFT JOIN behaviour_flag bf ON p.product_id = bf.product_id
-)
-
-SELECT
-    product_id,
+CREATE VIEW public.vw_subscription_products AS
+ WITH keyword_flag AS (
+         SELECT products.product_id,
+            products.product_name,
+                CASE
+                    WHEN (lower((products.product_name)::text) ~~ ANY (ARRAY['%refill%'::text, '%subscription%'::text, '%monthly%'::text, '%daily%'::text, '%vitamin%'::text, '%supplement%'::text, '%tablet%'::text, '%capsule%'::text, '%mg %'::text, '% mg%'::text, '%dose%'::text, '%pill%'::text, '%softgel%'::text, '%gummy%'::text, '%probiotic%'::text, '%omega%'::text, '%protein%'::text, '%insulin%'::text, '%inhaler%'::text, '%drops%'::text, '%syrup%'::text, '%pack of%'::text, '%count)%'::text, '%supply%'::text])) THEN true
+                    ELSE false
+                END AS is_subscription_by_name
+           FROM public.products
+        ), repeat_counts AS (
+         SELECT line_items.customer_id,
+            line_items.product_id,
+            count(*) AS purchase_count
+           FROM public.line_items
+          GROUP BY line_items.customer_id, line_items.product_id
+        ), purchase_gaps AS (
+         SELECT ordered_purchases.customer_id,
+            ordered_purchases.product_id,
+            EXTRACT(day FROM (ordered_purchases.order_date - lag(ordered_purchases.order_date) OVER (PARTITION BY ordered_purchases.customer_id, ordered_purchases.product_id ORDER BY ordered_purchases.order_date))) AS gap_days
+           FROM ( SELECT li.customer_id,
+                    li.product_id,
+                    o.order_date
+                   FROM (public.line_items li
+                     JOIN public.orders o ON ((((li.client_id)::text = (o.client_id)::text) AND ((li.order_id)::text = (o.order_id)::text))))) ordered_purchases
+        ), avg_gaps AS (
+         SELECT purchase_gaps.customer_id,
+            purchase_gaps.product_id,
+            avg(purchase_gaps.gap_days) AS avg_gap
+           FROM purchase_gaps
+          WHERE (purchase_gaps.gap_days IS NOT NULL)
+          GROUP BY purchase_gaps.customer_id, purchase_gaps.product_id
+        ), behaviour_flag AS (
+         SELECT li.product_id,
+            count(DISTINCT li.customer_id) AS total_buyers,
+            count(DISTINCT
+                CASE
+                    WHEN (rc.purchase_count >= 3) THEN li.customer_id
+                    ELSE NULL::character varying
+                END) AS repeat_buyers,
+            round(avg(ag.avg_gap), 1) AS avg_refill_days,
+            round(stddev(ag.avg_gap), 1) AS stddev_refill_days
+           FROM ((public.line_items li
+             LEFT JOIN repeat_counts rc ON ((((li.customer_id)::text = (rc.customer_id)::text) AND (li.product_id = rc.product_id))))
+             LEFT JOIN avg_gaps ag ON ((((li.customer_id)::text = (ag.customer_id)::text) AND (li.product_id = ag.product_id))))
+          GROUP BY li.product_id
+        ), combined AS (
+         SELECT p.product_id,
+            p.product_name,
+            p.category_id,
+            kf.is_subscription_by_name,
+            COALESCE(bf.repeat_buyers, (0)::bigint) AS repeat_buyers,
+            COALESCE(bf.total_buyers, (0)::bigint) AS total_buyers,
+            COALESCE(bf.avg_refill_days, (0)::numeric) AS avg_refill_days,
+            COALESCE(bf.stddev_refill_days, (0)::numeric) AS stddev_refill_days,
+                CASE
+                    WHEN ((bf.total_buyers > 0) AND ((((bf.repeat_buyers)::numeric * 1.0) / (bf.total_buyers)::numeric) >= 0.30) AND (COALESCE(bf.stddev_refill_days, (999)::numeric) < (15)::numeric)) THEN true
+                    ELSE false
+                END AS is_subscription_by_behaviour
+           FROM ((public.products p
+             LEFT JOIN keyword_flag kf ON ((p.product_id = kf.product_id)))
+             LEFT JOIN behaviour_flag bf ON ((p.product_id = bf.product_id)))
+        )
+ SELECT product_id,
     product_name,
     category_id,
     is_subscription_by_name,
@@ -519,18 +648,781 @@ SELECT
     repeat_buyers,
     total_buyers,
     (is_subscription_by_name OR is_subscription_by_behaviour) AS is_subscription_product,
-    CASE
-        WHEN is_subscription_by_name AND is_subscription_by_behaviour THEN 'both'
-        WHEN is_subscription_by_name                                   THEN 'keyword'
-        WHEN is_subscription_by_behaviour                              THEN 'behaviour'
-        ELSE 'none'
-    END AS detection_source
-FROM combined;
+        CASE
+            WHEN (is_subscription_by_name AND is_subscription_by_behaviour) THEN 'both'::text
+            WHEN is_subscription_by_name THEN 'keyword'::text
+            WHEN is_subscription_by_behaviour THEN 'behaviour'::text
+            ELSE 'none'::text
+        END AS detection_source
+   FROM combined;
 
--- 7b. Customer 360 View
-CREATE OR REPLACE VIEW vw_customer_360 AS
-SELECT
-    c.client_id,
+
+--
+-- Name: mv_customer_features; Type: MATERIALIZED VIEW; Schema: public; Owner: -
+--
+
+CREATE MATERIALIZED VIEW public.mv_customer_features AS
+ WITH client_ref AS (
+         SELECT client_config.client_id,
+            client_config.churn_window_days,
+            client_config.min_repeat_orders,
+            client_config.high_value_percentile,
+            client_config.recent_order_gap_window,
+            client_config.tier_method,
+            client_config.custom_platinum_min,
+            client_config.custom_gold_min,
+            client_config.custom_silver_min,
+            client_config.custom_bronze_min,
+                CASE
+                    WHEN (((client_config.reference_date_mode)::text = 'fixed'::text) AND (client_config.reference_date IS NOT NULL)) THEN (client_config.reference_date)::timestamp with time zone
+                    ELSE now()
+                END AS ref_date
+           FROM public.client_config
+        ), order_agg AS (
+         SELECT o.client_id,
+            o.customer_id,
+            count(*) AS total_orders,
+            min(o.order_date) AS first_order_date,
+            max(o.order_date) AS last_order_date,
+            (EXTRACT(day FROM (cr_1.ref_date - max(o.order_date))))::integer AS days_since_last_order,
+            sum(o.order_value_usd) AS total_spend_usd,
+            round(avg(o.order_value_usd), 2) AS avg_order_value_usd,
+            max(o.order_value_usd) AS max_order_value_usd,
+            COALESCE(sum(o.discount_usd), (0)::numeric) AS total_discount_usd,
+            sum(
+                CASE
+                    WHEN (o.order_date >= (cr_1.ref_date - '30 days'::interval)) THEN o.order_value_usd
+                    ELSE (0)::numeric
+                END) AS spend_last_30d_usd,
+            sum(
+                CASE
+                    WHEN (o.order_date >= (cr_1.ref_date - '90 days'::interval)) THEN o.order_value_usd
+                    ELSE (0)::numeric
+                END) AS spend_last_90d_usd,
+            sum(
+                CASE
+                    WHEN (o.order_date >= (cr_1.ref_date - '180 days'::interval)) THEN o.order_value_usd
+                    ELSE (0)::numeric
+                END) AS spend_last_180d_usd,
+            count(
+                CASE
+                    WHEN (o.order_date >= (cr_1.ref_date - '30 days'::interval)) THEN 1
+                    ELSE NULL::integer
+                END) AS orders_last_30d,
+            count(
+                CASE
+                    WHEN (o.order_date >= (cr_1.ref_date - '90 days'::interval)) THEN 1
+                    ELSE NULL::integer
+                END) AS orders_last_90d,
+            count(
+                CASE
+                    WHEN (o.order_date >= (cr_1.ref_date - '180 days'::interval)) THEN 1
+                    ELSE NULL::integer
+                END) AS orders_last_180d,
+            count(
+                CASE
+                    WHEN (o.discount_usd > (0)::numeric) THEN 1
+                    ELSE NULL::integer
+                END) AS orders_with_discount
+           FROM (public.orders o
+             JOIN client_ref cr_1 ON (((o.client_id)::text = (cr_1.client_id)::text)))
+          WHERE ((o.order_status)::text <> 'Cancelled'::text)
+          GROUP BY o.client_id, o.customer_id, cr_1.ref_date
+        ), order_gaps AS (
+         SELECT gaps.client_id,
+            gaps.customer_id,
+            round(avg(gaps.gap_days), 1) AS avg_days_between_orders,
+            round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((gaps.gap_days)::double precision)))::numeric, 1) AS median_days_between_orders
+           FROM ( SELECT orders.client_id,
+                    orders.customer_id,
+                    EXTRACT(day FROM (orders.order_date - lag(orders.order_date) OVER (PARTITION BY orders.client_id, orders.customer_id ORDER BY orders.order_date))) AS gap_days
+                   FROM public.orders
+                  WHERE ((orders.order_status)::text <> 'Cancelled'::text)) gaps
+          WHERE (gaps.gap_days IS NOT NULL)
+          GROUP BY gaps.client_id, gaps.customer_id
+        ), line_agg AS (
+         SELECT li.client_id,
+            li.customer_id,
+            count(DISTINCT li.product_id) AS unique_products_purchased,
+            round(avg(li.quantity), 2) AS avg_items_per_order,
+            round((((count(
+                CASE
+                    WHEN ((li.item_status)::text = 'Returned'::text) THEN 1
+                    ELSE NULL::integer
+                END))::numeric * 100.0) / (NULLIF(count(*), 0))::numeric), 1) AS return_rate_pct
+           FROM public.line_items li
+          GROUP BY li.client_id, li.customer_id
+        ), cat_agg AS (
+         SELECT li.client_id,
+            li.customer_id,
+            count(DISTINCT p.category_id) AS unique_categories_purchased
+           FROM (public.line_items li
+             JOIN public.products p ON ((((li.client_id)::text = (p.client_id)::text) AND (li.product_id = p.product_id))))
+          GROUP BY li.client_id, li.customer_id
+        ), review_agg AS (
+         SELECT r.client_id,
+            r.customer_id,
+            count(*) AS total_reviews,
+            round(avg(r.rating), 2) AS avg_rating,
+            round((((count(
+                CASE
+                    WHEN ((r.sentiment)::text = 'positive'::text) THEN 1
+                    ELSE NULL::integer
+                END))::numeric * 100.0) / (NULLIF(count(*), 0))::numeric), 1) AS pct_positive_reviews,
+            round((((count(
+                CASE
+                    WHEN ((r.sentiment)::text = 'negative'::text) THEN 1
+                    ELSE NULL::integer
+                END))::numeric * 100.0) / (NULLIF(count(*), 0))::numeric), 1) AS pct_negative_reviews,
+            max(r.review_date) AS last_review_date,
+            (EXTRACT(day FROM (cr_1.ref_date - max((r.review_date)::timestamp with time zone))))::integer AS days_since_last_review
+           FROM (public.customer_reviews r
+             JOIN client_ref cr_1 ON (((r.client_id)::text = (cr_1.client_id)::text)))
+          GROUP BY r.client_id, r.customer_id, cr_1.ref_date
+        ), ticket_agg AS (
+         SELECT t.client_id,
+            t.customer_id,
+            count(*) AS total_tickets,
+            count(
+                CASE
+                    WHEN (lower((t.status)::text) = 'open'::text) THEN 1
+                    ELSE NULL::integer
+                END) AS open_tickets,
+            count(
+                CASE
+                    WHEN (lower((t.priority)::text) = 'critical'::text) THEN 1
+                    ELSE NULL::integer
+                END) AS critical_tickets,
+            round(avg(t.resolution_time_hrs), 1) AS avg_resolution_time_hrs,
+            round((((count(
+                CASE
+                    WHEN (lower((t.status)::text) = 'resolved'::text) THEN 1
+                    ELSE NULL::integer
+                END))::numeric * 100.0) / (NULLIF(count(*), 0))::numeric), 1) AS pct_tickets_resolved
+           FROM public.support_tickets t
+          GROUP BY t.client_id, t.customer_id
+        ), rfm_scored AS (
+         SELECT order_agg.client_id,
+            order_agg.customer_id,
+            (6 - ntile(5) OVER (PARTITION BY order_agg.client_id ORDER BY order_agg.days_since_last_order)) AS rfm_recency_score,
+            ntile(5) OVER (PARTITION BY order_agg.client_id ORDER BY order_agg.total_orders) AS rfm_frequency_score,
+            ntile(5) OVER (PARTITION BY order_agg.client_id ORDER BY order_agg.total_spend_usd) AS rfm_monetary_score
+           FROM order_agg
+        ), last_purchase_per_product AS (
+         SELECT li.client_id,
+            li.customer_id,
+            li.product_id,
+            max(o.order_date) AS last_purchase_date
+           FROM (public.line_items li
+             JOIN public.orders o ON ((((li.client_id)::text = (o.client_id)::text) AND ((li.order_id)::text = (o.order_id)::text))))
+          WHERE ((o.order_status)::text <> 'Cancelled'::text)
+          GROUP BY li.client_id, li.customer_id, li.product_id
+        ), subscription_agg AS (
+         SELECT lp.client_id,
+            lp.customer_id,
+            count(DISTINCT lp.product_id) AS subscription_product_count,
+            round(avg(sp.avg_refill_days), 1) AS avg_refill_cycle_days,
+            (max(EXTRACT(day FROM (cr_1.ref_date - (lp.last_purchase_date + (((sp.avg_refill_days)::text || ' days'::text))::interval)))))::integer AS days_overdue_for_refill,
+            sum(
+                CASE
+                    WHEN (EXTRACT(day FROM (cr_1.ref_date - lp.last_purchase_date)) > (sp.avg_refill_days * 1.5)) THEN 1
+                    ELSE 0
+                END) AS missed_refill_count
+           FROM ((last_purchase_per_product lp
+             JOIN public.vw_subscription_products sp ON (((lp.product_id = sp.product_id) AND (sp.is_subscription_product = true))))
+             JOIN client_ref cr_1 ON (((lp.client_id)::text = (cr_1.client_id)::text)))
+          GROUP BY lp.client_id, lp.customer_id, cr_1.ref_date
+        ), repeat_flag AS (
+         SELECT oa_1.client_id,
+            oa_1.customer_id,
+                CASE
+                    WHEN (oa_1.total_orders >= cr_1.min_repeat_orders) THEN 1
+                    ELSE 0
+                END AS is_repeat_customer
+           FROM (order_agg oa_1
+             JOIN client_ref cr_1 ON (((oa_1.client_id)::text = (cr_1.client_id)::text)))
+        ), recent_gaps AS (
+         SELECT ranked.client_id,
+            ranked.customer_id,
+            round(avg(ranked.gap_days), 1) AS recent_avg_gap_days
+           FROM ( SELECT g.client_id,
+                    g.customer_id,
+                    g.gap_days,
+                    row_number() OVER (PARTITION BY g.client_id, g.customer_id ORDER BY g.order_date DESC) AS rn,
+                    cr_1.recent_order_gap_window
+                   FROM (( SELECT orders.client_id,
+                            orders.customer_id,
+                            orders.order_date,
+                            EXTRACT(day FROM (orders.order_date - lag(orders.order_date) OVER (PARTITION BY orders.client_id, orders.customer_id ORDER BY orders.order_date))) AS gap_days
+                           FROM public.orders
+                          WHERE ((orders.order_status)::text <> 'Cancelled'::text)) g
+                     JOIN client_ref cr_1 ON (((g.client_id)::text = (cr_1.client_id)::text)))
+                  WHERE (g.gap_days IS NOT NULL)) ranked
+          WHERE (ranked.rn <= ranked.recent_order_gap_window)
+          GROUP BY ranked.client_id, ranked.customer_id
+        ), spend_percentiles AS (
+         SELECT oa_1.client_id,
+            oa_1.customer_id,
+            oa_1.total_spend_usd,
+            (percent_rank() OVER (PARTITION BY oa_1.client_id ORDER BY oa_1.total_spend_usd) * (100)::double precision) AS spend_pct_rank
+           FROM order_agg oa_1
+        ), tier_assignment AS (
+         SELECT sp.client_id,
+            sp.customer_id,
+                CASE
+                    WHEN ((cr_1.tier_method)::text = 'quartile'::text) THEN
+                    CASE
+                        WHEN (sp.spend_pct_rank >= (cr_1.high_value_percentile)::double precision) THEN 'Platinum'::text
+                        WHEN (sp.spend_pct_rank >= (50)::double precision) THEN 'Gold'::text
+                        WHEN (sp.spend_pct_rank >= (25)::double precision) THEN 'Silver'::text
+                        ELSE 'Bronze'::text
+                    END
+                    ELSE
+                    CASE
+                        WHEN (sp.total_spend_usd >= cr_1.custom_platinum_min) THEN 'Platinum'::text
+                        WHEN (sp.total_spend_usd >= cr_1.custom_gold_min) THEN 'Gold'::text
+                        WHEN (sp.total_spend_usd >= cr_1.custom_silver_min) THEN 'Silver'::text
+                        ELSE 'Bronze'::text
+                    END
+                END AS customer_tier,
+                CASE
+                    WHEN (((cr_1.tier_method)::text = 'quartile'::text) AND (sp.spend_pct_rank >= (cr_1.high_value_percentile)::double precision)) THEN 1
+                    WHEN (((cr_1.tier_method)::text <> 'quartile'::text) AND (sp.total_spend_usd >= cr_1.custom_platinum_min)) THEN 1
+                    ELSE 0
+                END AS is_high_value
+           FROM (spend_percentiles sp
+             JOIN client_ref cr_1 ON (((sp.client_id)::text = (cr_1.client_id)::text)))
+        )
+ SELECT c.client_id,
+    c.customer_id,
+    (EXTRACT(day FROM (cr.ref_date - (c.account_created_date)::timestamp with time zone)))::integer AS account_age_days,
+    oa.first_order_date,
+    oa.last_order_date,
+    oa.days_since_last_order,
+    oa.total_orders,
+    oa.orders_last_30d,
+    oa.orders_last_90d,
+    oa.orders_last_180d,
+    COALESCE(og.avg_days_between_orders, (0)::numeric) AS avg_days_between_orders,
+    COALESCE(og.median_days_between_orders, (0)::numeric) AS median_days_between_orders,
+    round(abs((COALESCE(og.avg_days_between_orders, (0)::numeric) - COALESCE(og.median_days_between_orders, (0)::numeric))), 1) AS order_gap_mean_median_diff,
+    COALESCE(rg.recent_avg_gap_days, (0)::numeric) AS recent_avg_gap_days,
+    oa.total_spend_usd,
+    oa.avg_order_value_usd,
+    oa.max_order_value_usd,
+    oa.spend_last_30d_usd,
+    oa.spend_last_90d_usd,
+    oa.spend_last_180d_usd,
+    oa.total_discount_usd,
+    round(((oa.total_discount_usd * 100.0) / NULLIF((oa.total_spend_usd + oa.total_discount_usd), (0)::numeric)), 2) AS discount_rate_pct,
+    oa.orders_with_discount,
+    COALESCE(la.unique_products_purchased, (0)::bigint) AS unique_products_purchased,
+    COALESCE(ca.unique_categories_purchased, (0)::bigint) AS unique_categories_purchased,
+    COALESCE(la.avg_items_per_order, (0)::numeric) AS avg_items_per_order,
+    COALESCE(la.return_rate_pct, (0)::numeric) AS return_rate_pct,
+    COALESCE(ra.total_reviews, (0)::bigint) AS total_reviews,
+    COALESCE(ra.avg_rating, (0)::numeric) AS avg_rating,
+    COALESCE(ra.pct_positive_reviews, (0)::numeric) AS pct_positive_reviews,
+    COALESCE(ra.pct_negative_reviews, (0)::numeric) AS pct_negative_reviews,
+    ra.last_review_date,
+    COALESCE(ra.days_since_last_review, 9999) AS days_since_last_review,
+    COALESCE(ta.total_tickets, (0)::bigint) AS total_tickets,
+    COALESCE(ta.open_tickets, (0)::bigint) AS open_tickets,
+    COALESCE(ta.critical_tickets, (0)::bigint) AS critical_tickets,
+    COALESCE(ta.avg_resolution_time_hrs, (0)::numeric) AS avg_resolution_time_hrs,
+    COALESCE(ta.pct_tickets_resolved, (0)::numeric) AS pct_tickets_resolved,
+    oa.total_spend_usd AS ltv_usd,
+    rf.rfm_recency_score,
+    rf.rfm_frequency_score,
+    rf.rfm_monetary_score,
+    ((rf.rfm_recency_score + rf.rfm_frequency_score) + rf.rfm_monetary_score) AS rfm_total_score,
+    COALESCE(rpf.is_repeat_customer, 0) AS is_repeat_customer,
+    COALESCE(ta2.customer_tier, 'Bronze'::text) AS customer_tier,
+    COALESCE(ta2.is_high_value, 0) AS is_high_value,
+    COALESCE(sa.subscription_product_count, (0)::bigint) AS subscription_product_count,
+    COALESCE(sa.avg_refill_cycle_days, (0)::numeric) AS avg_refill_cycle_days,
+    COALESCE(sa.days_overdue_for_refill, 0) AS days_overdue_for_refill,
+    COALESCE(sa.missed_refill_count, (0)::bigint) AS missed_refill_count,
+        CASE
+            WHEN (oa.days_since_last_order >= cr.churn_window_days) THEN 1
+            ELSE 0
+        END AS churn_label,
+    cr.ref_date AS computed_at
+   FROM ((((((((((((public.customers c
+     JOIN client_ref cr ON (((c.client_id)::text = (cr.client_id)::text)))
+     JOIN order_agg oa ON ((((c.client_id)::text = (oa.client_id)::text) AND ((c.customer_id)::text = (oa.customer_id)::text))))
+     JOIN rfm_scored rf ON ((((c.client_id)::text = (rf.client_id)::text) AND ((c.customer_id)::text = (rf.customer_id)::text))))
+     LEFT JOIN order_gaps og ON ((((c.client_id)::text = (og.client_id)::text) AND ((c.customer_id)::text = (og.customer_id)::text))))
+     LEFT JOIN recent_gaps rg ON ((((c.client_id)::text = (rg.client_id)::text) AND ((c.customer_id)::text = (rg.customer_id)::text))))
+     LEFT JOIN line_agg la ON ((((c.client_id)::text = (la.client_id)::text) AND ((c.customer_id)::text = (la.customer_id)::text))))
+     LEFT JOIN cat_agg ca ON ((((c.client_id)::text = (ca.client_id)::text) AND ((c.customer_id)::text = (ca.customer_id)::text))))
+     LEFT JOIN review_agg ra ON ((((c.client_id)::text = (ra.client_id)::text) AND ((c.customer_id)::text = (ra.customer_id)::text))))
+     LEFT JOIN ticket_agg ta ON ((((c.client_id)::text = (ta.client_id)::text) AND ((c.customer_id)::text = (ta.customer_id)::text))))
+     LEFT JOIN repeat_flag rpf ON ((((c.client_id)::text = (rpf.client_id)::text) AND ((c.customer_id)::text = (rpf.customer_id)::text))))
+     LEFT JOIN tier_assignment ta2 ON ((((c.client_id)::text = (ta2.client_id)::text) AND ((c.customer_id)::text = (ta2.customer_id)::text))))
+     LEFT JOIN subscription_agg sa ON ((((c.client_id)::text = (sa.client_id)::text) AND ((c.customer_id)::text = (sa.customer_id)::text))))
+  WITH NO DATA;
+
+
+--
+-- Name: outreach_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.outreach_messages (
+    message_id integer NOT NULL,
+    client_id character varying(20) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    product_id integer,
+    message_type character varying(50) NOT NULL,
+    trigger_reason character varying(200),
+    message_text text NOT NULL,
+    channel character varying(30) NOT NULL,
+    days_overdue integer,
+    discount_offered numeric(5,2),
+    sent_at timestamp with time zone DEFAULT now(),
+    responded_at timestamp with time zone,
+    responded boolean DEFAULT false,
+    outcome character varying(50),
+    revenue_recovered numeric(10,2)
+);
+
+
+--
+-- Name: TABLE outreach_messages; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.outreach_messages IS 'Personalised messages sent on churn/refill triggers';
+
+
+--
+-- Name: outreach_messages_message_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.outreach_messages_message_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: outreach_messages_message_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.outreach_messages_message_id_seq OWNED BY public.outreach_messages.message_id;
+
+
+--
+-- Name: pipeline_outputs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pipeline_outputs (
+    id integer NOT NULL,
+    client_id character varying(20) DEFAULT 'CLT-001'::character varying NOT NULL,
+    filename character varying(255) NOT NULL,
+    title character varying(255),
+    icon character varying(10) DEFAULT '📄'::character varying,
+    description text,
+    category character varying(50) DEFAULT 'other'::character varying,
+    mime_type character varying(100) DEFAULT 'application/octet-stream'::character varying,
+    file_size integer DEFAULT 0,
+    file_content bytea NOT NULL,
+    pipeline_run_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: pipeline_outputs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pipeline_outputs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pipeline_outputs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pipeline_outputs_id_seq OWNED BY public.pipeline_outputs.id;
+
+
+--
+-- Name: price_alerts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.price_alerts (
+    id integer NOT NULL,
+    product_name text NOT NULL,
+    platform text NOT NULL,
+    old_price numeric(10,2),
+    new_price numeric(10,2) NOT NULL,
+    change_amount numeric(10,2),
+    change_percent numeric(6,2),
+    direction text NOT NULL,
+    url text,
+    detected_at timestamp with time zone DEFAULT now() NOT NULL,
+    acknowledged boolean DEFAULT false NOT NULL
+);
+
+
+--
+-- Name: TABLE price_alerts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.price_alerts IS 'Automated price change notifications';
+
+
+--
+-- Name: price_alerts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.price_alerts_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: price_alerts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.price_alerts_id_seq OWNED BY public.price_alerts.id;
+
+
+--
+-- Name: price_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.price_history (
+    id integer NOT NULL,
+    product_name text NOT NULL,
+    platform text NOT NULL,
+    price numeric(10,2) NOT NULL,
+    currency text DEFAULT 'INR'::text NOT NULL,
+    url text,
+    scraped_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE price_history; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.price_history IS 'Historical price snapshots for trend analysis';
+
+
+--
+-- Name: price_history_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.price_history_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: price_history_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.price_history_id_seq OWNED BY public.price_history.id;
+
+
+--
+-- Name: product_features; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.product_features (
+    id integer NOT NULL,
+    product_name text NOT NULL,
+    platform text NOT NULL,
+    category text,
+    product_feats jsonb,
+    platform_feats jsonb,
+    extracted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE product_features; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.product_features IS 'Extracted product attributes and platform features';
+
+
+--
+-- Name: product_features_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.product_features_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: product_features_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.product_features_id_seq OWNED BY public.product_features.id;
+
+
+--
+-- Name: product_prices; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.product_prices (
+    price_id integer NOT NULL,
+    product_id integer NOT NULL,
+    qty_range_label character varying(50),
+    qty_min integer NOT NULL,
+    qty_max integer,
+    unit_price_usd numeric(10,2) NOT NULL,
+    cost_price_usd numeric(10,2),
+    client_id character varying(20) NOT NULL
+);
+
+
+--
+-- Name: product_results; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.product_results (
+    id integer NOT NULL,
+    product_name text NOT NULL,
+    scraped_at timestamp with time zone DEFAULT now() NOT NULL,
+    product_url text,
+    price double precision,
+    platform text,
+    product_details jsonb,
+    title text
+);
+
+
+--
+-- Name: TABLE product_results; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.product_results IS 'Raw scraped search results from tracked platforms';
+
+
+--
+-- Name: product_results_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.product_results_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: product_results_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.product_results_id_seq OWNED BY public.product_results.id;
+
+
+--
+-- Name: product_vendor_mapping; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.product_vendor_mapping (
+    pv_id integer NOT NULL,
+    product_id integer NOT NULL,
+    brand_id integer,
+    vendor_id integer,
+    client_id character varying(20) NOT NULL
+);
+
+
+--
+-- Name: retention_interventions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.retention_interventions (
+    intervention_id integer NOT NULL,
+    client_id character varying(20) NOT NULL,
+    customer_id character varying(30) NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    churn_score_id integer,
+    churn_probability numeric(5,4),
+    risk_tier character varying(10),
+    offer_type character varying(100),
+    discount_pct numeric(5,2),
+    offer_message text,
+    channel character varying(50),
+    customer_ltv_usd numeric(12,2),
+    max_allowed_discount numeric(5,2),
+    guardrail_passed boolean DEFAULT true,
+    escalated_to_human boolean DEFAULT false,
+    offer_status character varying(20) DEFAULT 'pending'::character varying,
+    outcome_recorded_at timestamp with time zone,
+    revenue_recovered numeric(10,2),
+    langfuse_trace_id character varying(100),
+    agent_cost_usd numeric(8,6)
+);
+
+
+--
+-- Name: TABLE retention_interventions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.retention_interventions IS 'Log of all retention offers sent by the AI agent';
+
+
+--
+-- Name: retention_interventions_intervention_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.retention_interventions_intervention_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: retention_interventions_intervention_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.retention_interventions_intervention_id_seq OWNED BY public.retention_interventions.intervention_id;
+
+
+--
+-- Name: sub_categories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sub_categories (
+    sub_category_id integer NOT NULL,
+    sub_category_name character varying(100) NOT NULL,
+    category_id integer NOT NULL,
+    client_id character varying(20) NOT NULL
+);
+
+
+--
+-- Name: sub_sub_categories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sub_sub_categories (
+    sub_sub_category_id integer NOT NULL,
+    sub_sub_category_name character varying(150) NOT NULL,
+    sub_category_id integer NOT NULL,
+    category_id integer NOT NULL,
+    client_id character varying(20) NOT NULL
+);
+
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.users (
+    user_id character varying(30) NOT NULL,
+    email character varying(150) NOT NULL,
+    password_hash character varying(255) NOT NULL,
+    name character varying(100) NOT NULL,
+    role character varying(20) DEFAULT 'client_user'::character varying NOT NULL,
+    client_access text[] DEFAULT '{}'::text[] NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_login timestamp with time zone
+);
+
+
+--
+-- Name: value_propositions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.value_propositions (
+    vp_id integer NOT NULL,
+    tier_name character varying(50) NOT NULL,
+    risk_level character varying(30) NOT NULL,
+    action_type character varying(100),
+    message_template text,
+    discount_pct numeric(5,2) DEFAULT 0,
+    channel character varying(50),
+    priority integer DEFAULT 5
+);
+
+
+--
+-- Name: value_propositions_vp_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.value_propositions_vp_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: value_propositions_vp_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.value_propositions_vp_id_seq OWNED BY public.value_propositions.vp_id;
+
+
+--
+-- Name: value_tiers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.value_tiers (
+    tier_id character varying(10) NOT NULL,
+    tier_name character varying(50) NOT NULL,
+    threshold_type character varying(20),
+    threshold_value numeric(10,2),
+    description text,
+    benefits text
+);
+
+
+--
+-- Name: vendors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vendors (
+    vendor_id integer NOT NULL,
+    vendor_name character varying(150) NOT NULL,
+    vendor_description text,
+    vendor_contact_no character varying(30),
+    vendor_address text,
+    vendor_email character varying(150),
+    client_id character varying(20) NOT NULL
+);
+
+
+--
+-- Name: vw_customer_360; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vw_customer_360 AS
+ SELECT c.client_id,
     c.customer_id,
     c.customer_name,
     c.customer_email,
@@ -560,530 +1452,1041 @@ SELECT
     cs.driver_2,
     cs.driver_3,
     cs.scored_at AS last_scored_at
-FROM customers c
-LEFT JOIN customer_rfm_features r
-    ON c.client_id = r.client_id AND c.customer_id = r.customer_id
-LEFT JOIN LATERAL (
-    SELECT * FROM churn_scores s
-    WHERE s.client_id = c.client_id AND s.customer_id = c.customer_id
-    ORDER BY s.scored_at DESC LIMIT 1
-) cs ON TRUE;
+   FROM ((public.customers c
+     LEFT JOIN public.customer_rfm_features r ON ((((c.client_id)::text = (r.client_id)::text) AND ((c.customer_id)::text = (r.customer_id)::text))))
+     LEFT JOIN LATERAL ( SELECT s.score_id,
+            s.client_id,
+            s.customer_id,
+            s.scored_at,
+            s.churn_probability,
+            s.risk_tier,
+            s.churn_label_simulated,
+            s.driver_1,
+            s.driver_2,
+            s.driver_3,
+            s.model_version,
+            s.batch_run_id
+           FROM public.churn_scores s
+          WHERE (((s.client_id)::text = (c.client_id)::text) AND ((s.customer_id)::text = (c.customer_id)::text))
+          ORDER BY s.scored_at DESC
+         LIMIT 1) cs ON (true));
 
--- 7c. At-Risk Customers View
-CREATE OR REPLACE VIEW vw_at_risk_customers AS
-SELECT * FROM vw_customer_360
-WHERE risk_tier IN ('HIGH', 'MEDIUM')
-ORDER BY churn_probability DESC;
 
--- 7d. Customer Order Summary View
-CREATE OR REPLACE VIEW vw_customer_order_summary AS
-SELECT
-    o.client_id,
-    o.customer_id,
-    COUNT(o.order_id)                                                          AS total_orders,
-    SUM(o.order_value_usd)                                                     AS total_spend_usd,
-    AVG(o.order_value_usd)                                                     AS avg_order_value_usd,
-    MIN(o.order_date)                                                          AS first_order_date,
-    MAX(o.order_date)                                                          AS last_order_date,
-    EXTRACT(DAY FROM NOW() - MAX(o.order_date))                                AS days_since_last_order,
-    SUM(CASE WHEN o.order_date >= NOW() - INTERVAL '30 days'  THEN 1 ELSE 0 END) AS orders_last_30d,
-    SUM(CASE WHEN o.order_date >= NOW() - INTERVAL '90 days'  THEN 1 ELSE 0 END) AS orders_last_90d,
-    SUM(CASE WHEN o.order_date >= NOW() - INTERVAL '90 days'  THEN o.order_value_usd ELSE 0 END) AS spend_last_90d_usd,
-    SUM(o.discount_usd)                                                        AS total_discounts_usd,
-    COUNT(CASE WHEN o.discount_usd > 0 THEN 1 END)                            AS orders_with_discount
-FROM orders o
-WHERE o.order_status NOT IN ('Cancelled')
-GROUP BY o.client_id, o.customer_id;
+--
+-- Name: vw_at_risk_customers; Type: VIEW; Schema: public; Owner: -
+--
 
--- ============================================================
--- SECTION 8: MATERIALIZED VIEW — 52-Column Feature Matrix
--- ============================================================
--- All time-based and threshold features read dynamically from
--- client_config so the pipeline respects the Settings UI.
--- ============================================================
+CREATE VIEW public.vw_at_risk_customers AS
+ SELECT client_id,
+    customer_id,
+    customer_name,
+    customer_email,
+    customer_phone,
+    account_created_date,
+    registration_channel,
+    state,
+    city,
+    preferred_device,
+    email_opt_in,
+    sms_opt_in,
+    days_since_last_order,
+    last_order_date,
+    total_orders,
+    orders_last_90d,
+    avg_order_value_usd,
+    total_spend_usd,
+    ltv_usd,
+    rfm_total_score,
+    rfm_segment,
+    customer_tier,
+    return_rate_pct,
+    account_age_days,
+    churn_probability,
+    risk_tier,
+    driver_1,
+    driver_2,
+    driver_3,
+    last_scored_at
+   FROM public.vw_customer_360
+  WHERE ((risk_tier)::text = ANY ((ARRAY['HIGH'::character varying, 'MEDIUM'::character varying])::text[]))
+  ORDER BY churn_probability DESC;
 
-DROP MATERIALIZED VIEW IF EXISTS mv_customer_features;
 
-CREATE MATERIALIZED VIEW mv_customer_features AS
+--
+-- Name: vw_customer_order_summary; Type: VIEW; Schema: public; Owner: -
+--
 
-WITH
+CREATE VIEW public.vw_customer_order_summary AS
+ SELECT client_id,
+    customer_id,
+    count(order_id) AS total_orders,
+    sum(order_value_usd) AS total_spend_usd,
+    avg(order_value_usd) AS avg_order_value_usd,
+    min(order_date) AS first_order_date,
+    max(order_date) AS last_order_date,
+    EXTRACT(day FROM (now() - max(order_date))) AS days_since_last_order,
+    sum(
+        CASE
+            WHEN (order_date >= (now() - '30 days'::interval)) THEN 1
+            ELSE 0
+        END) AS orders_last_30d,
+    sum(
+        CASE
+            WHEN (order_date >= (now() - '90 days'::interval)) THEN 1
+            ELSE 0
+        END) AS orders_last_90d,
+    sum(
+        CASE
+            WHEN (order_date >= (now() - '90 days'::interval)) THEN order_value_usd
+            ELSE (0)::numeric
+        END) AS spend_last_90d_usd,
+    sum(discount_usd) AS total_discounts_usd,
+    count(
+        CASE
+            WHEN (discount_usd > (0)::numeric) THEN 1
+            ELSE NULL::integer
+        END) AS orders_with_discount
+   FROM public.orders o
+  WHERE ((order_status)::text <> 'Cancelled'::text)
+  GROUP BY client_id, customer_id;
 
--- ── Config: resolve reference_date per client ────────────────────────────────
-client_ref AS (
-    SELECT
-        client_id,
-        churn_window_days,
-        min_repeat_orders,
-        high_value_percentile,
-        recent_order_gap_window,
-        tier_method,
-        custom_platinum_min,
-        custom_gold_min,
-        custom_silver_min,
-        custom_bronze_min,
-        CASE WHEN reference_date_mode = 'fixed' AND reference_date IS NOT NULL
-             THEN reference_date::TIMESTAMPTZ
-             ELSE NOW()
-        END AS ref_date
-    FROM client_config
-),
 
--- ── Order-level aggregations ─────────────────────────────────────────────────
-order_agg AS (
-    SELECT
-        o.client_id,
-        o.customer_id,
-        COUNT(*)                                                                        AS total_orders,
-        MIN(o.order_date)                                                               AS first_order_date,
-        MAX(o.order_date)                                                               AS last_order_date,
-        EXTRACT(DAY FROM cr.ref_date - MAX(o.order_date))::INT                          AS days_since_last_order,
-        SUM(o.order_value_usd)                                                          AS total_spend_usd,
-        ROUND(AVG(o.order_value_usd)::NUMERIC, 2)                                       AS avg_order_value_usd,
-        MAX(o.order_value_usd)                                                          AS max_order_value_usd,
-        COALESCE(SUM(o.discount_usd), 0)                                                AS total_discount_usd,
-        SUM(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '30 days'
-                 THEN o.order_value_usd ELSE 0 END)                                     AS spend_last_30d_usd,
-        SUM(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '90 days'
-                 THEN o.order_value_usd ELSE 0 END)                                     AS spend_last_90d_usd,
-        SUM(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '180 days'
-                 THEN o.order_value_usd ELSE 0 END)                                     AS spend_last_180d_usd,
-        COUNT(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '30 days'  THEN 1 END)   AS orders_last_30d,
-        COUNT(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '90 days'  THEN 1 END)   AS orders_last_90d,
-        COUNT(CASE WHEN o.order_date >= cr.ref_date - INTERVAL '180 days' THEN 1 END)   AS orders_last_180d,
-        COUNT(CASE WHEN o.discount_usd > 0 THEN 1 END)                                 AS orders_with_discount
-    FROM orders o
-    JOIN client_ref cr ON o.client_id = cr.client_id
-    WHERE o.order_status NOT IN ('Cancelled')
-    GROUP BY o.client_id, o.customer_id, cr.ref_date
-),
+--
+-- Name: websites; Type: TABLE; Schema: public; Owner: -
+--
 
--- ── Order gap statistics (mean + median) ─────────────────────────────────────
-order_gaps AS (
-    SELECT client_id, customer_id,
-        ROUND(AVG(gap_days)::NUMERIC, 1)                                    AS avg_days_between_orders,
-        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY gap_days)::NUMERIC, 1)
-                                                                            AS median_days_between_orders
-    FROM (
-        SELECT client_id, customer_id,
-            EXTRACT(DAY FROM order_date - LAG(order_date) OVER (
-                PARTITION BY client_id, customer_id ORDER BY order_date
-            ))::NUMERIC AS gap_days
-        FROM orders WHERE order_status NOT IN ('Cancelled')
-    ) gaps
-    WHERE gap_days IS NOT NULL
-    GROUP BY client_id, customer_id
-),
-
--- ── Line-item aggregations ───────────────────────────────────────────────────
-line_agg AS (
-    SELECT li.client_id, li.customer_id,
-        COUNT(DISTINCT li.product_id)                                                   AS unique_products_purchased,
-        ROUND(AVG(li.quantity)::NUMERIC, 2)                                             AS avg_items_per_order,
-        ROUND(COUNT(CASE WHEN li.item_status = 'Returned' THEN 1 END) * 100.0
-              / NULLIF(COUNT(*), 0), 1)                                                 AS return_rate_pct
-    FROM line_items li
-    GROUP BY li.client_id, li.customer_id
-),
-
--- ── Category breadth ─────────────────────────────────────────────────────────
-cat_agg AS (
-    SELECT li.client_id, li.customer_id,
-        COUNT(DISTINCT p.category_id)  AS unique_categories_purchased
-    FROM line_items li
-    JOIN products p ON li.product_id = p.product_id
-    GROUP BY li.client_id, li.customer_id
-),
-
--- ── Customer review signals ──────────────────────────────────────────────────
-review_agg AS (
-    SELECT r.client_id, r.customer_id,
-        COUNT(*)                                                                        AS total_reviews,
-        ROUND(AVG(r.rating)::NUMERIC, 2)                                                AS avg_rating,
-        ROUND(COUNT(CASE WHEN r.sentiment = 'positive' THEN 1 END) * 100.0
-              / NULLIF(COUNT(*), 0), 1)                                                 AS pct_positive_reviews,
-        ROUND(COUNT(CASE WHEN r.sentiment = 'negative' THEN 1 END) * 100.0
-              / NULLIF(COUNT(*), 0), 1)                                                 AS pct_negative_reviews,
-        MAX(r.review_date)                                                              AS last_review_date,
-        EXTRACT(DAY FROM cr.ref_date - MAX(r.review_date::TIMESTAMPTZ))::INT            AS days_since_last_review
-    FROM customer_reviews r
-    JOIN client_ref cr ON r.client_id = cr.client_id
-    GROUP BY r.client_id, r.customer_id, cr.ref_date
-),
-
--- ── Support ticket signals ───────────────────────────────────────────────────
-ticket_agg AS (
-    SELECT t.client_id, t.customer_id,
-        COUNT(*)                                                                        AS total_tickets,
-        COUNT(CASE WHEN LOWER(t.status)   = 'open'     THEN 1 END)                     AS open_tickets,
-        COUNT(CASE WHEN LOWER(t.priority) = 'critical' THEN 1 END)                     AS critical_tickets,
-        ROUND(AVG(t.resolution_time_hrs)::NUMERIC, 1)                                  AS avg_resolution_time_hrs,
-        ROUND(COUNT(CASE WHEN LOWER(t.status) = 'resolved' THEN 1 END) * 100.0
-              / NULLIF(COUNT(*), 0), 1)                                                 AS pct_tickets_resolved
-    FROM support_tickets t
-    GROUP BY t.client_id, t.customer_id
-),
-
--- ── RFM scores via NTILE(5) ─────────────────────────────────────────────────
-rfm_scored AS (
-    SELECT client_id, customer_id,
-        6 - NTILE(5) OVER (PARTITION BY client_id ORDER BY days_since_last_order ASC)  AS rfm_recency_score,
-        NTILE(5) OVER (PARTITION BY client_id ORDER BY total_orders ASC)               AS rfm_frequency_score,
-        NTILE(5) OVER (PARTITION BY client_id ORDER BY total_spend_usd ASC)            AS rfm_monetary_score
-    FROM order_agg
-),
-
--- ── Pre-aggregate last purchase per product (for subscription signals) ───────
-last_purchase_per_product AS (
-    SELECT
-        li.client_id,
-        li.customer_id,
-        li.product_id,
-        MAX(o.order_date) AS last_purchase_date
-    FROM line_items li
-    JOIN orders o ON li.order_id = o.order_id
-    WHERE o.order_status NOT IN ('Cancelled')
-    GROUP BY li.client_id, li.customer_id, li.product_id
-),
-
--- ── Subscription signals per customer ────────────────────────────────────────
-subscription_agg AS (
-    SELECT
-        lp.client_id,
-        lp.customer_id,
-        COUNT(DISTINCT lp.product_id)                                                   AS subscription_product_count,
-        ROUND(AVG(sp.avg_refill_days)::NUMERIC, 1)                                      AS avg_refill_cycle_days,
-        MAX(
-            EXTRACT(DAY FROM
-                cr.ref_date - (lp.last_purchase_date::TIMESTAMPTZ
-                         + (sp.avg_refill_days::TEXT || ' days')::INTERVAL)
-            )
-        )::INT                                                                          AS days_overdue_for_refill,
-        SUM(
-            CASE WHEN EXTRACT(DAY FROM cr.ref_date - lp.last_purchase_date::TIMESTAMPTZ)
-                      > sp.avg_refill_days * 1.5
-                 THEN 1 ELSE 0 END
-        )                                                                               AS missed_refill_count
-    FROM last_purchase_per_product lp
-    JOIN vw_subscription_products sp
-         ON lp.product_id = sp.product_id
-        AND sp.is_subscription_product = TRUE
-    JOIN client_ref cr ON lp.client_id = cr.client_id
-    GROUP BY lp.client_id, lp.customer_id, cr.ref_date
-),
-
--- ── Repeat customer flag (dynamic threshold from config) ─────────────────────
-repeat_flag AS (
-    SELECT
-        oa.client_id,
-        oa.customer_id,
-        CASE WHEN oa.total_orders >= cr.min_repeat_orders THEN 1 ELSE 0 END            AS is_repeat_customer
-    FROM order_agg oa
-    JOIN client_ref cr ON oa.client_id = cr.client_id
-),
-
--- ── Recent order gaps (configurable window for rhythm detection) ──────────────
-recent_gaps AS (
-    SELECT client_id, customer_id,
-        ROUND(AVG(gap_days)::NUMERIC, 1) AS recent_avg_gap_days
-    FROM (
-        SELECT g.client_id, g.customer_id, g.gap_days,
-            ROW_NUMBER() OVER (
-                PARTITION BY g.client_id, g.customer_id ORDER BY g.order_date DESC
-            ) AS rn,
-            cr.recent_order_gap_window
-        FROM (
-            SELECT client_id, customer_id, order_date,
-                EXTRACT(DAY FROM order_date - LAG(order_date) OVER (
-                    PARTITION BY client_id, customer_id ORDER BY order_date
-                ))::NUMERIC AS gap_days
-            FROM orders WHERE order_status NOT IN ('Cancelled')
-        ) g
-        JOIN client_ref cr ON g.client_id = cr.client_id
-        WHERE g.gap_days IS NOT NULL
-    ) ranked
-    WHERE rn <= recent_order_gap_window
-    GROUP BY client_id, customer_id
-),
-
--- ── Tier assignment (quartile or custom thresholds from config) ──────────────
-spend_percentiles AS (
-    SELECT
-        oa.client_id,
-        oa.customer_id,
-        oa.total_spend_usd,
-        PERCENT_RANK() OVER (
-            PARTITION BY oa.client_id ORDER BY oa.total_spend_usd ASC
-        ) * 100 AS spend_pct_rank
-    FROM order_agg oa
-),
-
-tier_assignment AS (
-    SELECT
-        sp.client_id,
-        sp.customer_id,
-        CASE WHEN cr.tier_method = 'quartile' THEN
-            CASE WHEN sp.spend_pct_rank >= cr.high_value_percentile THEN 'Platinum'
-                 WHEN sp.spend_pct_rank >= 50                        THEN 'Gold'
-                 WHEN sp.spend_pct_rank >= 25                        THEN 'Silver'
-                 ELSE 'Bronze'
-            END
-        ELSE
-            CASE WHEN sp.total_spend_usd >= cr.custom_platinum_min THEN 'Platinum'
-                 WHEN sp.total_spend_usd >= cr.custom_gold_min     THEN 'Gold'
-                 WHEN sp.total_spend_usd >= cr.custom_silver_min   THEN 'Silver'
-                 ELSE 'Bronze'
-            END
-        END AS customer_tier,
-        CASE WHEN cr.tier_method = 'quartile'
-                  AND sp.spend_pct_rank >= cr.high_value_percentile
-             THEN 1
-             WHEN cr.tier_method != 'quartile'
-                  AND sp.total_spend_usd >= cr.custom_platinum_min
-             THEN 1
-             ELSE 0
-        END AS is_high_value
-    FROM spend_percentiles sp
-    JOIN client_ref cr ON sp.client_id = cr.client_id
-)
-
--- ── Final SELECT: 52 columns ─────────────────────────────────────────────────
-SELECT
-    c.client_id,
-    c.customer_id,
-
-    -- Account
-    EXTRACT(DAY FROM cr.ref_date - c.account_created_date::TIMESTAMPTZ)::INT AS account_age_days,
-
-    -- Recency
-    oa.first_order_date,
-    oa.last_order_date,
-    oa.days_since_last_order,
-
-    -- Frequency
-    oa.total_orders,
-    oa.orders_last_30d,
-    oa.orders_last_90d,
-    oa.orders_last_180d,
-    COALESCE(og.avg_days_between_orders, 0)                                 AS avg_days_between_orders,
-    COALESCE(og.median_days_between_orders, 0)                              AS median_days_between_orders,
-    ROUND(ABS(COALESCE(og.avg_days_between_orders, 0)
-              - COALESCE(og.median_days_between_orders, 0))::NUMERIC, 1)   AS order_gap_mean_median_diff,
-    COALESCE(rg.recent_avg_gap_days, 0)                                     AS recent_avg_gap_days,
-
-    -- Monetary
-    oa.total_spend_usd,
-    oa.avg_order_value_usd,
-    oa.max_order_value_usd,
-    oa.spend_last_30d_usd,
-    oa.spend_last_90d_usd,
-    oa.spend_last_180d_usd,
-    oa.total_discount_usd,
-
-    -- Discount behaviour
-    ROUND(oa.total_discount_usd * 100.0
-          / NULLIF(oa.total_spend_usd + oa.total_discount_usd, 0)::NUMERIC, 2)
-                                                                            AS discount_rate_pct,
-    oa.orders_with_discount,
-
-    -- Basket behaviour
-    COALESCE(la.unique_products_purchased, 0)                               AS unique_products_purchased,
-    COALESCE(ca.unique_categories_purchased, 0)                             AS unique_categories_purchased,
-    COALESCE(la.avg_items_per_order, 0)                                     AS avg_items_per_order,
-    COALESCE(la.return_rate_pct, 0)                                         AS return_rate_pct,
-
-    -- Review signals
-    COALESCE(ra.total_reviews, 0)                                           AS total_reviews,
-    COALESCE(ra.avg_rating, 0)                                              AS avg_rating,
-    COALESCE(ra.pct_positive_reviews, 0)                                    AS pct_positive_reviews,
-    COALESCE(ra.pct_negative_reviews, 0)                                    AS pct_negative_reviews,
-    ra.last_review_date,
-    COALESCE(ra.days_since_last_review, 9999)                               AS days_since_last_review,
-
-    -- Support ticket signals
-    COALESCE(ta.total_tickets, 0)                                           AS total_tickets,
-    COALESCE(ta.open_tickets, 0)                                            AS open_tickets,
-    COALESCE(ta.critical_tickets, 0)                                        AS critical_tickets,
-    COALESCE(ta.avg_resolution_time_hrs, 0)                                 AS avg_resolution_time_hrs,
-    COALESCE(ta.pct_tickets_resolved, 0)                                    AS pct_tickets_resolved,
-
-    -- RFM scores
-    oa.total_spend_usd                                                      AS ltv_usd,
-    rf.rfm_recency_score,
-    rf.rfm_frequency_score,
-    rf.rfm_monetary_score,
-    (rf.rfm_recency_score + rf.rfm_frequency_score + rf.rfm_monetary_score) AS rfm_total_score,
-
-    -- Dynamic config-driven features
-    COALESCE(rpf.is_repeat_customer, 0)                                     AS is_repeat_customer,
-    COALESCE(ta2.customer_tier, 'Bronze')                                   AS customer_tier,
-    COALESCE(ta2.is_high_value, 0)                                          AS is_high_value,
-
-    -- Subscription signals
-    COALESCE(sa.subscription_product_count, 0)                              AS subscription_product_count,
-    COALESCE(sa.avg_refill_cycle_days, 0)                                   AS avg_refill_cycle_days,
-    COALESCE(sa.days_overdue_for_refill, 0)                                 AS days_overdue_for_refill,
-    COALESCE(sa.missed_refill_count, 0)                                     AS missed_refill_count,
-
-    -- Churn label (dynamic from client_config.churn_window_days)
-    CASE WHEN oa.days_since_last_order >= cr.churn_window_days THEN 1 ELSE 0 END AS churn_label,
-
-    cr.ref_date                                                             AS computed_at
-
-FROM customers c
-JOIN  client_ref   cr  ON c.client_id = cr.client_id
-JOIN  order_agg    oa  ON c.client_id = oa.client_id  AND c.customer_id = oa.customer_id
-JOIN  rfm_scored   rf  ON c.client_id = rf.client_id  AND c.customer_id = rf.customer_id
-LEFT JOIN order_gaps       og  ON c.client_id = og.client_id  AND c.customer_id = og.customer_id
-LEFT JOIN recent_gaps      rg  ON c.client_id = rg.client_id  AND c.customer_id = rg.customer_id
-LEFT JOIN line_agg         la  ON c.client_id = la.client_id  AND c.customer_id = la.customer_id
-LEFT JOIN cat_agg          ca  ON c.client_id = ca.client_id  AND c.customer_id = ca.customer_id
-LEFT JOIN review_agg       ra  ON c.client_id = ra.client_id  AND c.customer_id = ra.customer_id
-LEFT JOIN ticket_agg       ta  ON c.client_id = ta.client_id  AND c.customer_id = ta.customer_id
-LEFT JOIN repeat_flag      rpf ON c.client_id = rpf.client_id AND c.customer_id = rpf.customer_id
-LEFT JOIN tier_assignment   ta2 ON c.client_id = ta2.client_id AND c.customer_id = ta2.customer_id
-LEFT JOIN subscription_agg sa  ON c.client_id = sa.client_id  AND c.customer_id = sa.customer_id;
-
--- ── Indexes on materialized view ─────────────────────────────────────────────
-CREATE UNIQUE INDEX idx_mv_cf_pk
-    ON mv_customer_features (client_id, customer_id);
-CREATE INDEX idx_mv_cf_churn
-    ON mv_customer_features (churn_label, rfm_total_score DESC);
-CREATE INDEX idx_mv_cf_recency
-    ON mv_customer_features (days_since_last_order DESC);
-CREATE INDEX idx_mv_cf_overdue
-    ON mv_customer_features (days_overdue_for_refill DESC);
-CREATE INDEX idx_mv_cf_tier
-    ON mv_customer_features (customer_tier, is_high_value);
-
--- ============================================================
--- SECTION 9: SCOUT AGENT TABLES
--- ============================================================
-
--- 23. Websites (tracked e-commerce platforms)
-CREATE TABLE IF NOT EXISTS websites (
-    id              SERIAL PRIMARY KEY,
-    name            TEXT NOT NULL UNIQUE,
-    base_url        TEXT NOT NULL DEFAULT '',
-    search_url      TEXT NOT NULL DEFAULT '',
-    active          BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    encoding        TEXT NOT NULL DEFAULT 'plus'
+CREATE TABLE public.websites (
+    id integer NOT NULL,
+    name text NOT NULL,
+    base_url text DEFAULT ''::text NOT NULL,
+    search_url text DEFAULT ''::text NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    encoding text DEFAULT 'plus'::text NOT NULL
 );
 
--- 24. Entities (canonical products to track)
-CREATE TABLE IF NOT EXISTS entities (
-    id                UUID DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    canonical_name    TEXT NOT NULL,
-    canonical_brand   TEXT,
-    canonical_variant TEXT,
-    query             TEXT NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
--- 25. Entity Listings (product listings per platform)
-CREATE TABLE IF NOT EXISTS entity_listings (
-    id              SERIAL PRIMARY KEY,
-    entity_id       UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-    platform        TEXT NOT NULL,
-    product_url     TEXT NOT NULL,
-    title           TEXT NOT NULL,
-    price           NUMERIC(10,2),
-    currency        TEXT NOT NULL DEFAULT 'INR',
-    ingredients     TEXT,
-    manufacturer    TEXT,
-    marketed_by     TEXT,
-    availability    TEXT DEFAULT 'unknown',
-    last_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (entity_id, platform)
-);
+--
+-- Name: TABLE websites; Type: COMMENT; Schema: public; Owner: -
+--
 
--- 26. Product Results (scraped search results)
-CREATE TABLE IF NOT EXISTS product_results (
-    id              SERIAL PRIMARY KEY,
-    product_name    TEXT NOT NULL,
-    scraped_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    product_url     TEXT,
-    price           DOUBLE PRECISION,
-    platform        TEXT,
-    product_details JSONB,
-    title           TEXT,
-    UNIQUE (product_name, platform)
-);
+COMMENT ON TABLE public.websites IS 'E-commerce platforms tracked by Scout Agent';
 
--- 27. Price History (historical price tracking)
-CREATE TABLE IF NOT EXISTS price_history (
-    id              SERIAL PRIMARY KEY,
-    product_name    TEXT NOT NULL,
-    platform        TEXT NOT NULL,
-    price           NUMERIC(10,2) NOT NULL,
-    currency        TEXT NOT NULL DEFAULT 'INR',
-    url             TEXT,
-    scraped_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
--- 28. Price Alerts (price change notifications)
-CREATE TABLE IF NOT EXISTS price_alerts (
-    id              SERIAL PRIMARY KEY,
-    product_name    TEXT NOT NULL,
-    platform        TEXT NOT NULL,
-    old_price       NUMERIC(10,2),
-    new_price       NUMERIC(10,2) NOT NULL,
-    change_amount   NUMERIC(10,2),
-    change_percent  NUMERIC(6,2),
-    direction       TEXT NOT NULL,
-    url             TEXT,
-    detected_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    acknowledged    BOOLEAN NOT NULL DEFAULT FALSE
-);
+--
+-- Name: websites_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
--- 29. Product Features (extracted product attributes)
-CREATE TABLE IF NOT EXISTS product_features (
-    id              SERIAL PRIMARY KEY,
-    product_name    TEXT NOT NULL,
-    platform        TEXT NOT NULL,
-    category        TEXT,
-    product_feats   JSONB,
-    platform_feats  JSONB,
-    extracted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (product_name, platform)
-);
+CREATE SEQUENCE public.websites_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
-CREATE INDEX IF NOT EXISTS idx_price_history_product   ON price_history(product_name, platform);
-CREATE INDEX IF NOT EXISTS idx_price_history_scraped   ON price_history(scraped_at DESC);
-CREATE INDEX IF NOT EXISTS idx_price_alerts_product    ON price_alerts(product_name, platform);
-CREATE INDEX IF NOT EXISTS idx_price_alerts_detected   ON price_alerts(detected_at DESC);
-CREATE INDEX IF NOT EXISTS idx_product_results_product ON product_results(product_name);
-CREATE INDEX IF NOT EXISTS idx_entity_listings_entity  ON entity_listings(entity_id);
 
-COMMIT;
+--
+-- Name: websites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
 
--- ── Populate the materialized view ───────────────────────────────────────────
-REFRESH MATERIALIZED VIEW mv_customer_features;
+ALTER SEQUENCE public.websites_id_seq OWNED BY public.websites.id;
 
--- ── Table comments ───────────────────────────────────────────────────────────
-COMMENT ON TABLE client_config           IS 'Per-tenant client configuration with UI-driven dynamic parameters';
-COMMENT ON TABLE customers               IS 'Customer master — one row per unique customer per client';
-COMMENT ON TABLE orders                  IS 'Order header — one row per order';
-COMMENT ON TABLE line_items              IS 'Order line items — one row per product per order';
-COMMENT ON TABLE customer_rfm_features   IS 'Computed RFM + engagement features — refreshed nightly';
-COMMENT ON TABLE churn_scores            IS 'ML model churn risk scores — refreshed nightly';
-COMMENT ON TABLE retention_interventions IS 'Log of all retention offers sent by the AI agent';
-COMMENT ON TABLE customer_reviews        IS 'Customer product ratings and review text';
-COMMENT ON TABLE support_tickets         IS 'Customer support ticket log';
-COMMENT ON TABLE customer_purchase_cycles IS 'Per-customer per-product refill pattern tracking';
-COMMENT ON TABLE outreach_messages       IS 'Personalised messages sent on churn/refill triggers';
-COMMENT ON TABLE websites                IS 'E-commerce platforms tracked by Scout Agent';
-COMMENT ON TABLE entities                IS 'Canonical products tracked for competitive intelligence';
-COMMENT ON TABLE entity_listings         IS 'Per-platform product listings for tracked entities';
-COMMENT ON TABLE product_results         IS 'Raw scraped search results from tracked platforms';
-COMMENT ON TABLE price_history           IS 'Historical price snapshots for trend analysis';
-COMMENT ON TABLE price_alerts            IS 'Automated price change notifications';
-COMMENT ON TABLE product_features        IS 'Extracted product attributes and platform features';
 
--- ── Verify: should list all 52 columns ───────────────────────────────────────
-SELECT column_name, ordinal_position AS "#"
-FROM information_schema.columns
-WHERE table_name   = 'mv_customer_features'
-  AND table_schema = 'public'
-ORDER BY ordinal_position;
+--
+-- Name: chat_messages id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_messages ALTER COLUMN id SET DEFAULT nextval('public.chat_messages_id_seq'::regclass);
+
+
+--
+-- Name: churn_scores score_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.churn_scores ALTER COLUMN score_id SET DEFAULT nextval('public.churn_scores_score_id_seq'::regclass);
+
+
+--
+-- Name: client_config config_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_config ALTER COLUMN config_id SET DEFAULT nextval('public.client_config_config_id_seq'::regclass);
+
+
+--
+-- Name: customer_purchase_cycles cycle_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_purchase_cycles ALTER COLUMN cycle_id SET DEFAULT nextval('public.customer_purchase_cycles_cycle_id_seq'::regclass);
+
+
+--
+-- Name: entity_listings id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_listings ALTER COLUMN id SET DEFAULT nextval('public.entity_listings_id_seq'::regclass);
+
+
+--
+-- Name: outreach_messages message_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outreach_messages ALTER COLUMN message_id SET DEFAULT nextval('public.outreach_messages_message_id_seq'::regclass);
+
+
+--
+-- Name: pipeline_outputs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pipeline_outputs ALTER COLUMN id SET DEFAULT nextval('public.pipeline_outputs_id_seq'::regclass);
+
+
+--
+-- Name: price_alerts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.price_alerts ALTER COLUMN id SET DEFAULT nextval('public.price_alerts_id_seq'::regclass);
+
+
+--
+-- Name: price_history id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.price_history ALTER COLUMN id SET DEFAULT nextval('public.price_history_id_seq'::regclass);
+
+
+--
+-- Name: product_features id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_features ALTER COLUMN id SET DEFAULT nextval('public.product_features_id_seq'::regclass);
+
+
+--
+-- Name: product_results id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_results ALTER COLUMN id SET DEFAULT nextval('public.product_results_id_seq'::regclass);
+
+
+--
+-- Name: retention_interventions intervention_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.retention_interventions ALTER COLUMN intervention_id SET DEFAULT nextval('public.retention_interventions_intervention_id_seq'::regclass);
+
+
+--
+-- Name: value_propositions vp_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.value_propositions ALTER COLUMN vp_id SET DEFAULT nextval('public.value_propositions_vp_id_seq'::regclass);
+
+
+--
+-- Name: websites id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.websites ALTER COLUMN id SET DEFAULT nextval('public.websites_id_seq'::regclass);
+
+
+--
+-- Name: active_tokens active_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.active_tokens
+    ADD CONSTRAINT active_tokens_pkey PRIMARY KEY (token);
+
+
+--
+-- Name: brands brands_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.brands
+    ADD CONSTRAINT brands_pkey PRIMARY KEY (client_id, brand_id);
+
+
+--
+-- Name: business_segments business_segments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_segments
+    ADD CONSTRAINT business_segments_pkey PRIMARY KEY (segment_id);
+
+
+--
+-- Name: categories categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_pkey PRIMARY KEY (client_id, category_id);
+
+
+--
+-- Name: chat_messages chat_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_messages
+    ADD CONSTRAINT chat_messages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: churn_scores churn_scores_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.churn_scores
+    ADD CONSTRAINT churn_scores_pkey PRIMARY KEY (score_id);
+
+
+--
+-- Name: client_config client_config_client_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_config
+    ADD CONSTRAINT client_config_client_id_key UNIQUE (client_id);
+
+
+--
+-- Name: client_config client_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_config
+    ADD CONSTRAINT client_config_pkey PRIMARY KEY (config_id);
+
+
+--
+-- Name: customer_purchase_cycles customer_purchase_cycles_client_id_customer_id_product_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_purchase_cycles
+    ADD CONSTRAINT customer_purchase_cycles_client_id_customer_id_product_id_key UNIQUE (client_id, customer_id, product_id);
+
+
+--
+-- Name: customer_purchase_cycles customer_purchase_cycles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_purchase_cycles
+    ADD CONSTRAINT customer_purchase_cycles_pkey PRIMARY KEY (cycle_id);
+
+
+--
+-- Name: customer_reviews customer_reviews_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_reviews
+    ADD CONSTRAINT customer_reviews_pkey PRIMARY KEY (client_id, review_id);
+
+
+--
+-- Name: customer_rfm_features customer_rfm_features_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_rfm_features
+    ADD CONSTRAINT customer_rfm_features_pkey PRIMARY KEY (client_id, customer_id);
+
+
+--
+-- Name: customers customers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customers
+    ADD CONSTRAINT customers_pkey PRIMARY KEY (client_id, customer_id);
+
+
+--
+-- Name: entities entities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entities
+    ADD CONSTRAINT entities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entity_listings entity_listings_entity_id_platform_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_listings
+    ADD CONSTRAINT entity_listings_entity_id_platform_key UNIQUE (entity_id, platform);
+
+
+--
+-- Name: entity_listings entity_listings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_listings
+    ADD CONSTRAINT entity_listings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: line_items line_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.line_items
+    ADD CONSTRAINT line_items_pkey PRIMARY KEY (client_id, line_item_id);
+
+
+--
+-- Name: message_templates message_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message_templates
+    ADD CONSTRAINT message_templates_pkey PRIMARY KEY (client_id, id);
+
+
+--
+-- Name: orders orders_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.orders
+    ADD CONSTRAINT orders_pkey PRIMARY KEY (client_id, order_id);
+
+
+--
+-- Name: outreach_messages outreach_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outreach_messages
+    ADD CONSTRAINT outreach_messages_pkey PRIMARY KEY (message_id);
+
+
+--
+-- Name: pipeline_outputs pipeline_outputs_client_id_filename_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pipeline_outputs
+    ADD CONSTRAINT pipeline_outputs_client_id_filename_key UNIQUE (client_id, filename);
+
+
+--
+-- Name: pipeline_outputs pipeline_outputs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pipeline_outputs
+    ADD CONSTRAINT pipeline_outputs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: price_alerts price_alerts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.price_alerts
+    ADD CONSTRAINT price_alerts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: price_history price_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.price_history
+    ADD CONSTRAINT price_history_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: product_features product_features_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_features
+    ADD CONSTRAINT product_features_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: product_features product_features_product_name_platform_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_features
+    ADD CONSTRAINT product_features_product_name_platform_key UNIQUE (product_name, platform);
+
+
+--
+-- Name: product_prices product_prices_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_prices
+    ADD CONSTRAINT product_prices_pkey PRIMARY KEY (client_id, price_id);
+
+
+--
+-- Name: product_results product_results_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_results
+    ADD CONSTRAINT product_results_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: product_results product_results_product_name_platform_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_results
+    ADD CONSTRAINT product_results_product_name_platform_key UNIQUE (product_name, platform);
+
+
+--
+-- Name: product_vendor_mapping product_vendor_mapping_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_vendor_mapping
+    ADD CONSTRAINT product_vendor_mapping_pkey PRIMARY KEY (client_id, pv_id);
+
+
+--
+-- Name: products products_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.products
+    ADD CONSTRAINT products_pkey PRIMARY KEY (client_id, product_id);
+
+
+--
+-- Name: retention_interventions retention_interventions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.retention_interventions
+    ADD CONSTRAINT retention_interventions_pkey PRIMARY KEY (intervention_id);
+
+
+--
+-- Name: sub_categories sub_categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sub_categories
+    ADD CONSTRAINT sub_categories_pkey PRIMARY KEY (client_id, sub_category_id);
+
+
+--
+-- Name: sub_sub_categories sub_sub_categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sub_sub_categories
+    ADD CONSTRAINT sub_sub_categories_pkey PRIMARY KEY (client_id, sub_sub_category_id);
+
+
+--
+-- Name: support_tickets support_tickets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_tickets
+    ADD CONSTRAINT support_tickets_pkey PRIMARY KEY (client_id, ticket_id);
+
+
+--
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (user_id);
+
+
+--
+-- Name: value_propositions value_propositions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.value_propositions
+    ADD CONSTRAINT value_propositions_pkey PRIMARY KEY (vp_id);
+
+
+--
+-- Name: value_tiers value_tiers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.value_tiers
+    ADD CONSTRAINT value_tiers_pkey PRIMARY KEY (tier_id);
+
+
+--
+-- Name: vendors vendors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendors
+    ADD CONSTRAINT vendors_pkey PRIMARY KEY (client_id, vendor_id);
+
+
+--
+-- Name: websites websites_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.websites
+    ADD CONSTRAINT websites_name_key UNIQUE (name);
+
+
+--
+-- Name: websites websites_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.websites
+    ADD CONSTRAINT websites_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_brands_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_brands_client ON public.brands USING btree (client_id);
+
+
+--
+-- Name: idx_categories_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_categories_client ON public.categories USING btree (client_id);
+
+
+--
+-- Name: idx_chat_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_client ON public.chat_messages USING btree (client_id, created_at DESC);
+
+
+--
+-- Name: idx_chat_conv; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_conv ON public.chat_messages USING btree (conversation_id, created_at);
+
+
+--
+-- Name: idx_churn_scores_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_churn_scores_customer ON public.churn_scores USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_churn_scores_scored; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_churn_scores_scored ON public.churn_scores USING btree (scored_at DESC);
+
+
+--
+-- Name: idx_churn_scores_tier; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_churn_scores_tier ON public.churn_scores USING btree (risk_tier);
+
+
+--
+-- Name: idx_customers_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_customers_client ON public.customers USING btree (client_id);
+
+
+--
+-- Name: idx_customers_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_customers_email ON public.customers USING btree (customer_email);
+
+
+--
+-- Name: idx_cycles_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_cycles_customer ON public.customer_purchase_cycles USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_cycles_expected; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_cycles_expected ON public.customer_purchase_cycles USING btree (expected_next_date);
+
+
+--
+-- Name: idx_cycles_overdue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_cycles_overdue ON public.customer_purchase_cycles USING btree (days_overdue DESC);
+
+
+--
+-- Name: idx_entities_query; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_entities_query ON public.entities USING btree (query);
+
+
+--
+-- Name: idx_entity_listings_entity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_entity_listings_entity ON public.entity_listings USING btree (entity_id);
+
+
+--
+-- Name: idx_entity_listings_entity_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_entity_listings_entity_id ON public.entity_listings USING btree (entity_id);
+
+
+--
+-- Name: idx_interventions_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_interventions_customer ON public.retention_interventions USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_interventions_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_interventions_status ON public.retention_interventions USING btree (offer_status);
+
+
+--
+-- Name: idx_line_items_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_line_items_customer ON public.line_items USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_line_items_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_line_items_order ON public.line_items USING btree (client_id, order_id);
+
+
+--
+-- Name: idx_line_items_product; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_line_items_product ON public.line_items USING btree (product_id);
+
+
+--
+-- Name: idx_mv_cf_churn; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mv_cf_churn ON public.mv_customer_features USING btree (churn_label, rfm_total_score DESC);
+
+
+--
+-- Name: idx_mv_cf_overdue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mv_cf_overdue ON public.mv_customer_features USING btree (days_overdue_for_refill DESC);
+
+
+--
+-- Name: idx_mv_cf_pk; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_mv_cf_pk ON public.mv_customer_features USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_mv_cf_recency; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mv_cf_recency ON public.mv_customer_features USING btree (days_since_last_order DESC);
+
+
+--
+-- Name: idx_mv_cf_tier; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mv_cf_tier ON public.mv_customer_features USING btree (customer_tier, is_high_value);
+
+
+--
+-- Name: idx_orders_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_orders_customer ON public.orders USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_orders_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_orders_date ON public.orders USING btree (order_date);
+
+
+--
+-- Name: idx_orders_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_orders_status ON public.orders USING btree (order_status);
+
+
+--
+-- Name: idx_outreach_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_outreach_customer ON public.outreach_messages USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_outreach_outcome; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_outreach_outcome ON public.outreach_messages USING btree (outcome);
+
+
+--
+-- Name: idx_outreach_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_outreach_type ON public.outreach_messages USING btree (message_type);
+
+
+--
+-- Name: idx_price_alerts_detected; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_price_alerts_detected ON public.price_alerts USING btree (detected_at DESC);
+
+
+--
+-- Name: idx_price_alerts_product; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_price_alerts_product ON public.price_alerts USING btree (product_name, platform);
+
+
+--
+-- Name: idx_price_alerts_product_platform; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_price_alerts_product_platform ON public.price_alerts USING btree (product_name, platform, detected_at DESC);
+
+
+--
+-- Name: idx_price_history_product; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_price_history_product ON public.price_history USING btree (product_name, platform);
+
+
+--
+-- Name: idx_price_history_product_platform; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_price_history_product_platform ON public.price_history USING btree (product_name, platform, scraped_at DESC);
+
+
+--
+-- Name: idx_price_history_scraped; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_price_history_scraped ON public.price_history USING btree (scraped_at DESC);
+
+
+--
+-- Name: idx_product_features_product_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_product_features_product_name ON public.product_features USING btree (product_name);
+
+
+--
+-- Name: idx_product_prices_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_product_prices_client ON public.product_prices USING btree (client_id);
+
+
+--
+-- Name: idx_product_results_product; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_product_results_product ON public.product_results USING btree (product_name);
+
+
+--
+-- Name: idx_products_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_products_client ON public.products USING btree (client_id);
+
+
+--
+-- Name: idx_pvm_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pvm_client ON public.product_vendor_mapping USING btree (client_id);
+
+
+--
+-- Name: idx_reviews_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_customer ON public.customer_reviews USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_reviews_product; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_product ON public.customer_reviews USING btree (product_id);
+
+
+--
+-- Name: idx_reviews_rating; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_rating ON public.customer_reviews USING btree (rating);
+
+
+--
+-- Name: idx_reviews_sentiment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_sentiment ON public.customer_reviews USING btree (sentiment);
+
+
+--
+-- Name: idx_sub_categories_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sub_categories_client ON public.sub_categories USING btree (client_id);
+
+
+--
+-- Name: idx_sub_sub_categories_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sub_sub_categories_client ON public.sub_sub_categories USING btree (client_id);
+
+
+--
+-- Name: idx_tickets_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tickets_customer ON public.support_tickets USING btree (client_id, customer_id);
+
+
+--
+-- Name: idx_tickets_priority; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tickets_priority ON public.support_tickets USING btree (priority);
+
+
+--
+-- Name: idx_tickets_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tickets_status ON public.support_tickets USING btree (status);
+
+
+--
+-- Name: idx_tickets_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tickets_type ON public.support_tickets USING btree (ticket_type);
+
+
+--
+-- Name: idx_users_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_email ON public.users USING btree (email);
+
+
+--
+-- Name: idx_vendors_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_vendors_client ON public.vendors USING btree (client_id);
+
+
+--
+-- Name: idx_vp_tier_risk; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_vp_tier_risk ON public.value_propositions USING btree (tier_name, risk_level);
+
+
+--
+-- Name: churn_scores churn_scores_client_id_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.churn_scores
+    ADD CONSTRAINT churn_scores_client_id_customer_id_fkey FOREIGN KEY (client_id, customer_id) REFERENCES public.customers(client_id, customer_id);
+
+
+--
+-- Name: customer_purchase_cycles customer_purchase_cycles_client_id_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_purchase_cycles
+    ADD CONSTRAINT customer_purchase_cycles_client_id_customer_id_fkey FOREIGN KEY (client_id, customer_id) REFERENCES public.customers(client_id, customer_id);
+
+
+--
+-- Name: customer_reviews customer_reviews_client_id_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_reviews
+    ADD CONSTRAINT customer_reviews_client_id_customer_id_fkey FOREIGN KEY (client_id, customer_id) REFERENCES public.customers(client_id, customer_id);
+
+
+--
+-- Name: entity_listings entity_listings_entity_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_listings
+    ADD CONSTRAINT entity_listings_entity_id_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: line_items line_items_client_id_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.line_items
+    ADD CONSTRAINT line_items_client_id_order_id_fkey FOREIGN KEY (client_id, order_id) REFERENCES public.orders(client_id, order_id);
+
+
+--
+-- Name: orders orders_client_id_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.orders
+    ADD CONSTRAINT orders_client_id_customer_id_fkey FOREIGN KEY (client_id, customer_id) REFERENCES public.customers(client_id, customer_id);
+
+
+--
+-- Name: outreach_messages outreach_messages_client_id_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outreach_messages
+    ADD CONSTRAINT outreach_messages_client_id_customer_id_fkey FOREIGN KEY (client_id, customer_id) REFERENCES public.customers(client_id, customer_id);
+
+
+--
+-- Name: retention_interventions retention_interventions_churn_score_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.retention_interventions
+    ADD CONSTRAINT retention_interventions_churn_score_id_fkey FOREIGN KEY (churn_score_id) REFERENCES public.churn_scores(score_id);
+
+
+--
+-- Name: support_tickets support_tickets_client_id_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_tickets
+    ADD CONSTRAINT support_tickets_client_id_customer_id_fkey FOREIGN KEY (client_id, customer_id) REFERENCES public.customers(client_id, customer_id);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict hT9JReSfvkeiVp2xetkYKxgK1eh3exUeSxQ9PsIdwbG3SIsXZPtgYJmsdyMWvfs
+

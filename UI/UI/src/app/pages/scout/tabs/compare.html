@@ -50,7 +50,7 @@
             }
             @if (savings(entity); as s) {
               <div class="card-subtitle">
-                Save up to <strong class="text-green">{{ formatPrice(s.amount) }}</strong>
+                Save up to <strong class="text-green">{{ formatPrice(s.amount, currencyFor(entity.platforms[0]?.platform || '')) }}</strong>
                 ({{ s.pct | number:'1.0-0' }}%) by choosing the cheapest platform
               </div>
             }
@@ -67,7 +67,7 @@
                 <span class="badge gray">{{ p.platform }}</span>
               </div>
               <div class="cc-price" [class.text-green]="isCheapest(p, entity)">
-                {{ formatPrice(p.price) }}
+                {{ formatPrice(p.price, currencyFor(p.platform)) }}
               </div>
               <a [href]="p.url" target="_blank" class="btn sm outline cc-link">View on {{ p.platform }} ↗</a>
             </div>
@@ -87,7 +87,7 @@
       @for (item of r.single_platform; track item.entity_id) {
         <div class="compare-card unmatched">
           <div class="cc-platform"><span class="badge yellow">{{ item.platform }}</span></div>
-          <div class="cc-price">{{ item.price ? formatPrice(item.price.price) : '—' }}</div>
+          <div class="cc-price">{{ item.price ? formatPrice(item.price.price, currencyFor(item.platform)) : '—' }}</div>
           <div class="cc-title">{{ item.product }}</div>
         </div>
       }

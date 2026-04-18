@@ -73,12 +73,52 @@ export class ScoutSearchTab implements OnInit {
 
   bestPrice(listings: Listing[]): Listing | null {
     const valid = listings.filter(l => l.price.value > 0);
-    return valid.length ? valid.reduce((m, l) => l.price.value < m.price.value ? l : m) : null;
+    if (!valid.length) return null;
+
+    // Count listings per currency
+    const counts = new Map<string, number>();
+    for (const l of valid) {
+      const c = l.price.currency || 'USD';
+      counts.set(c, (counts.get(c) || 0) + 1);
+    }
+
+    // Find the currency with the highest count.
+    // Rationale: comparing raw numeric values across currencies is meaningless
+    // ($1,249.97 vs ₹169,990 — the smaller number is NOT the cheaper product).
+    // We pick whichever currency appears in the most listings, then return the
+    // cheapest listing in that currency. If there is no majority (a tie between
+    // currencies), we return null — the UI then shows no "Best" badge, which
+    // is more honest than picking an arbitrary winner.
+    // Single-listing case: that listing wins trivially.
+    let majorityCurrency: string | null = null;
+    let maxCount = 0;
+    let hasTie = false;
+    for (const [curr, count] of counts.entries()) {
+      if (count > maxCount) {
+        majorityCurrency = curr;
+        maxCount = count;
+        hasTie = false;
+      } else if (count === maxCount) {
+        hasTie = true;
+      }
+    }
+
+    // True tie with no majority → no meaningful "best"
+    if (hasTie || !majorityCurrency) return null;
+
+    // Cheapest within the majority currency
+    const majorityListings = valid.filter(l => l.price.currency === majorityCurrency);
+    return majorityListings.reduce((m, l) => l.price.value < m.price.value ? l : m);
   }
 
+  // A listing is "best" only if it matches the currency AND value of bestPrice().
+  // Listings in a non-majority currency never show as best.
   isBest(l: Listing, all: Listing[]): boolean {
     const b = this.bestPrice(all);
-    return !!b && l.price.value === b.price.value && l.price.value > 0;
+    return !!b
+      && l.price.currency === b.price.currency
+      && l.price.value === b.price.value
+      && l.price.value > 0;
   }
 
   fmt(p: any): string {

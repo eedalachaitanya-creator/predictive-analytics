@@ -32,12 +32,24 @@ export class ScoutMonitorTab implements OnInit {
   loadData() {
     this.loading.set(true);
 
+    // Fetch the list of currently ACTIVE / configured platforms for the
+    // KPI tile. Previously this used res.platforms from getAllProducts(),
+    // which only contains platforms that already have scraped products —
+    // so the count read "0" until at least one product had been scraped,
+    // even though 7 platforms were configured in the Platforms tab.
+    this.svc.getActivePlatforms().subscribe({
+      next: (res: any) => {
+        this.totalPlatforms.set((res.platforms || []).length);
+      }
+    });
+
     this.svc.getAllProducts().subscribe({
       next: (res: any) => {
         const rawProducts = res.data || [];
         const plats = res.platforms || [];
+        // Table columns still derived from platforms-with-products
+        // (per user's preference: "leave it as it is").
         this.platforms.set(plats);
-        this.totalPlatforms.set(plats.length);
 
         const rows = rawProducts.map((p: any) => {
           const row: any = { product_name: p.name };

@@ -1,14 +1,8 @@
 <!-- KPI Cards -->
-<div class="grid-4 mb-24">
+<div class="grid-3 mb-24">
   <div class="stat-card"><div class="stat-value">{{ totalProducts() }}</div><div class="stat-label">Tracked Products</div></div>
   <div class="stat-card"><div class="stat-value">{{ totalPlatforms() }}</div><div class="stat-label">Active Platforms</div></div>
   <div class="stat-card"><div class="stat-value">{{ alertCount() }}</div><div class="stat-label">Price Alerts</div></div>
-  <div class="stat-card">
-    <div class="stat-value" [class]="avgChange() > 5 ? 'text-red' : avgChange() > 0 ? 'text-yellow' : ''">
-      {{ avgChange() | number:'1.1-1' }}%
-    </div>
-    <div class="stat-label">Avg Price Change</div>
-  </div>
 </div>
 
 <!-- Actions -->
@@ -25,7 +19,6 @@
   <div class="card mb-24">
     <div class="card-header">
       <div class="card-title">🔔 Recent Price Alerts</div>
-      <span class="badge blue">{{ alerts().length }} alerts</span>
     </div>
     <div class="table-scroll">
       <table class="data-table">

@@ -170,9 +170,16 @@ def ask_agent_endpoint(req: ChatRequest):
     history = _get_langchain_history(req.clientId, conv_id)
 
     # Invoke the agent
+    # Pass the authenticated clientId so every tool the agent calls is
+    # automatically scoped to this tenant — prevents cross-client data leaks
+    # (e.g. Costco user seeing Walmart high-risk customers).
     try:
         from agent.graph import ask_agent
-        answer = ask_agent(req.question, history=history[:-1])  # exclude the just-added user msg
+        answer = ask_agent(
+            req.question,
+            history=history[:-1],  # exclude the just-added user msg
+            client_id=req.clientId,
+        )
     except Exception as e:
         log.error("Agent error: %s", e)
         answer = f"I encountered an error processing your question: {str(e)[:200]}. Please try rephrasing."

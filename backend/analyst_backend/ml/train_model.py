@@ -125,6 +125,32 @@ LEAKY_COLS = [
     'last_order_date',             # Derived from recency (same concern)
 ]
 
+# ── REVIEW FEATURES (excluded from model) ───────────────────────────────────
+# Why we're dropping these:
+#   1. In the MV, customers who have never written a review get the sentinel
+#      `days_since_last_review = 9999` and `total_reviews = 0`. Because
+#      non-reviewing customers overlap heavily with churned customers, the
+#      model latches onto these features as a proxy for "has no reviews"
+#      rather than learning real transaction-based churn signal.
+#   2. For a retail transaction-based churn model, purchase recency /
+#      frequency / monetary value should dominate. Review behaviour is noisy
+#      (most customers never review at all) and not a leading indicator of
+#      future churn — more of a lagging after-the-fact signal.
+#   3. Previous dashboards showed review-based features ("Days Since Last
+#      Review", "Avg Rating") as the #1 driver for most HIGH-risk customers,
+#      crowding out the transaction features we actually want to act on.
+#
+# If you later want to bring review signal back in, consider:
+#   - Only including reviews written within the last N days (not 9999 sentinel)
+#   - Using a separate sentiment model on top of churn, not as a feature
+REVIEW_COLS = [
+    'total_reviews',               # Count of reviews ever written
+    'avg_rating',                  # Mean star rating
+    'pct_positive_reviews',        # % VADER=positive
+    'pct_negative_reviews',        # % VADER=negative
+    'days_since_last_review',      # 9999 sentinel for non-reviewers → proxy leak
+]
+
 # Threshold for dropping highly correlated features
 HIGH_CORR_THRESHOLD = 0.90
 
@@ -298,6 +324,28 @@ def drop_leaky_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     return X, leaky_found
 
 
+def drop_review_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Remove customer-review-derived features from the feature matrix.
+
+    These are excluded because `days_since_last_review = 9999` (the sentinel
+    for customers who never reviewed) and `total_reviews = 0` act as proxies
+    for "inactive customer", not as true future-churn signal. See REVIEW_COLS
+    definition at the top of this file for full rationale.
+
+    Returns:
+        (X_cleaned, dropped_columns)
+    """
+    log.info("Removing review-derived features...")
+    review_found = [c for c in REVIEW_COLS if c in X.columns]
+    if review_found:
+        log.info("  Dropping %d review features: %s", len(review_found), review_found)
+        X = X.drop(columns=review_found)
+    else:
+        log.info("  No review features found in data")
+    return X, review_found
+
+
 def drop_zero_variance_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """
     Remove features with zero or near-zero variance.
@@ -386,6 +434,10 @@ def clean_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]]]
     X, leaky_dropped = drop_leaky_features(X)
     cleaning_log['leaky_dropped'] = leaky_dropped
     total_removed += len(leaky_dropped)
+
+    X, review_dropped = drop_review_features(X)
+    cleaning_log['review_dropped'] = review_dropped
+    total_removed += len(review_dropped)
 
     X, zero_var_dropped = drop_zero_variance_features(X)
     cleaning_log['zero_variance_dropped'] = zero_var_dropped
@@ -1141,10 +1193,14 @@ def generate_training_report(
     lines.append("  FEATURE CLEANING SUMMARY")
     lines.append("-" * 75)
     lk = cleaning_log.get('leaky_dropped', [])
+    rv = cleaning_log.get('review_dropped', [])
     zv = cleaning_log.get('zero_variance_dropped', [])
     hc = cleaning_log.get('high_correlation_dropped', [])
     lines.append(f"  Leaky features removed ({len(lk)}):")
     for f in lk:
+        lines.append(f"    - {f}")
+    lines.append(f"  Review features removed ({len(rv)}):")
+    for f in rv:
         lines.append(f"    - {f}")
     lines.append(f"  Zero-variance features removed ({len(zv)}):")
     for f in zv:

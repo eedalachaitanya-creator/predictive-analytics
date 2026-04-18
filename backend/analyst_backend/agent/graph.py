@@ -42,7 +42,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from dotenv import load_dotenv
 
-from agent.tools import ALL_TOOLS
+from agent.tools import ALL_TOOLS, current_client_id
 
 load_dotenv()
 
@@ -67,36 +67,30 @@ class AgentState(TypedDict):
 # 2. SYSTEM PROMPT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are the **CRP Analyst Agent** — an expert data analyst for a Walmart-scale
-retail platform. Your job is to help the business team understand customer churn
-risk, identify at-risk customers, and recommend data-driven retention strategies.
+SYSTEM_PROMPT_TEMPLATE = """You are the CRP Analyst Agent, a data analyst for a retail churn platform.
+You are answering for tenant {client_id} only. All tools are already scoped to this tenant.
 
-**What you can do:**
-1. Run read-only SQL queries against the customer database (PostgreSQL)
-2. Predict churn probability for specific customers using a trained ML model
-3. Pull full 360-degree customer profiles (orders, reviews, tickets, RFM scores)
-4. Generate aggregate churn risk summaries
-5. Show which features drive churn predictions (feature importance)
-6. Search and filter at-risk customers by risk level, tier, or spend
+Prefer specialized tools over raw SQL:
+- "How many at high/medium/low risk?" -> get_risk_summary
+- "Show at-risk customers" -> search_at_risk_customers
+- "Profile customer X" -> get_customer_profile
+- "Predict churn for X" -> predict_churn
+- "What drives churn?" -> get_feature_importance
+- Only use query_database when the above tools cannot answer.
 
-**How you should respond:**
-- Always back up your answers with data — use the tools to query the database or
-  run predictions before stating conclusions.
-- When discussing churn risk, include the actual probability and risk tier.
-- If the user asks about a specific customer, pull their full profile first.
-- For broad questions like "how many customers are at risk?", use the risk summary
-  tool or run an aggregate SQL query.
-- Be concise but thorough. Use tables/formatted output when showing data.
-- If a query fails, explain the issue clearly and suggest an alternative approach.
-- You are read-only — you cannot modify any data.
-- Suggest retention actions when appropriate (e.g., targeted discounts for high-risk
-  Platinum customers, outreach for customers with open support tickets).
+When using query_database:
+- Always include `WHERE client_id = :client_id` (use the bind param :client_id, no quotes around it).
+- Add LIMIT 50 unless the user asks for more.
+- SELECT only.
 
-**Key thresholds:**
-- HIGH risk: churn probability >= 0.65
-- MEDIUM risk: churn probability >= 0.35
-- LOW risk: churn probability < 0.35
+Thresholds: HIGH >= 0.65, MEDIUM >= 0.35, LOW < 0.35.
+Be concise. Back answers with numbers from tool output.
 """
+
+
+def _build_system_prompt(client_id: str) -> str:
+    """Render the system prompt with the current tenant id baked in."""
+    return SYSTEM_PROMPT_TEMPLATE.format(client_id=client_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -143,16 +137,25 @@ def _build_llm():
 
 def agent_node(state: AgentState) -> dict:
     """
-    The 'agent' node — sends the conversation to GPT-4 and gets a response.
+    The 'agent' node — sends the conversation to the LLM and gets a response.
     If the response contains tool_calls, the graph routes to the tools node.
     Otherwise, it routes to END.
     """
     llm = _build_llm()
     messages = state["messages"]
 
-    # Inject system prompt if not already present
-    if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
+    # Pull the tenant id set by ask_agent() and bake it into the system prompt
+    # so the LLM knows which client it's serving. Fallback to a clearly-marked
+    # "unknown" if the ContextVar wasn't set — that case is caught loudly by
+    # tools._get_client_id() anyway.
+    tenant = current_client_id.get() or "UNKNOWN"
+    system_prompt = _build_system_prompt(tenant)
+
+    # Inject (or replace) the system prompt so it reflects the current tenant.
+    if messages and isinstance(messages[0], SystemMessage):
+        messages = [SystemMessage(content=system_prompt)] + list(messages[1:])
+    else:
+        messages = [SystemMessage(content=system_prompt)] + list(messages)
 
     response = llm.invoke(messages)
     return {"messages": [response]}
@@ -236,17 +239,32 @@ def get_agent():
     return _graph_instance
 
 
-def ask_agent(question: str, history: list[BaseMessage] | None = None) -> str:
+def ask_agent(
+    question: str,
+    history: list[BaseMessage] | None = None,
+    client_id: str | None = None,
+) -> str:
     """
     Send a question to the agent and return the final text response.
 
     Args:
-        question: The user's question in natural language
-        history:  Optional prior conversation messages
+        question:  The user's question in natural language
+        history:   Optional prior conversation messages
+        client_id: REQUIRED for multi-tenant scoping — the authenticated
+                   tenant making this request. Stored in a ContextVar so
+                   every tool call reads it and adds `WHERE client_id = :cid`
+                   to its SQL. Passing None raises so we never accidentally
+                   run the agent with global access.
 
     Returns:
         The agent's final text answer
     """
+    if not client_id:
+        raise ValueError(
+            "ask_agent requires a client_id — refusing to run the agent "
+            "without tenant scoping."
+        )
+
     agent = get_agent()
 
     messages = []
@@ -254,7 +272,16 @@ def ask_agent(question: str, history: list[BaseMessage] | None = None) -> str:
         messages.extend(history)
     messages.append(HumanMessage(content=question))
 
-    result = agent.invoke({"messages": messages})
+    # Set the tenant in a ContextVar for the duration of this request. Every
+    # tool reads from this, and the ContextVar is isolated per request (no
+    # cross-talk between concurrent users).
+    token = current_client_id.set(client_id)
+    try:
+        result = agent.invoke({"messages": messages})
+    finally:
+        # Always reset — leaving it set could leak into the next request
+        # on the same worker if something else touches it.
+        current_client_id.reset(token)
 
     # Extract the last AI message
     for msg in reversed(result["messages"]):

@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
+import { TierLabelService } from '../services/tier-label.service';
+import { TierLabelPipe } from '../pipes/tier-label.pipe';
 
 interface ChurnScore {
   customer_id: string;
@@ -38,13 +40,14 @@ interface Summary {
 @Component({
   selector: 'app-churn-scores',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TierLabelPipe],
   templateUrl: './churn-scores.html',
   styleUrls: ['./churn-scores.scss']
 })
 export class ChurnScoresComponent implements OnInit {
-  private api = inject(ApiService);
+  private api  = inject(ApiService);
   auth = inject(AuthService);
+  private tierLabels = inject(TierLabelService);
   private clientId = this.auth.getClientId();
 
   // Data
@@ -69,6 +72,8 @@ export class ChurnScoresComponent implements OnInit {
   selectedCustomer = signal<ChurnScore | null>(null);
 
   ngOnInit() {
+    // Pull client's tier labels so {{ s.tier | tierLabel }} shows custom names.
+    this.tierLabels.refresh();
     this.loadScores();
   }
 

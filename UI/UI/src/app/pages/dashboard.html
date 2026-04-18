@@ -117,7 +117,7 @@
                               <div style="font-weight:600;font-size:13px">{{ c.customerName }}</div>
                               <div style="font-size:11px;color:var(--text-muted)">{{ c.customerId }}</div>
                             </td>
-                            <td><span class="badge" [class]="c.customerTier === 'Platinum' ? 'purple' : c.customerTier === 'Gold' ? 'yellow' : c.customerTier === 'Silver' ? 'gray' : 'brown'">{{ c.customerTier }}</span></td>
+                            <td><span class="badge" [class]="c.customerTier === 'Platinum' ? 'purple' : c.customerTier === 'Gold' ? 'yellow' : c.customerTier === 'Silver' ? 'gray' : 'brown'">{{ c.customerTier | tierLabel }}</span></td>
                             <td>{{ c.totalOrders }}</td>
                             <td>{{ formatCurrency(c.totalSpend) }}</td>
                             <td>{{ formatCurrency(c.avgOrderValue) }}</td>
@@ -178,7 +178,7 @@
         <div style="padding:18px">
           @for (t of tiers(); track t.label) {
             <div class="seg-bar-row">
-              <span class="seg-label">{{ t.label }}</span>
+              <span class="seg-label">{{ t.label | tierLabel }}</span>
               <div class="seg-track">
                 <div class="seg-fill" [style.width]="t.pct + '%'" [style.background]="t.color">{{ t.count }}</div>
               </div>

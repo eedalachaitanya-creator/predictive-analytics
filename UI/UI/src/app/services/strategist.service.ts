@@ -2,8 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { environment } from '../../environments/environment';
 
-const BASE = 'http://localhost:8000';
+const BASE = environment.apiUrl.replace('/api/v1', '');
 
 function headers(): HttpHeaders {
   const token = localStorage.getItem('wap_token');

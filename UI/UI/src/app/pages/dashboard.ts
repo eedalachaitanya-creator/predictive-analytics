@@ -2,6 +2,8 @@ import { Component, OnInit, signal, inject, computed } from '@angular/core';
 import { CommonModule, DecimalPipe, PercentPipe } from '@angular/common';
 import { DashboardService } from '../services/dashboard.service';
 import { AuthService } from '../services/auth.service';
+import { TierLabelService } from '../services/tier-label.service';
+import { TierLabelPipe } from '../pipes/tier-label.pipe';
 
 const SEGMENT_COLORS: Record<string, string> = {
   'Champions':          'linear-gradient(90deg,#8B5CF6,#6D28D9)',
@@ -31,13 +33,14 @@ const TIER_COLORS: Record<string, string> = {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, TierLabelPipe],
   templateUrl: './dashboard.html',
   styleUrls: ['./dashboard.scss']
 })
 export class DashboardComponent implements OnInit {
-  svc = inject(DashboardService);
+  svc  = inject(DashboardService);
   auth = inject(AuthService);
+  private tierLabels = inject(TierLabelService);
   private clientId = this.auth.getClientId();
 
   activeTab   = signal('Clean Orders');
@@ -98,6 +101,9 @@ export class DashboardComponent implements OnInit {
   totalPages  = computed(() => this.svc.data()?.totalOrderPages ?? 1);
 
   ngOnInit() {
+    // Pull the client's latest tier labels so {{ x | tierLabel }} renders custom names.
+    this.tierLabels.refresh();
+
     this.svc.load(this.clientId).subscribe({
       next: () => {
         this.tabRows.set(this.svc.data()?.recentOrders ?? []);

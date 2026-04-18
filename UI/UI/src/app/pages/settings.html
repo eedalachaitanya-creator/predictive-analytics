@@ -23,27 +23,6 @@
     </div>
   </div>
 
-  <!-- Prediction Mode -->
-  <div class="card mb-20">
-    <div class="card-header"><div class="card-title">🎯 Prediction Mode</div></div>
-    <div style="padding:20px">
-      <p class="text-secondary mb-16" style="font-size:13px">Select what the model should predict:</p>
-      <div class="radio-option" [class.selected]="predMode()==='churn'" (click)="predMode.set('churn')">
-        <div class="radio-dot"></div><div><div class="radio-label">🔴 Churn Prediction</div><div class="radio-desc">Predict which customers will stop buying</div></div>
-      </div>
-      <div class="radio-option" [class.selected]="predMode()==='retention'" (click)="predMode.set('retention')">
-        <div class="radio-dot"></div><div><div class="radio-label">🟡 Retention Analysis</div><div class="radio-desc">Score every customer by likelihood of staying</div></div>
-      </div>
-      <div class="radio-option" [class.selected]="predMode()==='segment'" (click)="predMode.set('segment')">
-        <div class="radio-dot"></div><div><div class="radio-label">🟣 Segmentation</div><div class="radio-desc">RFM + business segments for all customers</div></div>
-      </div>
-      <div class="radio-option" [class.selected]="predMode()==='full'" (click)="predMode.set('full')">
-        <div class="radio-dot"></div>
-        <div><div class="radio-label">🔵 Full Pipeline &nbsp;<span class="badge blue">Recommended</span></div><div class="radio-desc">Run churn + retention + segmentation in one pass</div></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Tier Threshold -->
   <div class="card mb-20">
     <div class="card-header"><div class="card-title">⚖️ Tier Threshold Method</div></div>
@@ -80,10 +59,10 @@
     <div class="card-header"><div class="card-title">💎 Value-Tier Labels — display names for each tier</div></div>
     <div style="padding:20px">
       <div class="grid-4">
-        <div class="form-group mb-0"><label class="form-label">Top 25%</label><input class="form-input" value="💎 Platinum"></div>
-        <div class="form-group mb-0"><label class="form-label">25–50%</label><input class="form-input" value="🥇 Gold"></div>
-        <div class="form-group mb-0"><label class="form-label">50–75%</label><input class="form-input" value="🥈 Silver"></div>
-        <div class="form-group mb-0"><label class="form-label">Bottom 25%</label><input class="form-input" value="🥉 Bronze"></div>
+        <div class="form-group mb-0"><label class="form-label">Top 25%</label><input class="form-input" [ngModel]="tierLabelPlatinum()" (ngModelChange)="tierLabelPlatinum.set($event)"></div>
+        <div class="form-group mb-0"><label class="form-label">25–50%</label><input class="form-input" [ngModel]="tierLabelGold()"     (ngModelChange)="tierLabelGold.set($event)"></div>
+        <div class="form-group mb-0"><label class="form-label">50–75%</label><input class="form-input" [ngModel]="tierLabelSilver()"   (ngModelChange)="tierLabelSilver.set($event)"></div>
+        <div class="form-group mb-0"><label class="form-label">Bottom 25%</label><input class="form-input" [ngModel]="tierLabelBronze()" (ngModelChange)="tierLabelBronze.set($event)"></div>
       </div>
     </div>
   </div>

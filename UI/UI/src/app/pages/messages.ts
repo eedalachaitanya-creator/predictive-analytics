@@ -4,31 +4,39 @@ import { FormsModule } from '@angular/forms';
 import { MessagesService } from '../services/messages.service';
 import { MessageTemplate, TierKey, RiskLevel, Channel } from '../models';
 import { AuthService } from '../services/auth.service';
+import { TierLabelService } from '../services/tier-label.service';
+import { TierLabelPipe } from '../pipes/tier-label.pipe';
 
 interface TierMeta { key: TierKey; label: string; cls: string; sub: string; }
 
 @Component({
   selector: 'app-messages',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TierLabelPipe],
   templateUrl: './messages.html',
   styleUrls: ['./messages.scss']
 })
 export class MessagesComponent implements OnInit {
-  svc = inject(MessagesService);
+  svc  = inject(MessagesService);
   private auth = inject(AuthService);
+  private tierLabels = inject(TierLabelService);
   private clientId = this.auth.getClientId();
 
   saved     = signal(false);
   editingId = signal<string | null>(null);
   editForm  = signal<Partial<MessageTemplate>>({});
 
-  tiers: TierMeta[] = [
-    { key:'platinum', label:'💎 Platinum', cls:'tier-platinum', sub:'Highest priority — premium win-back' },
-    { key:'gold',     label:'🥇 Gold',     cls:'tier-gold',     sub:'High value — targeted recovery' },
-    { key:'silver',   label:'🥈 Silver',   cls:'tier-silver',   sub:'Mid-tier — cost-effective nudge' },
-    { key:'bronze',   label:'🥉 Bronze',   cls:'tier-bronze',   sub:'Entry tier — low-cost re-engagement' },
-  ];
+  // Pull display labels from the service signal so a rename in Settings
+  // updates these section headers without a page reload.
+  tiers = computed<TierMeta[]>(() => {
+    const m = this.tierLabels.labels();
+    return [
+      { key:'platinum', label: m['Platinum'], cls:'tier-platinum', sub:'Highest priority — premium win-back' },
+      { key:'gold',     label: m['Gold'],     cls:'tier-gold',     sub:'High value — targeted recovery' },
+      { key:'silver',   label: m['Silver'],   cls:'tier-silver',   sub:'Mid-tier — cost-effective nudge' },
+      { key:'bronze',   label: m['Bronze'],   cls:'tier-bronze',   sub:'Entry tier — low-cost re-engagement' },
+    ];
+  });
 
   riskLabels: Record<RiskLevel, string> = {
     at_risk: 'At-Risk', returning: 'Returning',
@@ -54,12 +62,12 @@ export class MessagesComponent implements OnInit {
   ];
 
   byTier = computed(() =>
-    this.tiers.map(t => ({ ...t, rows: this.svc.getByTier(t.key) }))
+    this.tiers().map(t => ({ ...t, rows: this.svc.getByTier(t.key) }))
   );
 
   discountMatrix = computed(() => {
     const matrix: Record<string, Record<string, number>> = {};
-    for (const t of this.tiers) {
+    for (const t of this.tiers()) {
       matrix[t.key] = {};
       for (const risk of ['at_risk','returning','reactivated','new'] as RiskLevel[]) {
         matrix[t.key][risk] = this.svc.getByTierAndRisk(t.key, risk)?.discount_pct ?? 0;
@@ -69,6 +77,8 @@ export class MessagesComponent implements OnInit {
   });
 
   ngOnInit() {
+    // Pull client's tier labels so the section headers and draft badges show custom names.
+    this.tierLabels.refresh();
     this.svc.loadTemplates(this.clientId).subscribe({ error: () => {} });
   }
 

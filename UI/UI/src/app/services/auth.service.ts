@@ -76,23 +76,55 @@ export class AuthService {
   }
 
   /**
-   * Get the current user's client_id.
-   * - If user has access to exactly 1 client → return that client_id
-   * - If user has wildcard '*' access (super_admin) → return the first
-   *   specific client in their list, or fall back to 'CLT-001'
-   * - If user has access to multiple clients → return the first one
-   *   (the UI should let them pick via a client-switcher later)
+   * Get the current user's active client_id.
+   *
+   * Returns an empty string if no valid client is resolvable. Never falls
+   * back to another tenant's ID — that would silently leak cross-tenant
+   * data. Callers should treat '' as "no client selected" and let the
+   * backend reject the request (or redirect to /login / client picker).
+   *
+   * - No user logged in                    → '' (caller should redirect)
+   * - User has exactly 1 client            → that client
+   * - User has multiple clients            → selected client (localStorage)
+   *                                          or first in list
+   * - Super admin with wildcard '*'        → selected client (localStorage)
+   *                                          or '' (must pick via selector)
    */
   getClientId(): string {
+    const user = this._user();
+    if (!user) return '';
+
+    const access = user.clientAccess ?? [];
+    if (access.length === 0) return '';
+
+    const selected = localStorage.getItem('wap_selected_client') ?? '';
+
+    // Super admin: requires an explicit selection — no default tenant.
+    if (access.includes('*')) {
+      return selected;
+    }
+
+    // Regular user with multiple clients: honor their selection if it's in scope.
+    if (access.length > 1 && selected && access.includes(selected)) {
+      return selected;
+    }
+
+    return access[0];
+  }
+
+  /** Set the active client for users with access to more than one (or '*'). */
+  setClientId(clientId: string): void {
     const access = this._user()?.clientAccess ?? [];
-    if (access.length === 0) return 'CLT-001';
-    if (access.includes('*')) return 'CLT-001'; // super_admin default
-    return access[0]; // first assigned client
+    if (!access.includes('*') && !access.includes(clientId)) {
+      throw new Error(`User does not have access to ${clientId}`);
+    }
+    localStorage.setItem('wap_selected_client', clientId);
   }
 
   /** Get the client name for display (from user metadata or fallback) */
   getClientName(): string {
     const id = this.getClientId();
+    if (!id) return '—';
     // Map of known client names — this will come from backend later
     const names: Record<string, string> = {
       'CLT-001': 'Walmart Inc.',

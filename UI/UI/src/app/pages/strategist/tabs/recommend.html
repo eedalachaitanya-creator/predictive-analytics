@@ -18,13 +18,31 @@
               <button class="remove-btn" (click)="removeProduct(i)">✕</button>
             }
           </div>
+
           <input class="form-input" placeholder="Product name"
             [value]="p.name" (input)="updateProduct(i, 'name', $any($event.target).value)" />
-          <input class="form-input" type="number" placeholder="Cost price in ₹ (optional — uses saved price if blank)"
+
+          <input class="form-input" type="number"
+            placeholder="Cost price in ₹ (optional — uses saved price if blank)"
             [value]="p.cost" (input)="updateProduct(i, 'cost', $any($event.target).value)" />
-          <textarea class="form-input comp-input" rows="3"
-            placeholder="Competitor pricing data (auto-filled from DB)"
-            [value]="p.listings" (input)="updateProduct(i, 'listings', $any($event.target).value)"></textarea>
+
+          <!-- Competitor prices shown as clean chips — no JSON -->
+          @if (p.platforms.length > 0) {
+            <div class="comp-chips-wrap">
+              <div class="comp-chips-label">Competitor prices</div>
+              <div class="comp-chips">
+                @for (pl of p.platforms; track pl.name) {
+                  <div class="comp-chip">
+                    <span class="comp-icon">{{ platformIcon(pl.name) }}</span>
+                    <span class="comp-platform">{{ pl.name }}</span>
+                    <span class="comp-price">₹{{ pl.price }}</span>
+                  </div>
+                }
+              </div>
+            </div>
+          } @else {
+            <div class="comp-empty">No competitor data — will be fetched from DB on run</div>
+          }
         </div>
       }
 
@@ -63,17 +81,13 @@
 
     <div class="config-section churn-section">
       <label class="churn-toggle">
-        <input type="checkbox" [checked]="useChurn()" (change)="useChurn.set($any($event.target).checked)" />
+        <input type="checkbox" [checked]="useChurn()"
+          (change)="useChurn.set($any($event.target).checked)" />
         <div class="churn-toggle-text">
           <span class="churn-label">Enable retention pricing</span>
           <span class="churn-hint">Applies personalised discounts for at-risk customers</span>
         </div>
       </label>
-      @if (useChurn()) {
-        <textarea class="form-input churn-input" rows="4"
-          placeholder="Paste customer churn data here (optional — fetched automatically if omitted)"
-          [value]="churnJson()" (input)="churnJson.set($any($event.target).value)"></textarea>
-      }
     </div>
 
     @if (error()) { <div class="error-bar">{{ error() }}</div> }
@@ -116,9 +130,8 @@
       </div>
     }
 
-    @for (rec of results(); track rec.product_name; let i = $index) {
+    @for (rec of results(); track rec.product_name) {
       <div class="rec-card" [class.retention]="rec.strategy === 'retention'">
-
         <div class="rec-top">
           <div class="rec-name">{{ rec.product_name }}</div>
           <span class="strategy-tag" [class]="strategyColor(rec.strategy)">
@@ -128,45 +141,33 @@
           </span>
         </div>
 
-        <!-- Price comparison row -->
         <div class="price-comparison">
           <div class="price-col highlight">
             <div class="price-col-label">Recommended Price</div>
             <div class="price-col-value big">{{ fmtPrice(rec.suggested_price) }}</div>
           </div>
-
           <div class="price-divider">vs</div>
-
           <div class="price-col">
-            <div class="price-col-label">Your Cost Price</div>
-            <div class="price-col-value cost">
-              {{ fmtPrice(getCostPrice(rec.product_name) || rec.our_cost) }}
-            </div>
+            <div class="price-col-label">Your Cost</div>
+            <div class="price-col-value cost">{{ fmtPrice(getCostPrice(rec.product_name) || rec.our_cost) }}</div>
           </div>
-
           <div class="price-divider">·</div>
-
           <div class="price-col">
             <div class="price-col-label">Lowest Competitor</div>
             <div class="price-col-value">{{ fmtPrice(rec.competitor_min) }}</div>
           </div>
-
           <div class="price-divider">·</div>
-
           <div class="price-col">
             <div class="price-col-label">Market Average</div>
             <div class="price-col-value">{{ fmtPrice(rec.competitor_avg) }}</div>
           </div>
-
           <div class="price-divider">·</div>
-
           <div class="price-col">
             <div class="price-col-label">Highest Competitor</div>
             <div class="price-col-value">{{ fmtPrice(rec.competitor_max) }}</div>
           </div>
         </div>
 
-        <!-- Margin + trend row -->
         <div class="rec-stats">
           <div class="stat-item">
             <span class="stat-label">Profit Margin</span>
@@ -192,7 +193,9 @@
           @if (rec.strategy === 'retention' && rec.pre_retention_price) {
             <div class="stat-item">
               <span class="stat-label">Original Price</span>
-              <span class="stat-value muted" style="text-decoration: line-through">{{ fmtPrice(rec.pre_retention_price) }}</span>
+              <span class="stat-value muted" style="text-decoration:line-through">
+                {{ fmtPrice(rec.pre_retention_price) }}
+              </span>
             </div>
           }
         </div>
@@ -200,7 +203,6 @@
         @if (rec.reasoning) {
           <div class="reasoning">{{ rec.reasoning }}</div>
         }
-
       </div>
     }
   </div>

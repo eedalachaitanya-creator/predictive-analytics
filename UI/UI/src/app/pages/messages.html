@@ -23,7 +23,7 @@
       <table class="matrix-table">
         <thead><tr><th>Tier ↓ / Risk Level →</th><th>At-Risk</th><th>Returning</th><th>Reactivated</th><th>New</th></tr></thead>
         <tbody>
-          @for (t of tiers; track t.key) {
+          @for (t of tiers(); track t.key) {
             <tr>
               <td [class]="t.cls">{{ t.label }}</td>
               @for (risk of ['at_risk','returning','reactivated','new']; track risk) {
@@ -173,7 +173,7 @@
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                   <span style="font-weight:600;font-size:13px">{{ d.customerName }}</span>
                   <span class="badge" [class]="d.riskTier === 'HIGH' ? 'red' : d.riskTier === 'MEDIUM' ? 'yellow' : 'green'">{{ d.riskTier }}</span>
-                  <span class="badge gray">{{ d.tier }}</span>
+                  <span class="badge gray">{{ d.tier | tierLabel }}</span>
                   @if (d.churnProbability !== null) {
                     <span style="font-size:11px;color:var(--text-muted)">Churn: {{ (d.churnProbability * 100).toFixed(1) }}%</span>
                   }

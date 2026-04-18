@@ -33,6 +33,28 @@ log = logging.getLogger("downloads")
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "ml", "output")
 OUTPUT_DIR = os.path.abspath(OUTPUT_DIR)
 
+# ── Client visibility policy ───────────────────────────────────────────
+# Files the pipeline generates but we don't surface on the client-facing
+# Downloads page. These are ML-internal artifacts (training matrices, model
+# evaluation metrics, EDA/QA reports, feature diagnostics) meant for data
+# science / model development, not for business users. They stay in the
+# pipeline_outputs table so internal tooling (Scout/Strategist agents, admin
+# scripts) can still read them by filename — they're just filtered out of
+# the listing, ZIP export, and direct download URLs.
+CLIENT_HIDDEN_FILES = {
+    "feature_matrix.csv",
+    "evaluation_report.txt",
+    "evaluation_summary.json",
+    "eda_report.txt",
+    "correlation_matrix.csv",
+    "class_balance.csv",
+}
+
+
+def _is_client_visible(filename: str) -> bool:
+    """Return True if a file should appear in the client Downloads UI."""
+    return filename not in CLIENT_HIDDEN_FILES
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -83,6 +105,8 @@ def list_downloads(clientId: str = Query("CLT-001")):
         db_files = list_output_files(engine, clientId)
         if db_files:
             for row in db_files:
+                if not _is_client_visible(row["filename"]):
+                    continue  # ML-internal artifact, hidden from client UI
                 files.append({
                     "filename": row["filename"],
                     "title": row.get("title", row["filename"]),
@@ -106,6 +130,8 @@ def list_downloads(clientId: str = Query("CLT-001")):
         for f in sorted(os.listdir(OUTPUT_DIR)):
             if f.startswith(".") or os.path.isdir(os.path.join(OUTPUT_DIR, f)):
                 continue
+            if not _is_client_visible(f):
+                continue  # ML-internal artifact, hidden from client UI
             info = _get_disk_file_info(f)
             if info:
                 files.append(info)
@@ -140,6 +166,8 @@ def download_all_as_zip(clientId: str = Query("CLT-001")):
         if db_files:
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 for row in db_files:
+                    if not _is_client_visible(row["filename"]):
+                        continue  # ML-internal artifact, not bundled for clients
                     full = get_output_file(engine, clientId, row["filename"])
                     if full and full.get("file_content"):
                         zf.writestr(row["filename"], full["file_content"])
@@ -159,6 +187,8 @@ def download_all_as_zip(clientId: str = Query("CLT-001")):
                 for f in filenames:
                     if f.startswith("."):
                         continue
+                    if not _is_client_visible(f):
+                        continue  # ML-internal artifact, not bundled for clients
                     filepath = os.path.join(root, f)
                     arcname = os.path.relpath(filepath, OUTPUT_DIR)
                     zf.write(filepath, arcname)
@@ -188,6 +218,15 @@ def download_file(filename: str, clientId: str = Query("CLT-001")):
     Fallback: serves from disk (ml/output/).
     """
     safe_name = os.path.basename(filename)
+
+    # Block ML-internal files from direct-URL downloads. Even if a client
+    # knows the filename, they shouldn't be able to fetch it via the client
+    # API — same 404 as if the file didn't exist.
+    if not _is_client_visible(safe_name):
+        raise HTTPException(
+            status_code=404,
+            detail=f"File '{safe_name}' not found.",
+        )
 
     # ── Try database first ──
     try:

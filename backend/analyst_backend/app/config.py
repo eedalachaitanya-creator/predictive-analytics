@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Database
-    database_url: str = "postgresql://chaitanya@localhost:5432/walmart_crp"
+    database_url: str = "postgresql://postgres:sinchana@localhost:5433/predictive_analysis"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

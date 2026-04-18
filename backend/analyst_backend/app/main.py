@@ -30,6 +30,7 @@ from app.downloads_router import router as downloads_router
 from app.validation_router import router as validation_router
 from app.chat_router import router as chat_router
 from app.messages_router import router as messages_router
+from scout.router import scout_router
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=settings.log_level.upper())
@@ -75,6 +76,7 @@ app.include_router(downloads_router)
 app.include_router(validation_router)
 app.include_router(chat_router)
 app.include_router(messages_router)
+app.include_router(scout_router)
 
 # ── LangFuse Cost Tracking ────────────────────────────────────────────────────
 

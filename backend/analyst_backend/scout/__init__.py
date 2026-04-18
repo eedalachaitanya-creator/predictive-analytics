@@ -1,0 +1,1 @@
+"""scout — E-commerce price intelligence module."""

@@ -31,6 +31,7 @@ from app.validation_router import router as validation_router
 from app.chat_router import router as chat_router
 from app.messages_router import router as messages_router
 from scout.router import scout_router
+from scout_agent.routes import router as agent_router
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=settings.log_level.upper())
@@ -77,7 +78,7 @@ app.include_router(validation_router)
 app.include_router(chat_router)
 app.include_router(messages_router)
 app.include_router(scout_router)
-
+app.include_router(agent_router, prefix="/agent", tags=["agent"])
 # ── LangFuse Cost Tracking ────────────────────────────────────────────────────
 
 @app.get("/api/v1/cost-tracking", tags=["ops"])

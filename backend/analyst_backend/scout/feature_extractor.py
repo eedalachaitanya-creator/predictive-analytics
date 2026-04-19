@@ -521,9 +521,13 @@ Return ONLY valid JSON, no markdown, no explanation."""
         raw = re.sub(r"\n?```$", "", raw)
         llm_data = json.loads(raw)
 
-        # Merge — only fill fields that rules missed
+        # Merge — only fill fields that rules missed.
+        # Convert list values to tuples so they're hashable downstream
+        # (feature agreement check at line ~703 uses set() which requires hashable values).
         for field, value in llm_data.items():
             if value and not extracted.get(field):
+                if isinstance(value, list):
+                    value = tuple(value)
                 extracted[field] = value
                 logger.info(f"  LLM filled: {field} = {value}")
 
@@ -696,10 +700,16 @@ def compare_features(product_name: str, listings: list[dict]) -> dict:
         for r in platform_results:
             platform_matrix[key][r["platform"]] = r["platform_features"].get(key)
 
-    # Identify where platforms AGREE vs DIFFER on product features
+    # Identify where platforms AGREE vs DIFFER on product features.
+    # Defensive: coerce any list values to tuples here too, in case some
+    # other code path stores a list without going through the LLM gap-fill.
     agreement = {}
     for key, platform_vals in product_matrix.items():
-        vals = [v for v in platform_vals.values() if v is not None]
+        vals = [
+            tuple(v) if isinstance(v, list) else v
+            for v in platform_vals.values()
+            if v is not None
+        ]
         agreement[key] = "agree" if len(set(vals)) <= 1 else "differ"
 
     return {

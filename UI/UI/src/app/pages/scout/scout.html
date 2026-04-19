@@ -20,10 +20,11 @@
   <!-- Tab Content -->
   <div class="tab-content">
     @switch (activeTab()) {
+      @case ('chat')      { <scout-chat /> }
       @case ('monitor')   { <scout-monitor /> }
       @case ('search')    { <scout-search /> }
       @case ('compare')   { <scout-compare /> }
-      @case ('platforms')  { <scout-platforms /> }
+      @case ('platforms') { <scout-platforms /> }
     }
   </div>
 </div>

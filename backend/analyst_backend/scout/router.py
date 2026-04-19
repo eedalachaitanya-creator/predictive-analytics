@@ -466,7 +466,12 @@ def compare_prices(query: str):
                 "brand": e["canonical_brand"], "variant": e["canonical_variant"],
                 "cheapest": e["best_price"], "price_spread": e["price_spread"],
                 "platforms": [
-                    {"platform": l["platform"], "price": l["price"]["value"], "url": l["url"]}
+                    {
+                        "platform": l["platform"],
+                        "price":    l["price"]["value"],
+                        "currency": l["price"]["currency"],
+                        "url":      l["url"],
+                    }
                     for l in sorted(e["listings"], key=lambda x: x["price"]["value"])
                 ],
             }

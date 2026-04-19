@@ -1,0 +1,114 @@
+<div class="chat-wrap">
+
+  <!-- Header strip -->
+  <div class="chat-header-row">
+    <div class="chat-intro">
+      <span class="chat-icon">💬</span>
+      <div>
+        <div class="chat-title">Ask Scout</div>
+        <div class="chat-subtitle">Chat with your price intelligence agent</div>
+      </div>
+    </div>
+    @if (hasMessages()) {
+      <button class="btn sm outline" (click)="newChat()" [disabled]="sending()">
+        🔄 New Chat
+      </button>
+    }
+  </div>
+
+  <!-- Messages area -->
+  <div class="card chat-card">
+
+    @if (!hasMessages() && !sending()) {
+      <!-- Empty state with quick prompts -->
+      <div class="empty-hero chat-empty">
+        <div class="empty-icon">🤖</div>
+        <div class="empty-text">Ask anything about prices, products, or platforms</div>
+        <div class="text-muted" style="margin-top:6px;font-size:12px">
+          The agent can search live, compare platforms, show features, and check alerts
+        </div>
+
+        <div class="suggest-row">
+          <button class="suggest-chip" (click)="suggestQuery('Search for NIVEA lip balm')">
+            🔍 Search for NIVEA lip balm
+          </button>
+          <button class="suggest-chip" (click)="suggestQuery('Where is the Dyson V15 cheapest?')">
+            ⚖️ Compare Dyson V15 prices
+          </button>
+          <button class="suggest-chip" (click)="suggestQuery('Any recent price drops?')">
+            📉 Any recent price drops?
+          </button>
+          <button class="suggest-chip" (click)="suggestQuery('What platforms do you support?')">
+            🌐 What platforms are supported?
+          </button>
+        </div>
+      </div>
+    } @else {
+      <!-- Message list -->
+      <div class="messages-scroll">
+        @for (m of messages(); track $index) {
+          <div class="msg" [class.msg-user]="m.role === 'user'" [class.msg-bot]="m.role === 'assistant'">
+            <div class="msg-avatar">
+              {{ m.role === 'user' ? '🙋' : '🤖' }}
+            </div>
+            <div class="msg-body">
+              <div class="msg-meta">
+                <span class="msg-role">{{ m.role === 'user' ? 'You' : 'Scout' }}</span>
+                <span class="msg-time">{{ formatTime(m.timestamp) }}</span>
+              </div>
+              @if (m.role === 'assistant') {
+                <!-- Assistant replies get markdown rendering (bold, lists, links) -->
+                <div class="msg-content md-content" [innerHTML]="renderMarkdown(m.content)"></div>
+              } @else {
+                <!-- User messages render as plain text (no markdown interpretation) -->
+                <div class="msg-content">{{ m.content }}</div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (sending()) {
+          <div class="msg msg-bot">
+            <div class="msg-avatar">🤖</div>
+            <div class="msg-body">
+              <div class="msg-meta">
+                <span class="msg-role">Scout</span>
+              </div>
+              <div class="msg-content typing">
+                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                Thinking…
+              </div>
+            </div>
+          </div>
+        }
+
+        <div #messagesEnd></div>
+      </div>
+    }
+
+    <!-- Error notice -->
+    @if (error()) {
+      <div class="notice warning chat-error">⚠️ {{ error() }}</div>
+    }
+
+    <!-- Input area (always at bottom) -->
+    <div class="chat-input-row">
+      <textarea
+        class="chat-input"
+        placeholder="Ask Scout anything… (Enter to send, Shift+Enter for newline)"
+        [value]="input()"
+        (input)="input.set($any($event.target).value)"
+        (keydown)="onKeydown($event)"
+        [disabled]="sending()"
+        rows="1"></textarea>
+      <button class="btn primary chat-send" (click)="send()" [disabled]="sending() || !input().trim()">
+        @if (sending()) {
+          <span class="spinner"></span>
+        } @else {
+          Send ➤
+        }
+      </button>
+    </div>
+
+  </div>
+</div>

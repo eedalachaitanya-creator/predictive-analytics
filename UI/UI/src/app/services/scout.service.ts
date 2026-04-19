@@ -109,6 +109,19 @@ export interface MonitorResult {
   alerts_generated: number;
 }
 
+// ── Chat agent models ───────────────────────────────────────────────
+
+export interface AgentChatResponse {
+  session_id: string;
+  message: string;
+  response: string;
+}
+
+export interface AgentSessionDeleteResponse {
+  status: string;
+  session_id: string;
+}
+
 // ── Service ─────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
@@ -214,6 +227,25 @@ export class ScoutService {
   getAllProducts(): Observable<{ data: any[]; platforms: string[] }> {
     return this.http.get<{ data: any[]; platforms: string[] }>(`${SCOUT_API}/products`)
       .pipe(catchError(this.handleError));
+  }
+
+  // ── Chat Agent ──────────────────────────────────────────────────
+  //
+  // LangGraph ReAct agent mounted at /agent/* on the same Scout backend.
+  // Maintains per-session conversation memory keyed by session_id.
+  // The UI generates its own session_id on mount (see chat.ts) and reuses
+  // it across sends in the same chat. "New Chat" creates a fresh session.
+
+  agentChat(message: string, sessionId: string): Observable<AgentChatResponse> {
+    return this.http.post<AgentChatResponse>(`${SCOUT_API}/agent/chat`, {
+      message, session_id: sessionId
+    }).pipe(catchError(this.handleError));
+  }
+
+  agentDeleteSession(sessionId: string): Observable<AgentSessionDeleteResponse> {
+    return this.http.delete<AgentSessionDeleteResponse>(
+      `${SCOUT_API}/agent/session/${encodeURIComponent(sessionId)}`
+    ).pipe(catchError(this.handleError));
   }
 
   // ── Error Handler ───────────────────────────────────────────────

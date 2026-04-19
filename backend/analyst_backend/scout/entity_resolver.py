@@ -618,7 +618,9 @@ def save_entities(db_instance, entities: list[dict]):
 
         for listing in entity["listings"]:
             platform    = listing.get("platform", "")
-            price_value = listing.get("price", {}).get("value", 0)
+            price_dict  = listing.get("price", {}) or {}
+            price_value = price_dict.get("value", 0)
+            currency    = price_dict.get("currency", "INR")   # fallback to INR if scraper didn't tag it
             title       = listing.get("title") or canonical_name
 
             with db_instance._conn() as conn:
@@ -659,12 +661,13 @@ def save_entities(db_instance, entities: list[dict]):
                 # Upsert listing
                 db_instance._execute(conn, """
                     INSERT INTO entity_listings
-                        (entity_id, platform, product_url, title, price,
+                        (entity_id, platform, product_url, title, price, currency,
                          ingredients, manufacturer, marketed_by,
                          availability, last_seen)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (entity_id, platform) DO UPDATE SET
                         price        = EXCLUDED.price,
+                        currency     = EXCLUDED.currency,
                         title        = EXCLUDED.title,
                         product_url  = EXCLUDED.product_url,
                         availability = EXCLUDED.availability,
@@ -675,6 +678,7 @@ def save_entities(db_instance, entities: list[dict]):
                     listing.get("url", ""),
                     title,
                     price_value,
+                    currency,
                     listing.get("ingredients", ""),
                     listing.get("manufacturer", ""),
                     listing.get("marketed_by", ""),
@@ -727,7 +731,10 @@ def get_entities_for_query(db_instance, query: str) -> list[dict]:
                 {
                     "platform":     l["platform"],
                     "title":        l["title"],
-                    "price":        {"value": float(l["price"]) if l["price"] else 0, "currency": "INR"},
+                    "price":        {
+                        "value":    float(l["price"]) if l["price"] else 0,
+                        "currency": l.get("currency") or "INR",
+                    },
                     "url":          l["product_url"],
                     "ingredients":  l.get("ingredients", ""),
                     "manufacturer": l.get("manufacturer", ""),

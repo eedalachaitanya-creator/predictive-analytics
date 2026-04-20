@@ -18,13 +18,17 @@
   </div>
 
   <!-- Tab Content -->
+  <!-- Tab Content
+       All tabs are always mounted. Inactive ones are hidden via [hidden],
+       which keeps their component state, signals, and any in-flight HTTP
+       calls alive. Previously used @switch/@case destroyed and recreated
+       the component on every tab change — in-progress searches, chat
+       history, and monitor runs all got wiped when switching tabs. -->
   <div class="tab-content">
-    @switch (activeTab()) {
-      @case ('chat')      { <scout-chat /> }
-      @case ('monitor')   { <scout-monitor /> }
-      @case ('search')    { <scout-search /> }
-      @case ('compare')   { <scout-compare /> }
-      @case ('platforms') { <scout-platforms /> }
-    }
+    <div [hidden]="activeTab() !== 'chat'">      <scout-chat /></div>
+    <div [hidden]="activeTab() !== 'monitor'">   <scout-monitor /></div>
+    <div [hidden]="activeTab() !== 'search'">    <scout-search /></div>
+    <div [hidden]="activeTab() !== 'compare'">   <scout-compare /></div>
+    <div [hidden]="activeTab() !== 'platforms'"> <scout-platforms /></div>
   </div>
 </div>

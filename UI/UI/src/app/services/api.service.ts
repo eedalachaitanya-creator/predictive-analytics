@@ -16,7 +16,8 @@ export class ApiService {
   private base = environment.apiUrl;
 
   private headers(): HttpHeaders {
-    const token = localStorage.getItem('wap_token');
+    // Token lives in sessionStorage — see auth.service.ts for the rationale.
+    const token = sessionStorage.getItem('wap_token');
     return new HttpHeaders({
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -45,7 +46,7 @@ export class ApiService {
 
   /** Multipart upload — no Content-Type header so browser sets boundary */
   upload<T>(path: string, formData: FormData): Observable<T> {
-    const token = localStorage.getItem('wap_token');
+    const token = sessionStorage.getItem('wap_token');
     const headers = new HttpHeaders(token ? { Authorization: `Bearer ${token}` } : {});
     return this.http.post<T>(`${this.base}${path}`, formData, { headers })
       .pipe(catchError(this.handleError));

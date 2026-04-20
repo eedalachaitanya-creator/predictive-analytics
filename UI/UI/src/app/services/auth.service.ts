@@ -8,6 +8,12 @@ const TOKEN_KEY   = 'wap_token';
 const REFRESH_KEY = 'wap_refresh';
 const USER_KEY    = 'wap_user';
 
+// We use sessionStorage (not localStorage) so closing the browser tab/window
+// clears the session and the next visit lands on /login. Requested by the
+// team for demos — they don't want the app silently auto-resuming into the
+// dashboard from a stale token. sessionStorage is per-tab and dies when the
+// tab closes; localStorage persists indefinitely until explicitly cleared.
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private api    = inject(ApiService);
@@ -32,7 +38,7 @@ export class AuthService {
 
   logout(): void {
     // Best-effort server-side revoke
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = sessionStorage.getItem(TOKEN_KEY);
     if (token) {
       this.api.post('/auth/logout', {}).subscribe({ error: () => {} });
     }
@@ -45,7 +51,7 @@ export class AuthService {
     return this.api.get<AuthUser>('/auth/me').pipe(
       tap(user => {
         this._user.set(user);
-        localStorage.setItem(USER_KEY, JSON.stringify(user));
+        sessionStorage.setItem(USER_KEY, JSON.stringify(user));
       }),
       catchError(err => {
         this.clear();
@@ -56,14 +62,14 @@ export class AuthService {
 
   /** Swap old token for a new one */
   refreshToken(): Observable<LoginResponse> {
-    const refreshToken = localStorage.getItem(REFRESH_KEY) ?? '';
+    const refreshToken = sessionStorage.getItem(REFRESH_KEY) ?? '';
     return this.api.post<LoginResponse>('/auth/refresh', { refreshToken }).pipe(
       tap(res => this.persist(res))
     );
   }
 
   getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(TOKEN_KEY);
   }
 
   hasRole(role: UserRole): boolean {
@@ -85,9 +91,9 @@ export class AuthService {
    *
    * - No user logged in                    → '' (caller should redirect)
    * - User has exactly 1 client            → that client
-   * - User has multiple clients            → selected client (localStorage)
+   * - User has multiple clients            → selected client (sessionStorage)
    *                                          or first in list
-   * - Super admin with wildcard '*'        → selected client (localStorage)
+   * - Super admin with wildcard '*'        → selected client (sessionStorage)
    *                                          or '' (must pick via selector)
    */
   getClientId(): string {
@@ -97,7 +103,7 @@ export class AuthService {
     const access = user.clientAccess ?? [];
     if (access.length === 0) return '';
 
-    const selected = localStorage.getItem('wap_selected_client') ?? '';
+    const selected = sessionStorage.getItem('wap_selected_client') ?? '';
 
     // Super admin: requires an explicit selection — no default tenant.
     if (access.includes('*')) {
@@ -118,7 +124,7 @@ export class AuthService {
     if (!access.includes('*') && !access.includes(clientId)) {
       throw new Error(`User does not have access to ${clientId}`);
     }
-    localStorage.setItem('wap_selected_client', clientId);
+    sessionStorage.setItem('wap_selected_client', clientId);
   }
 
   /** Get the client name for display (from user metadata or fallback) */
@@ -135,22 +141,32 @@ export class AuthService {
 
   // ── Helpers ────────────────────────────────────────────────────────
   private persist(res: LoginResponse): void {
-    localStorage.setItem(TOKEN_KEY,   res.token);
-    localStorage.setItem(REFRESH_KEY, res.refreshToken);
-    localStorage.setItem(USER_KEY,    JSON.stringify(res.user));
+    sessionStorage.setItem(TOKEN_KEY,   res.token);
+    sessionStorage.setItem(REFRESH_KEY, res.refreshToken);
+    sessionStorage.setItem(USER_KEY,    JSON.stringify(res.user));
     this._user.set(res.user);
   }
 
   private clear(): void {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-    localStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem('wap_selected_client');
     this._user.set(null);
   }
 
   private loadUser(): AuthUser | null {
+    // One-time cleanup: if a previous build left tokens in localStorage,
+    // wipe them so we don't auto-resume from stale credentials. Safe to
+    // remove this block after one or two deploys.
+    if (localStorage.getItem(TOKEN_KEY) || localStorage.getItem(USER_KEY)) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem('wap_selected_client');
+    }
     try {
-      const raw = localStorage.getItem(USER_KEY);
+      const raw = sessionStorage.getItem(USER_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   }

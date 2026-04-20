@@ -15,7 +15,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   const router = inject(Router);
   const isAuthEndpoint = req.url.includes('/auth/login') || req.url.includes('/auth/refresh');
-  const token = localStorage.getItem(TOKEN_KEY);
+  // sessionStorage so the session dies with the browser tab — see auth.service.ts
+  const token = sessionStorage.getItem(TOKEN_KEY);
 
   const authReq = (!isAuthEndpoint && token)
     ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
@@ -24,9 +25,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   return next(authReq).pipe(
     catchError((err: HttpErrorResponse) => {
       if (err.status === 401 && !isAuthEndpoint) {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-        localStorage.removeItem(USER_KEY);
+        sessionStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(REFRESH_KEY);
+        sessionStorage.removeItem(USER_KEY);
         router.navigate(['/login']);
       }
       return throwError(() => err);

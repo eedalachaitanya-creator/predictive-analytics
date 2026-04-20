@@ -7,7 +7,8 @@ import { environment } from '../../environments/environment';
 const BASE = environment.apiUrl.replace('/api/v1', '');
 
 function headers(): HttpHeaders {
-  const token = localStorage.getItem('wap_token');
+  // sessionStorage so the session dies with the browser tab — see auth.service.ts
+  const token = sessionStorage.getItem('wap_token');
   return new HttpHeaders({
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})

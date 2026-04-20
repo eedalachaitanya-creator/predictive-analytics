@@ -7,7 +7,7 @@
   <div class="add-form">
     <input
       class="form-input"
-      placeholder="e.g. 'flipkart', 'myntra', 'shop.drberg.com'"
+      placeholder="e.g. 'flipkart', 'myntra'"
       [value]="newName()"
       (input)="newName.set($any($event.target).value); clearMessages()"
       (keydown)="onAddKeydown($event)"

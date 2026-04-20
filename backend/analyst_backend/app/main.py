@@ -33,6 +33,17 @@ from app.messages_router import router as messages_router
 from scout.router import scout_router
 from scout_agent.routes import router as agent_router
 
+# ── Strategist Agent integration ──────────────────────────────────────────────
+# Strategist provides /api/strategist/* endpoints for pricing recommendations.
+# It uses its own asyncpg pool (lazily) to query Scout's entity_listings +
+# price_history tables and write to pricing_recommendations +
+# customer_price_context (both already exist in Scout DB).
+from strategist.routers.strategist_router import router as strategist_router
+from strategist.db.connection import (
+    create_pools as strategist_create_pools,
+    close_pools as strategist_close_pools,
+)
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=settings.log_level.upper())
 log = logging.getLogger("crp_api")
@@ -41,7 +52,28 @@ log = logging.getLogger("crp_api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("🚀 CRP Analyst Agent starting up ...")
+
+    # Initialise Strategist's asyncpg pool (reads SCOUT_DB_URL or DATABASE_URL).
+    # Non-fatal: if the DB is unreachable, Strategist endpoints return 503,
+    # but the rest of the app (scout, analyst, pipelines) keeps working.
+    try:
+        await strategist_create_pools()
+        log.info("✅ Strategist DB pool ready.")
+    except Exception as exc:
+        log.error(
+            "❌ Strategist DB pool failed to initialise: %s — "
+            "/api/strategist/* endpoints will return 503.", exc
+        )
+
     yield
+
+    # Shutdown — close Strategist pool gracefully
+    try:
+        await strategist_close_pools()
+        log.info("Strategist DB pool closed.")
+    except Exception as exc:
+        log.warning("Strategist DB pool close failed: %s", exc)
+
     log.info("🛑 CRP Analyst Agent shutting down ...")
 
 
@@ -79,6 +111,7 @@ app.include_router(chat_router)
 app.include_router(messages_router)
 app.include_router(scout_router)
 app.include_router(agent_router, prefix="/agent", tags=["agent"])
+app.include_router(strategist_router)  # /api/strategist/* — prefix built into router
 # ── LangFuse Cost Tracking ────────────────────────────────────────────────────
 
 from fastapi import Query as _Query

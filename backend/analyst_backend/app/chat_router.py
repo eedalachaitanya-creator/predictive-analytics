@@ -126,17 +126,44 @@ def _get_history(client_id: str, conversation_id: str) -> list[dict]:
         return []
 
 
+# Maximum number of prior messages we replay to the LLM every turn.
+# Groq's free-tier TPM ceiling on llama-3.1-8b-instant is ~6,000 tokens per
+# minute. System prompt + tool definitions already eat ~1,500 tokens, so we
+# cap the replay history at 6 messages (≈ 3 user + 3 assistant turns).
+# Anything older is still persisted in Postgres — the user can see it in the
+# UI — it just isn't re-sent to the LLM. Raising this cap risks HTTP 413.
+MAX_HISTORY_MESSAGES = 6
+
+# Hard per-message character cap, as a second line of defense against one
+# very long prior answer (e.g. a big table) blowing the TPM budget even
+# when MAX_HISTORY_MESSAGES is respected.
+MAX_MESSAGE_CHARS = 2000
+
+
 def _get_langchain_history(client_id: str, conversation_id: str):
-    """Convert DB history to LangChain message objects for the agent."""
+    """Convert DB history to LangChain message objects for the agent.
+
+    Returns only the most recent MAX_HISTORY_MESSAGES messages, each
+    truncated to MAX_MESSAGE_CHARS characters. This keeps the total
+    request size well below Groq's per-minute token ceiling.
+    """
     from langchain_core.messages import HumanMessage, AIMessage
 
-    messages = []
     rows = _get_history(client_id, conversation_id)
+
+    # Keep only the most recent N rows (older context is dropped from the
+    # LLM prompt but still exists in the DB / UI scrollback).
+    rows = rows[-MAX_HISTORY_MESSAGES:]
+
+    messages = []
     for row in rows:
+        content = row["content"] or ""
+        if len(content) > MAX_MESSAGE_CHARS:
+            content = content[:MAX_MESSAGE_CHARS] + "\n... [truncated]"
         if row["role"] == "user":
-            messages.append(HumanMessage(content=row["content"]))
+            messages.append(HumanMessage(content=content))
         else:
-            messages.append(AIMessage(content=row["content"]))
+            messages.append(AIMessage(content=content))
     return messages
 
 

@@ -35,7 +35,33 @@ import logging
 from typing import Optional
 from datetime import datetime
 
+from sqlalchemy import text
+
 log = logging.getLogger("langfuse_tracker")
+
+# ── Local cost-log table DDL ──────────────────────────────────────────────
+# We dual-write: every LLM call's cost goes to cloud.langfuse.com (for deep
+# trace exploration) AND into this Postgres table (so the Cost Tracking page
+# can show per-client aggregates without hitting LangFuse's read API).
+_COST_LOG_DDL = """
+CREATE TABLE IF NOT EXISTS llm_cost_log (
+    id              SERIAL PRIMARY KEY,
+    client_id       VARCHAR(20) NOT NULL,
+    call_type       VARCHAR(50) NOT NULL,
+    model           VARCHAR(100) NOT NULL,
+    input_tokens    INT NOT NULL DEFAULT 0,
+    output_tokens   INT NOT NULL DEFAULT 0,
+    total_tokens    INT NOT NULL DEFAULT 0,
+    input_cost_usd  NUMERIC(12,8) NOT NULL DEFAULT 0,
+    output_cost_usd NUMERIC(12,8) NOT NULL DEFAULT 0,
+    total_cost_usd  NUMERIC(12,8) NOT NULL DEFAULT 0,
+    over_budget     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_llm_cost_log_client_created
+    ON llm_cost_log (client_id, created_at DESC);
+"""
+_cost_log_ready = False
 
 # ── Configuration ─────────────────────────────────────────────────────────
 
@@ -60,8 +86,16 @@ _callback_handler_class = None
 
 
 def _init_langfuse():
-    """Initialize the LangFuse client (lazy singleton)."""
-    global _langfuse_client, _callback_handler_class
+    """Initialize the LangFuse client (lazy singleton).
+
+    We only use the direct Langfuse SDK here — NOT the LangChain CallbackHandler.
+    The callback handler depends on `langchain_core.pydantic_v1`, a compatibility
+    shim that was removed in langchain-core 1.x. Importing it crashes the agent
+    at LLM-invocation time. The direct SDK has no such dependency, so traces
+    via `client.trace()` / `client.generation()` continue to work across
+    langchain upgrades.
+    """
+    global _langfuse_client
 
     if _langfuse_client is not None:
         return _langfuse_client
@@ -79,14 +113,12 @@ def _init_langfuse():
 
     try:
         from langfuse import Langfuse
-        from langfuse.callback import CallbackHandler
 
         _langfuse_client = Langfuse(
             public_key=LANGFUSE_PUBLIC_KEY,
             secret_key=LANGFUSE_SECRET_KEY,
             host=LANGFUSE_HOST,
         )
-        _callback_handler_class = CallbackHandler
         log.info("LangFuse initialized: %s", LANGFUSE_HOST)
         return _langfuse_client
 
@@ -108,35 +140,31 @@ def get_langfuse_handler(
     metadata: Optional[dict] = None,
 ):
     """
-    Get a LangFuse callback handler for LangChain LLM calls.
+    DEPRECATED — always returns None.
 
-    Args:
-        session_id: Groups traces into a session (e.g., pipeline run ID)
-        trace_name: Name for this trace (e.g., "outreach_email", "agent_query")
-        user_id: User/client identifier
-        metadata: Additional metadata to attach
+    Previously returned a `langfuse.callback.CallbackHandler` for LangChain
+    LLM calls, but that handler imports `langchain_core.pydantic_v1` which
+    was removed in langchain-core 1.x and crashes the agent at runtime.
 
-    Returns:
-        CallbackHandler instance, or None if LangFuse is not configured
+    Callers have been migrated to `track_cost()` (direct SDK path) instead.
+    This stub is kept so existing `llm.with_config({"callbacks": [handler]})`
+    guards that check `if handler:` continue to work.
     """
-    client = _init_langfuse()
-    if client is None or _callback_handler_class is None:
-        return None
+    return None
 
+
+def _ensure_cost_log_table(engine):
+    """Create llm_cost_log table + index if missing (one-time per process)."""
+    global _cost_log_ready
+    if _cost_log_ready:
+        return
     try:
-        handler = _callback_handler_class(
-            public_key=LANGFUSE_PUBLIC_KEY,
-            secret_key=LANGFUSE_SECRET_KEY,
-            host=LANGFUSE_HOST,
-            session_id=session_id or f"session-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
-            trace_name=trace_name or "analyst-agent",
-            user_id=user_id or "CLT-001",
-            metadata=metadata or {},
-        )
-        return handler
+        with engine.begin() as conn:
+            conn.execute(text(_COST_LOG_DDL))
+        _cost_log_ready = True
+        log.info("llm_cost_log table ready.")
     except Exception as e:
-        log.error("Failed to create LangFuse handler: %s", e)
-        return None
+        log.debug("Could not ensure llm_cost_log table: %s", e)
 
 
 def track_cost(
@@ -144,15 +172,20 @@ def track_cost(
     output_tokens: int,
     model: str = "llama-3.3-70b-versatile",
     call_type: str = "analyst_call",
+    client_id: str = "CLT-001",
 ) -> dict:
     """
-    Manually track cost for an LLM call.
+    Track cost for one LLM call. Dual-writes:
+      1. Sends a generation to cloud.langfuse.com (if configured)
+      2. Inserts a row into Postgres table `llm_cost_log` so the Cost Tracking
+         UI can aggregate without hitting LangFuse's read API.
 
     Returns cost breakdown dict.
     """
     input_cost = input_tokens * COST_PER_INPUT_TOKEN
     output_cost = output_tokens * COST_PER_OUTPUT_TOKEN
     total_cost = input_cost + output_cost
+    over_budget = total_cost > TARGET_COST_PER_CALL
 
     cost_info = {
         "model": model,
@@ -164,11 +197,11 @@ def track_cost(
         "output_cost_usd": round(output_cost, 6),
         "total_cost_usd": round(total_cost, 6),
         "target_cost_usd": TARGET_COST_PER_CALL,
-        "within_budget": total_cost <= TARGET_COST_PER_CALL,
+        "within_budget": not over_budget,
         "timestamp": datetime.now().isoformat(),
     }
 
-    if total_cost > TARGET_COST_PER_CALL:
+    if over_budget:
         log.warning(
             "Cost OVER budget: $%.4f (target: $%.2f) for %s",
             total_cost, TARGET_COST_PER_CALL, call_type
@@ -180,13 +213,14 @@ def track_cost(
             input_tokens + output_tokens, call_type
         )
 
-    # Log to LangFuse if available
+    # ── 1. Log to LangFuse cloud if configured ──
     client = _init_langfuse()
     if client:
         try:
             trace = client.trace(
                 name=call_type,
                 metadata=cost_info,
+                user_id=client_id,
             )
             trace.generation(
                 name=f"{call_type}_generation",
@@ -203,7 +237,176 @@ def track_cost(
         except Exception as e:
             log.debug("Failed to log cost to LangFuse: %s", e)
 
+    # ── 2. Log to local Postgres so the UI can aggregate ──
+    try:
+        from app.database import engine
+        _ensure_cost_log_table(engine)
+        with engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO llm_cost_log (
+                    client_id, call_type, model,
+                    input_tokens, output_tokens, total_tokens,
+                    input_cost_usd, output_cost_usd, total_cost_usd,
+                    over_budget
+                ) VALUES (
+                    :client_id, :call_type, :model,
+                    :input_tokens, :output_tokens, :total_tokens,
+                    :input_cost, :output_cost, :total_cost,
+                    :over_budget
+                )
+            """), {
+                "client_id": client_id,
+                "call_type": call_type,
+                "model": model,
+                "input_tokens": int(input_tokens),
+                "output_tokens": int(output_tokens),
+                "total_tokens": int(input_tokens + output_tokens),
+                "input_cost": input_cost,
+                "output_cost": output_cost,
+                "total_cost": total_cost,
+                "over_budget": over_budget,
+            })
+    except Exception as e:
+        log.debug("Failed to log cost to Postgres: %s", e)
+
     return cost_info
+
+
+def get_cost_aggregates(engine, client_id: str) -> dict:
+    """
+    Query the llm_cost_log table for the Cost Tracking page.
+
+    Returns:
+        {
+            "today":    {"calls": int, "cost": float, "tokens": int},
+            "week":     {...},
+            "month":    {...},
+            "all_time": {...},
+            "avg_cost_per_call": float,
+            "budget_usd_per_call": float,
+            "over_budget_pct": float,     # % of calls over budget (last 30d)
+            "per_model": [{model, calls, tokens, cost}, ...],
+            "daily_trend": [{date, cost, calls}, ...],   # last 14 days
+            "recent_calls": [{created_at, call_type, model, tokens, cost, over_budget}, ...],
+        }
+    """
+    _ensure_cost_log_table(engine)
+
+    result = {
+        "today":    {"calls": 0, "cost": 0.0, "tokens": 0},
+        "week":     {"calls": 0, "cost": 0.0, "tokens": 0},
+        "month":    {"calls": 0, "cost": 0.0, "tokens": 0},
+        "all_time": {"calls": 0, "cost": 0.0, "tokens": 0},
+        "avg_cost_per_call": 0.0,
+        "budget_usd_per_call": TARGET_COST_PER_CALL,
+        "over_budget_pct": 0.0,
+        "per_model": [],
+        "daily_trend": [],
+        "recent_calls": [],
+    }
+
+    with engine.connect() as conn:
+        # Rolling totals
+        buckets = [
+            ("today",    "created_at >= date_trunc('day',   NOW())"),
+            ("week",     "created_at >= NOW() - INTERVAL '7 days'"),
+            ("month",    "created_at >= NOW() - INTERVAL '30 days'"),
+            ("all_time", "1=1"),
+        ]
+        for key, where in buckets:
+            row = conn.execute(text(f"""
+                SELECT COUNT(*) AS c,
+                       COALESCE(SUM(total_cost_usd), 0) AS cost,
+                       COALESCE(SUM(total_tokens), 0) AS tokens
+                FROM llm_cost_log
+                WHERE client_id = :cid AND {where}
+            """), {"cid": client_id}).mappings().first()
+            if row:
+                result[key] = {
+                    "calls": int(row["c"] or 0),
+                    "cost": float(row["cost"] or 0.0),
+                    "tokens": int(row["tokens"] or 0),
+                }
+
+        if result["all_time"]["calls"]:
+            result["avg_cost_per_call"] = round(
+                result["all_time"]["cost"] / result["all_time"]["calls"], 6
+            )
+
+        # Over-budget percentage (last 30 days)
+        row = conn.execute(text("""
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN over_budget THEN 1 ELSE 0 END) AS over
+            FROM llm_cost_log
+            WHERE client_id = :cid AND created_at >= NOW() - INTERVAL '30 days'
+        """), {"cid": client_id}).mappings().first()
+        if row and row["total"]:
+            result["over_budget_pct"] = round(
+                100.0 * float(row["over"] or 0) / float(row["total"]), 2
+            )
+
+        # Per-model breakdown (last 30 days)
+        rows = conn.execute(text("""
+            SELECT model,
+                   COUNT(*) AS calls,
+                   SUM(total_tokens) AS tokens,
+                   SUM(total_cost_usd) AS cost
+            FROM llm_cost_log
+            WHERE client_id = :cid AND created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY model
+            ORDER BY cost DESC
+        """), {"cid": client_id}).mappings().all()
+        result["per_model"] = [
+            {
+                "model": r["model"],
+                "calls": int(r["calls"] or 0),
+                "tokens": int(r["tokens"] or 0),
+                "cost": round(float(r["cost"] or 0.0), 6),
+            }
+            for r in rows
+        ]
+
+        # Daily trend (last 14 days)
+        rows = conn.execute(text("""
+            SELECT date_trunc('day', created_at)::date AS d,
+                   COUNT(*) AS calls,
+                   SUM(total_cost_usd) AS cost
+            FROM llm_cost_log
+            WHERE client_id = :cid AND created_at >= NOW() - INTERVAL '14 days'
+            GROUP BY d
+            ORDER BY d
+        """), {"cid": client_id}).mappings().all()
+        result["daily_trend"] = [
+            {
+                "date": r["d"].isoformat() if r["d"] else None,
+                "calls": int(r["calls"] or 0),
+                "cost": round(float(r["cost"] or 0.0), 6),
+            }
+            for r in rows
+        ]
+
+        # Recent calls (last 20)
+        rows = conn.execute(text("""
+            SELECT created_at, call_type, model,
+                   total_tokens, total_cost_usd, over_budget
+            FROM llm_cost_log
+            WHERE client_id = :cid
+            ORDER BY created_at DESC
+            LIMIT 20
+        """), {"cid": client_id}).mappings().all()
+        result["recent_calls"] = [
+            {
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "call_type": r["call_type"],
+                "model": r["model"],
+                "tokens": int(r["total_tokens"] or 0),
+                "cost": round(float(r["total_cost_usd"] or 0.0), 6),
+                "over_budget": bool(r["over_budget"]),
+            }
+            for r in rows
+        ]
+
+    return result
 
 
 def flush_langfuse():

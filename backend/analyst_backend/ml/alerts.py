@@ -277,17 +277,10 @@ def _generate_with_llm(df: pd.DataFrame) -> pd.DataFrame:
         max_tokens=4096,
     )
 
-    # Attach LangFuse callback for cost tracking if available
-    try:
-        from app.langfuse_tracker import get_langfuse_handler
-        handler = get_langfuse_handler(
-            trace_name="outreach_email_generation",
-            metadata={"component": "alerts", "model": "llama-3.3-70b-versatile"},
-        )
-        if handler:
-            llm = llm.with_config({"callbacks": [handler]})
-    except ImportError:
-        pass  # LangFuse not available, continue without tracking
+    # NOTE: LangFuse cost tracking happens AFTER llm.invoke() below via
+    # track_cost() — NOT via a LangChain CallbackHandler. The handler path
+    # imports langchain_core.pydantic_v1, which was removed in langchain-core
+    # 1.x and crashes mid-invocation. Direct SDK calls are stable.
 
     # ── Build ONE batched prompt with all customers ──
     system_msg = SystemMessage(content="""You are a customer retention specialist for a retail platform.
@@ -321,6 +314,27 @@ Return ONLY the email body texts separated by the delimiter, nothing else. No nu
         log.info("Sending batch of %d customers to LLM (single call)...", len(df))
         response = llm.invoke([system_msg, HumanMessage(content=batch_prompt)])
         raw = response.content.strip()
+
+        # ── LangFuse cost tracking (direct SDK, not LangChain callback) ──
+        try:
+            usage = getattr(response, "response_metadata", {}).get("token_usage", {}) \
+                or getattr(response, "usage_metadata", {}) or {}
+            input_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+            output_tokens = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+            if input_tokens or output_tokens:
+                from app.langfuse_tracker import track_cost
+                # alerts runs as part of the pipeline; rows carry their own
+                # client_id, take the first one (whole batch is same tenant).
+                batch_client = str(df.iloc[0].get("client_id", "CLT-001")) if len(df) else "CLT-001"
+                track_cost(
+                    input_tokens=int(input_tokens),
+                    output_tokens=int(output_tokens),
+                    model="llama-3.3-70b-versatile",
+                    call_type="outreach_email_batch",
+                    client_id=batch_client,
+                )
+        except Exception:
+            pass  # never break email generation over telemetry
 
         # Parse batch response
         email_bodies = [e.strip() for e in raw.split("---EMAIL_SEP---") if e.strip()]

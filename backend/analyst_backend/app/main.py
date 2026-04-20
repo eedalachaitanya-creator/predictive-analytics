@@ -81,14 +81,35 @@ app.include_router(scout_router)
 app.include_router(agent_router, prefix="/agent", tags=["agent"])
 # ── LangFuse Cost Tracking ────────────────────────────────────────────────────
 
+from fastapi import Query as _Query
+
 @app.get("/api/v1/cost-tracking", tags=["ops"])
-def get_cost_tracking():
-    """Return LLM cost tracking configuration and summary."""
+def get_cost_tracking(clientId: str = _Query("CLT-001")):
+    """
+    Return LLM cost summary + per-client aggregates for the Cost Tracking UI.
+
+    Combines static config (budget, per-token pricing, langfuse enabled flag)
+    from `get_cost_summary()` with live per-client aggregates pulled from the
+    `llm_cost_log` Postgres table via `get_cost_aggregates()`.
+    """
+    payload: dict = {}
     try:
         from app.langfuse_tracker import get_cost_summary
-        return get_cost_summary()
+        payload.update(get_cost_summary())
     except Exception as e:
-        return {"error": str(e), "langfuse_enabled": False}
+        payload["summary_error"] = str(e)
+        payload["langfuse_enabled"] = False
+
+    try:
+        from app.langfuse_tracker import get_cost_aggregates
+        from app.database import engine
+        payload["client_id"] = clientId
+        payload["aggregates"] = get_cost_aggregates(engine, clientId)
+    except Exception as e:
+        payload["aggregates_error"] = str(e)
+        payload["aggregates"] = None
+
+    return payload
 
 
 @app.on_event("shutdown")

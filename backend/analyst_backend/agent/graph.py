@@ -114,17 +114,10 @@ def _build_llm():
         max_tokens=4096,
     )
 
-    # Attach LangFuse callback for cost tracking if available
-    try:
-        from app.langfuse_tracker import get_langfuse_handler
-        handler = get_langfuse_handler(
-            trace_name="analyst_agent_query",
-            metadata={"model": model_name, "component": "agent"},
-        )
-        if handler:
-            llm = llm.with_config({"callbacks": [handler]})
-    except ImportError:
-        pass  # LangFuse not available, continue without tracking
+    # NOTE: LangFuse cost tracking is done AFTER the LLM call in agent_node()
+    # via track_cost(), not via a LangChain CallbackHandler. The handler path
+    # pulled in langchain_core.pydantic_v1 which was removed in langchain-core
+    # 1.x and crashed the agent mid-invocation. Direct SDK calls are stable.
 
     # Bind the tools so the model can call them
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
@@ -158,6 +151,27 @@ def agent_node(state: AgentState) -> dict:
         messages = [SystemMessage(content=system_prompt)] + list(messages)
 
     response = llm.invoke(messages)
+
+    # ── LangFuse cost tracking (direct SDK, no LangChain callback) ──
+    # Groq returns token usage in response.response_metadata["token_usage"].
+    # We swallow every error here — cost tracking must never break the agent.
+    try:
+        usage = getattr(response, "response_metadata", {}).get("token_usage", {}) \
+            or getattr(response, "usage_metadata", {}) or {}
+        input_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+        output_tokens = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        if input_tokens or output_tokens:
+            from app.langfuse_tracker import track_cost
+            track_cost(
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+                model=os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile"),
+                call_type="analyst_agent_query",
+                client_id=tenant,
+            )
+    except Exception:
+        pass  # never break the agent over telemetry
+
     return {"messages": [response]}
 
 

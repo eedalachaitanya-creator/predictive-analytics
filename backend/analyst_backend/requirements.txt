@@ -42,7 +42,16 @@ langchain-groq==1.1.2
 langchain-core==1.2.28
 langgraph>=0.2.0
 
+# ── Web scraping (Scout Agent) ────────────────────────────────────────────────
 playwright==1.58.0
 playwright-stealth==2.0.3
 lxml
 beautifulsoup4
+
+# ── Observability / Cost Tracking ─────────────────────────────────────────────
+# LangFuse v2 SDK — we use it directly (langfuse.Langfuse().trace().generation())
+# NOT via the LangChain CallbackHandler, because that handler imports
+# langchain_core.pydantic_v1 which was removed in langchain-core 1.x and
+# crashed the agent mid-invocation. Direct SDK is stable across langchain versions.
+# Pinning <3.0.0 because v3 restructured the module layout.
+langfuse>=2.40.0,<3.0.0

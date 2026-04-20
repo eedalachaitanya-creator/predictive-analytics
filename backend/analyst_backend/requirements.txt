@@ -6,6 +6,10 @@ uvicorn[standard]==0.29.0
 sqlalchemy==2.0.30
 alembic==1.13.1
 psycopg2-binary==2.9.9
+# asyncpg — async Postgres driver used by strategist/db/connection.py and
+# repositories.py. Required alongside psycopg2-binary because the strategist
+# code path uses async/await; psycopg2 is sync-only and can't be awaited.
+asyncpg>=0.29.0
 
 # ── Cache / queue ──────────────────────────────────────────────────────────────
 redis==5.0.4

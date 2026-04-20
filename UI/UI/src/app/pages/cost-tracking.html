@@ -1,0 +1,200 @@
+<div class="page-anim">
+
+  <div class="ct-header">
+    <div>
+      <div class="section-heading" style="margin-bottom:2px">💰 LLM Cost Tracking</div>
+      <p class="text-muted" style="font-size:12px;margin:0">
+        Token usage and spend for every LLM call across the platform · LangFuse-backed
+      </p>
+    </div>
+    <div class="ct-actions">
+      <span class="ct-pill" [class]="'ct-pill-' + budgetStatus().cls">{{ budgetStatus().label }}</span>
+      <button class="btn outline sm" (click)="load()" [disabled]="loading()">
+        @if (loading()) { ⏳ Refreshing... } @else { ↻ Refresh }
+      </button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="card" style="padding:32px;text-align:center;color:var(--text-muted)">
+      Loading cost tracking data...
+    </div>
+  }
+
+  @if (error()) {
+    <div class="card" style="padding:24px;text-align:center;color:#e74c3c">
+      {{ error() }}
+      <br>
+      <button class="btn outline sm" style="margin-top:12px" (click)="load()">Retry</button>
+    </div>
+  }
+
+  @if (!loading() && !error() && data(); as d) {
+
+    <!-- ── Status banner if LangFuse not configured ── -->
+    @if (!d.langfuse_configured) {
+      <div class="card ct-banner">
+        ⚠️ LangFuse keys are not set. Cost tracking still works locally (via Postgres),
+        but traces won't appear in cloud.langfuse.com until
+        <code>LANGFUSE_PUBLIC_KEY</code> and <code>LANGFUSE_SECRET_KEY</code> are added to <code>.env</code>.
+      </div>
+    }
+
+    <!-- ── KPI cards ── -->
+    <div class="ct-kpis">
+      <div class="ct-kpi">
+        <div class="ct-kpi-label">Today</div>
+        <div class="ct-kpi-value">{{ fmtUsd(agg()?.today?.cost) }}</div>
+        <div class="ct-kpi-sub">{{ agg()?.today?.calls ?? 0 }} calls · {{ fmtTokens(agg()?.today?.tokens) }} tokens</div>
+      </div>
+      <div class="ct-kpi">
+        <div class="ct-kpi-label">Last 7 days</div>
+        <div class="ct-kpi-value">{{ fmtUsd(agg()?.week?.cost) }}</div>
+        <div class="ct-kpi-sub">{{ agg()?.week?.calls ?? 0 }} calls · {{ fmtTokens(agg()?.week?.tokens) }} tokens</div>
+      </div>
+      <div class="ct-kpi">
+        <div class="ct-kpi-label">Last 30 days</div>
+        <div class="ct-kpi-value">{{ fmtUsd(agg()?.month?.cost) }}</div>
+        <div class="ct-kpi-sub">{{ agg()?.month?.calls ?? 0 }} calls · {{ fmtTokens(agg()?.month?.tokens) }} tokens</div>
+      </div>
+      <div class="ct-kpi ct-kpi-avg">
+        <div class="ct-kpi-label">Avg per call</div>
+        <div class="ct-kpi-value">{{ fmtUsd(agg()?.avg_cost_per_call) }}</div>
+        <div class="ct-kpi-sub">Target: {{ fmtUsd(d.target_per_call) }} · {{ agg()?.over_budget_pct ?? 0 }}% over</div>
+      </div>
+    </div>
+
+    <!-- ── Empty state ── -->
+    @if (!hasData()) {
+      <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+        <div style="font-size:32px;margin-bottom:8px">📭</div>
+        No LLM calls yet. Send a message through <b>Agent Chat</b> or run the ML pipeline —
+        cost data will appear here within seconds.
+      </div>
+    }
+
+    @if (hasData()) {
+      <!-- ── Daily trend chart ── -->
+      <div class="card ct-chart-card">
+        <div class="ct-section-title">📊 Daily Cost (last 14 days)</div>
+        @if ((agg()?.daily_trend?.length ?? 0) > 0) {
+          <svg [attr.width]="chartWidth" [attr.height]="chartHeight + 28" class="ct-chart">
+            <!-- gridlines -->
+            <line [attr.x1]="20" [attr.y1]="20"                       [attr.x2]="chartWidth - 20" [attr.y2]="20"                       class="ct-grid"/>
+            <line [attr.x1]="20" [attr.y1]="(chartHeight + 20)/2"     [attr.x2]="chartWidth - 20" [attr.y2]="(chartHeight + 20)/2"     class="ct-grid"/>
+            <line [attr.x1]="20" [attr.y1]="chartHeight - 20"         [attr.x2]="chartWidth - 20" [attr.y2]="chartHeight - 20"         class="ct-grid"/>
+            <!-- trendline -->
+            <polyline [attr.points]="trendPoints()" class="ct-trendline" />
+            <!-- dots + labels -->
+            @for (pt of agg()!.daily_trend; track pt.date; let i = $index) {
+              <circle
+                [attr.cx]="trendLabels()[i].x"
+                [attr.cy]="trendPoints().split(' ')[i].split(',')[1]"
+                r="3" class="ct-dot" />
+            }
+            <!-- x-axis labels -->
+            @for (lbl of trendLabels(); track lbl.x) {
+              <text [attr.x]="lbl.x" [attr.y]="chartHeight + 12" class="ct-axis-label">{{ lbl.label }}</text>
+            }
+          </svg>
+        } @else {
+          <div class="text-muted" style="font-size:12px;padding:16px">No calls in the last 14 days.</div>
+        }
+      </div>
+
+      <!-- ── Per-model breakdown ── -->
+      <div class="card ct-table-card">
+        <div class="ct-section-title">🤖 Per-Model Breakdown (last 30 days)</div>
+        @if ((agg()?.per_model?.length ?? 0) > 0) {
+          <table class="ct-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th class="right">Calls</th>
+                <th class="right">Total tokens</th>
+                <th class="right">Total cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of agg()!.per_model; track row.model) {
+                <tr>
+                  <td><code>{{ row.model }}</code></td>
+                  <td class="right">{{ row.calls }}</td>
+                  <td class="right">{{ fmtTokens(row.tokens) }}</td>
+                  <td class="right">{{ fmtUsd(row.cost) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        } @else {
+          <div class="text-muted" style="font-size:12px;padding:16px">No calls in the last 30 days.</div>
+        }
+      </div>
+
+      <!-- ── Recent calls ── -->
+      <div class="card ct-table-card">
+        <div class="ct-section-title">📋 Recent Calls (last 20)</div>
+        @if ((agg()?.recent_calls?.length ?? 0) > 0) {
+          <table class="ct-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Call type</th>
+                <th>Model</th>
+                <th class="right">Tokens</th>
+                <th class="right">Cost</th>
+                <th class="right">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of agg()!.recent_calls; track row.created_at) {
+                <tr>
+                  <td>{{ fmtDateTime(row.created_at) }}</td>
+                  <td><span class="ct-tag">{{ row.call_type }}</span></td>
+                  <td><code>{{ row.model }}</code></td>
+                  <td class="right">{{ fmtTokens(row.tokens) }}</td>
+                  <td class="right">{{ fmtUsd(row.cost) }}</td>
+                  <td class="right">
+                    @if (row.over_budget) {
+                      <span class="ct-pill ct-pill-warn">Over</span>
+                    } @else {
+                      <span class="ct-pill ct-pill-ok">OK</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        } @else {
+          <div class="text-muted" style="font-size:12px;padding:16px">No recent calls.</div>
+        }
+      </div>
+    }
+
+    <!-- ── Config panel ── -->
+    <div class="card ct-config-card">
+      <div class="ct-section-title">⚙️ Pricing & Budget (from env / langfuse_tracker.py)</div>
+      <div class="ct-config-grid">
+        <div>
+          <div class="ct-config-label">Budget per call</div>
+          <div class="ct-config-value">{{ fmtUsd(d.target_per_call) }}</div>
+        </div>
+        <div>
+          <div class="ct-config-label">Input token price</div>
+          <div class="ct-config-value">${{ (d.cost_per_input_token * 1_000_000).toFixed(2) }}/M</div>
+        </div>
+        <div>
+          <div class="ct-config-label">Output token price</div>
+          <div class="ct-config-value">${{ (d.cost_per_output_token * 1_000_000).toFixed(2) }}/M</div>
+        </div>
+        <div>
+          <div class="ct-config-label">LangFuse cloud</div>
+          <div class="ct-config-value">
+            @if (d.langfuse_configured) { ✅ Connected } @else { ⚠️ Not configured }
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+</div>

@@ -27,6 +27,7 @@ export const routes: Routes = [
       { path: 'dashboard',  loadComponent: () => import('./pages/dashboard').then(m => m.DashboardComponent),   canActivate: [clientGuard] },
       { path: 'downloads',  loadComponent: () => import('./pages/downloads').then(m => m.DownloadsComponent),   canActivate: [clientGuard] },
       { path: 'churn-scores', loadComponent: () => import('./pages/churn-scores').then(m => m.ChurnScoresComponent), canActivate: [clientGuard] },
+      { path: 'cost-tracking', loadComponent: () => import('./pages/cost-tracking').then(m => m.CostTrackingComponent), canActivate: [clientGuard] },
       { path: 'chat',       loadComponent: () => import('./pages/chat').then(m => m.ChatComponent),             canActivate: [clientGuard] },
       { path: 'messages',   loadComponent: () => import('./pages/messages').then(m => m.MessagesComponent),     canActivate: [clientGuard] },
        { path: 'scout',      loadComponent: () => import('./pages/scout/scout').then(m => m.ScoutComponent) },

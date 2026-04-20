@@ -24,6 +24,7 @@ export class SidebarComponent {
     { path: '/app/dashboard',  label: 'Dashboard',   icon: '📊' },
     { path: '/app/churn-scores', label: 'Analyst Agent', icon: '🔮' },
     { path: '/app/downloads',  label: 'Downloads',   icon: '📥' },
+    { path: '/app/cost-tracking', label: 'Cost Tracking', icon: '💰' },
     { path: '/app/chat',       label: 'Agent Chat',  icon: '🤖' },
     { path: '/app/messages',   label: 'Messages',    icon: '💬' },
     { path: '/app/scout',      label: 'Scout Agent',      icon: '🔍' },

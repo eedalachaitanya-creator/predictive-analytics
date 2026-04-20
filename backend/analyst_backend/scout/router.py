@@ -313,10 +313,19 @@ def update_website(payload: UpdateWebsiteRequest):
 
 @scout_router.delete("/websites/{name}")
 def delete_website(name: str):
-    if not db.get_website_by_name(name):
+    """
+    Permanently delete a website and all its associated data.
+    This is NOT reversible. Use PUT /websites with active=false for soft-delete.
+    """
+    try:
+        counts = db.delete_website(name)
+    except ValueError:
         raise HTTPException(404, f"'{name}' not found.")
-    updated = db.update_website(name=name, active=False)
-    return {"status": "deactivated", "data": _shape_site(updated)}
+    return {
+        "status": "deleted",
+        "name": name,
+        "deleted_counts": counts,
+    }
 
 
 @scout_router.post("/websites/{name}/reactivate")

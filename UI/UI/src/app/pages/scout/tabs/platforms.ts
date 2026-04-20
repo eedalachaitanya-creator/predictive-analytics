@@ -22,6 +22,10 @@ export class ScoutPlatformsTab implements OnInit {
   editingIdx = signal<number | null>(null);
   editUrl   = signal('');
 
+  // Delete confirmation modal state
+  confirmDelete = signal<Website | null>(null);
+  deleting      = signal(false);
+
   ngOnInit() {
     this.loadWebsites();
   }
@@ -60,15 +64,15 @@ export class ScoutPlatformsTab implements OnInit {
   }
 
   toggleActive(site: Website) {
-    const action = site.active
-      ? this.svc.deactivateWebsite(site.name)
-      : this.svc.reactivateWebsite(site.name);
+  const action = site.active
+    ? this.svc.deactivateWebsite(site)           // pass full site object
+    : this.svc.reactivateWebsite(site.name);
 
-    action.subscribe({
-      next: () => this.loadWebsites(),
-      error: err => this.error.set(err.message || 'Toggle failed')
-    });
-  }
+  action.subscribe({
+    next: () => this.loadWebsites(),
+    error: err => this.error.set(err.message || 'Toggle failed')
+  });
+}
 
   startEdit(i: number) {
     this.editingIdx.set(i);
@@ -91,15 +95,46 @@ export class ScoutPlatformsTab implements OnInit {
     });
   }
 
-  deleteWebsite(site: Website) {
-    if (!confirm(`Delete "${site.name}"? This cannot be undone.`)) return;
+  // Opens the confirmation modal (called by the trash icon)
+  askDeleteWebsite(site: Website) {
+    this.confirmDelete.set(site);
+    this.clearMessages();
+  }
 
+  // Cancels the modal
+  cancelDelete() {
+    this.confirmDelete.set(null);
+  }
+
+  // Actually performs the delete after user confirms in the modal
+  confirmDeleteWebsite() {
+    const site = this.confirmDelete();
+    if (!site || this.deleting()) return;
+
+    this.deleting.set(true);
     this.svc.deleteWebsite(site.name).subscribe({
-      next: () => {
-        this.success.set(`Deleted "${site.name}"`);
+      next: (res: any) => {
+        const counts = res?.deleted_counts || {};
+        const detail = [
+          counts.price_history   ? `${counts.price_history} price records`   : null,
+          counts.price_alerts    ? `${counts.price_alerts} alerts`           : null,
+          counts.product_results ? `${counts.product_results} scrape results`: null,
+        ].filter(Boolean).join(', ');
+
+        this.success.set(
+          detail
+            ? `Deleted "${site.name}" — purged ${detail}`
+            : `Deleted "${site.name}"`
+        );
+        this.confirmDelete.set(null);
+        this.deleting.set(false);
         this.loadWebsites();
       },
-      error: err => this.error.set(err.message || 'Delete failed')
+      error: err => {
+        this.error.set(err.message || 'Delete failed');
+        this.deleting.set(false);
+        this.confirmDelete.set(null);
+      }
     });
   }
 

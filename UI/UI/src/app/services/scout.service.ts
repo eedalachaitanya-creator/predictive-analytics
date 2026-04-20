@@ -207,9 +207,15 @@ export class ScoutService {
       .pipe(catchError(this.handleError));
   }
 
-  deactivateWebsite(name: string): Observable<any> {
-    return this.http.delete(`${SCOUT_API}/websites/${encodeURIComponent(name)}`)
-      .pipe(catchError(this.handleError));
+ deactivateWebsite(site: Website): Observable<any> {
+    // Soft-toggle via PUT /websites — must send current search_url + base_url
+    // because UpdateWebsiteRequest requires them.
+    return this.http.put(`${SCOUT_API}/websites`, {
+      name: site.name,
+      search_url: site.search_url,
+      base_url: site.base_url,
+      active: false,
+    }).pipe(catchError(this.handleError));
   }
 
   reactivateWebsite(name: string): Observable<any> {

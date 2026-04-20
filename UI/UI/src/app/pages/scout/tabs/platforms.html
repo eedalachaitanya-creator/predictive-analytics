@@ -54,7 +54,6 @@
           <th>Status</th>
           <th>Name</th>
           <th>Search URL</th>
-          <th>Encoding</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -86,13 +85,12 @@
                 <code class="url-code" [title]="site.search_url">{{ site.search_url | slice:0:60 }}{{ site.search_url.length > 60 ? '…' : '' }}</code>
               }
             </td>
-            <td><span class="badge gray">{{ site.encoding }}</span></td>
             <td>
               <div class="action-btns">
                 @if (editingIdx() !== i) {
                   <button class="btn sm outline" (click)="startEdit(i)" title="Edit search URL">✏️</button>
                 }
-                <button class="btn sm danger" (click)="deleteWebsite(site)" title="Delete website">🗑️</button>
+                <button class="btn sm danger" (click)="askDeleteWebsite(site)" title="Permanently delete website">🗑️</button>
               </div>
             </td>
           </tr>
@@ -101,3 +99,41 @@
     </table>
   }
 </div>
+
+<!-- Delete confirmation modal -->
+@if (confirmDelete(); as site) {
+  <div class="modal-backdrop" (click)="cancelDelete()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-icon">⚠️</div>
+        <div class="modal-title">Permanently delete "{{ site.name }}"?</div>
+      </div>
+      <div class="modal-body">
+        <p>This will permanently delete:</p>
+        <ul>
+          <li>The website configuration</li>
+          <li>All scraped product results for this platform</li>
+          <li>All price history recorded from this platform</li>
+          <li>All price alerts from this platform</li>
+          <li>All cached feature extractions from this platform</li>
+        </ul>
+        <p class="modal-warning">
+          This cannot be undone. If you just want to stop scraping this platform,
+          use the toggle instead — it preserves all data.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" (click)="cancelDelete()" [disabled]="deleting()">
+          Cancel
+        </button>
+        <button class="btn danger" (click)="confirmDeleteWebsite()" [disabled]="deleting()">
+          @if (deleting()) {
+            <span class="spinner"></span> Deleting…
+          } @else {
+            Yes, permanently delete
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}

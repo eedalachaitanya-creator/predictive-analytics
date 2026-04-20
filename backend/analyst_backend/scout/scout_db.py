@@ -254,11 +254,69 @@ class Database:
             """, (b, s, active, name))
         return self.get_website_by_name(name)
 
-    def delete_website(self, name: str) -> bool:
+    def delete_website(self, name: str) -> dict:
+        """
+        Permanently delete a website and ALL associated data:
+          - websites row
+          - product_results for this platform
+          - price_history for this platform
+          - price_alerts for this platform
+          - product_features for this platform
+          - entity_listings for this platform
+          - entities that are left with zero listings afterwards
+
+        All deletes happen in a single transaction via _conn() —
+        if any step fails, the whole thing rolls back.
+
+        Returns a dict of row counts per table, for logging and UI feedback.
+        Raises ValueError if the website doesn't exist.
+        """
+        if not self.get_website_by_name(name):
+            raise ValueError(f"Website '{name}' not found")
+
+        counts = {}
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM websites WHERE name = %s", (name,))
-                return cur.rowcount > 0
+                # Children first, parent last.
+                cur.execute(
+                    "DELETE FROM entity_listings WHERE platform = %s", (name,)
+                )
+                counts["entity_listings"] = cur.rowcount
+
+                # Clean up entities that now have zero listings on any platform
+                cur.execute("""
+                    DELETE FROM entities
+                    WHERE id NOT IN (SELECT DISTINCT entity_id FROM entity_listings)
+                """)
+                counts["entities_orphaned"] = cur.rowcount
+
+                cur.execute(
+                    "DELETE FROM product_features WHERE platform = %s", (name,)
+                )
+                counts["product_features"] = cur.rowcount
+
+                cur.execute(
+                    "DELETE FROM price_alerts WHERE platform = %s", (name,)
+                )
+                counts["price_alerts"] = cur.rowcount
+
+                cur.execute(
+                    "DELETE FROM price_history WHERE platform = %s", (name,)
+                )
+                counts["price_history"] = cur.rowcount
+
+                cur.execute(
+                    "DELETE FROM product_results WHERE platform = %s", (name,)
+                )
+                counts["product_results"] = cur.rowcount
+
+                cur.execute(
+                    "DELETE FROM websites WHERE name = %s", (name,)
+                )
+                counts["websites"] = cur.rowcount
+
+        logger.info(f"[db] Permanently deleted website '{name}': {counts}")
+        return counts
 
     # ── Product results ───────────────────────────────────────────────
 

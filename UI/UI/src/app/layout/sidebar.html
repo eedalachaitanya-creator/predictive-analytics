@@ -7,7 +7,34 @@
   @if (!auth.isAdmin()) {
     <div class="sb-section">
       <div class="sb-section-label">Client Portal</div>
-      @for (item of clientNav; track item.path) {
+
+      <!-- Analyst Agent group (collapsible parent) -->
+      <button type="button"
+              class="nav-item nav-group-toggle"
+              [class.group-active]="isInGroup()"
+              (click)="toggleAnalyst()"
+              [attr.aria-expanded]="analystOpen()">
+        <span class="nav-icon">{{ analystGroup.icon }}</span>
+        <span class="nav-label">{{ analystGroup.label }}</span>
+        <span class="nav-chevron" [class.open]="analystOpen()">›</span>
+      </button>
+
+      @if (analystOpen()) {
+        <div class="nav-children">
+          @for (child of analystGroup.children; track child.path) {
+            <a class="nav-item nav-child"
+               [routerLink]="child.path"
+               routerLinkActive="active"
+               [routerLinkActiveOptions]="{ exact: false }">
+              <span class="nav-icon">{{ child.icon }}</span>
+              <span>{{ child.label }}</span>
+            </a>
+          }
+        </div>
+      }
+
+      <!-- Other top-level agents -->
+      @for (item of otherNav; track item.path) {
         <a class="nav-item"
            [routerLink]="item.path"
            routerLinkActive="active"
@@ -39,7 +66,7 @@
       <span class="dot green"></span>
       {{ auth.user()?.email }}
     </div>
-    <div class="sb-footer-role">{{ auth.user()?.role === 'super_admin' ? 'Super Admin' : auth.user()?.role === 'admin' ? 'Admin' : 'Client User' }}</div>
+    <div class="sb-footer-role">{{ auth.user()?.role === 'super_admin' ? 'Super Admin' : 'Client User' }}</div>
     <button class="btn outline sm" (click)="logout()">Sign Out</button>
   </div>
 </aside>

@@ -2,3 +2,171 @@
 .step-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
 .step-num { width:28px; height:28px; border-radius:50%; background:rgba(26,111,212,.10); color:var(--accent-blue); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .col-chip { display:inline-block; padding:2px 7px; background:#EBF1FB; border:1px solid var(--border); border-radius:4px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-secondary); margin:2px; }
+
+/* Row at the top of each upload tile: icon + label on the left,
+   Required/Optional pill on the right. Flex + gap so the label can
+   grow/shrink and the badge stays pinned to the right edge. */
+.tile-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+
+  .group-label {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 13px;
+  }
+}
+
+/* The Required / Optional pill itself. Small, dense, with a leading
+   dot (filled ● for required, hollow ○ for optional) to reinforce
+   the distinction beyond just color — helps color-blind users too. */
+.req-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   "Ready to Save" and "All Done" panels
+   Client-friendly replacements for the old Pending Batch / Commit
+   Result cards. Intentionally avoid technical terms (batch,
+   materialized view, commit, staging) in both copy and class names.
+   ───────────────────────────────────────────────────────────── */
+
+.batch-panel {
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+
+  // Pending state = orange accent, subtle tinted background
+  &.pending {
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    background: linear-gradient(180deg, rgba(255, 251, 235, 0.8) 0%, #ffffff 100%);
+
+    .batch-title  { color: #B45309; }  // amber-700
+  }
+
+  // Success state = green accent
+  &.success {
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    background: linear-gradient(180deg, rgba(236, 253, 245, 0.8) 0%, #ffffff 100%);
+
+    .batch-title  { color: #047857; }  // emerald-700
+  }
+}
+
+.batch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.batch-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+
+.batch-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.batch-body {
+  padding: 16px 20px 18px;
+}
+
+/* Grid of per-file summary chips. Auto-fits as many columns as
+   will fit at ~200px each, so 1 chip stretches nicely and 13 chips
+   pack into 3-4 rows without needing a hard column count. */
+.batch-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.batch-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.06);
+  }
+
+  .chip-icon {
+    font-size: 22px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #F3F4F6;
+    border-radius: 8px;
+  }
+
+  .chip-text   { min-width: 0; flex: 1; }
+  .chip-label  {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chip-count  {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 2px;
+
+    span {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-left: 2px;
+    }
+  }
+}
+
+.batch-hint {
+  margin-top: 14px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: rgba(15, 23, 42, 0.03);
+  border-radius: 8px;
+
+  strong { color: var(--text-primary); }
+
+  &.warn  {
+    background: rgba(245, 158, 11, 0.10);
+    color: #92400E;
+  }
+  &.error {
+    background: rgba(239, 68, 68, 0.08);
+    color: #991B1B;
+  }
+}

@@ -140,15 +140,6 @@ html,body{height:100%;font-family:'Sora',sans-serif;background:var(--bg-base);co
 
 .tier-platinum{color:#374151}.tier-gold{color:#B45309}.tier-silver{color:#6B7280}.tier-bronze{color:#92400E}
 
-/* Perm table */
-.perm-table{width:100%;border-collapse:collapse;font-size:13px}
-.perm-table th{padding:10px 16px;background:#F5F8FF;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);border-bottom:2px solid var(--border);text-align:center}
-.perm-table th:first-child{text-align:left}
-.perm-table td{padding:10px 16px;border-bottom:1px solid var(--border);text-align:center;font-size:15px}
-.perm-table td:first-child{text-align:left;font-size:13px;color:var(--text-secondary)}
-.perm-table tr:last-child td{border-bottom:none}
-.perm-table .yes{color:var(--accent-green)}.perm-table .no{color:var(--text-muted);opacity:.4}
-
 /* Matrix table */
 .matrix-table{width:100%;border-collapse:collapse;font-size:13px}
 .matrix-table th,.matrix-table td{padding:11px 16px;border:1px solid var(--border);text-align:center}

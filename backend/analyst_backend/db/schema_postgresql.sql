@@ -274,6 +274,12 @@ CREATE TABLE IF NOT EXISTS customer_rfm_features (
 );
 
 -- 17. Churn Scores
+-- One score per (client, customer). The UNIQUE constraint is load-bearing:
+-- without it the DB silently accepted duplicates when two pipeline runs
+-- overlapped, since ml/predict.py save_scores_to_db does DELETE + INSERT
+-- and only the constraint prevents both INSERTs from winning. If you ever
+-- need to keep score history, move this to a new table (churn_scores_history)
+-- and leave this one as the latest-per-customer view.
 CREATE TABLE IF NOT EXISTS churn_scores (
     score_id               SERIAL PRIMARY KEY,
     client_id              VARCHAR(20)  NOT NULL,
@@ -287,10 +293,9 @@ CREATE TABLE IF NOT EXISTS churn_scores (
     driver_3               VARCHAR(100),
     model_version          VARCHAR(20)  DEFAULT 'v1.0',
     batch_run_id           VARCHAR(50),
-    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
+    FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id),
+    CONSTRAINT churn_scores_client_customer_unique UNIQUE (client_id, customer_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_churn_scores_customer ON churn_scores(client_id, customer_id);
 CREATE INDEX IF NOT EXISTS idx_churn_scores_tier     ON churn_scores(risk_tier);
 CREATE INDEX IF NOT EXISTS idx_churn_scores_scored   ON churn_scores(scored_at DESC);
 
@@ -435,12 +440,94 @@ FROM orders o
 WHERE o.order_status NOT IN ('Cancelled')
 GROUP BY o.client_id, o.customer_id;
 
-COMMENT ON TABLE client_config           IS 'Per-tenant client configuration';
-COMMENT ON TABLE customers               IS 'Customer master — one row per unique customer per client';
-COMMENT ON TABLE orders                  IS 'Order header — one row per order';
-COMMENT ON TABLE line_items              IS 'Order line items — one row per product per order';
-COMMENT ON TABLE customer_rfm_features   IS 'Computed RFM + engagement features — refreshed nightly';
-COMMENT ON TABLE churn_scores            IS 'ML model churn risk scores — refreshed nightly';
-COMMENT ON TABLE retention_interventions IS 'Log of all retention offers sent by the AI agent';
-COMMENT ON TABLE customer_reviews        IS 'Customer product ratings and review text — added in v6';
-COMMENT ON TABLE support_tickets         IS 'Customer support ticket log — added in v6';
+-- ============================================================
+-- SECTION 6: STRATEGIST AGENT + COST TRACKING (merged from teammate's
+--            predictive_analysis_final dump on 2026-04-20)
+-- ============================================================
+
+-- 21. Pricing Recommendations — one row per (run_id, product_name).
+-- Holds the price the Strategist pricing engine suggests plus the
+-- competitor / cost context it used to decide.
+CREATE TABLE IF NOT EXISTS pricing_recommendations (
+    recommendation_id   BIGSERIAL PRIMARY KEY,
+    run_id              UUID            NOT NULL,
+    client_id           VARCHAR(50)     NOT NULL,
+    product_name        TEXT            NOT NULL,
+    suggested_price     NUMERIC(12,2),
+    pre_retention_price NUMERIC(12,2),
+    floor_price         NUMERIC(12,2),
+    target_price        NUMERIC(12,2),
+    our_cost            NUMERIC(12,2),
+    raw_cogs            NUMERIC(12,2),
+    competitor_min      NUMERIC(12,2),
+    competitor_avg      NUMERIC(12,2),
+    competitor_max      NUMERIC(12,2),
+    competitor_median   NUMERIC(12,2),
+    strategy            VARCHAR(30),
+    confidence          VARCHAR(10),
+    margin_percent      NUMERIC(6,2),
+    market_trend        VARCHAR(10),
+    flag                VARCHAR(50),
+    reasoning           TEXT,
+    platform_breakdown  JSONB,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pricing_rec_client_run ON pricing_recommendations (client_id, run_id);
+CREATE INDEX IF NOT EXISTS idx_pricing_rec_product    ON pricing_recommendations (client_id, product_name);
+
+-- 22. Customer Price Context — joins a customer to the price the engine
+-- would offer them for a given product, tagged with churn context.
+-- UNIQUE (customer_id, product_name) keeps one live suggestion per
+-- customer per product — the newest run overwrites the previous.
+CREATE TABLE IF NOT EXISTS customer_price_context (
+    context_id           BIGSERIAL PRIMARY KEY,
+    customer_id          VARCHAR(100)  NOT NULL,
+    client_id            VARCHAR(50)   NOT NULL,
+    product_name         TEXT          NOT NULL,
+    strategy             VARCHAR(30),
+    suggested_price      NUMERIC(12,2),
+    pre_retention_price  NUMERIC(12,2),
+    discount_pct_applied NUMERIC(6,2),
+    churn_probability    NUMERIC(5,4),
+    risk_tier            VARCHAR(10),
+    run_id               UUID,
+    created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_customer_price_context UNIQUE (customer_id, product_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cpc_client_customers ON customer_price_context (client_id, customer_id);
+
+-- 23. LLM Cost Log — append-only log of every LLM call (Groq, OpenAI, …)
+-- with token counts and cost. The Cost Tracking page reads from this;
+-- the over_budget flag lets us highlight runs that exceeded the
+-- per-client budget from client_config.
+CREATE TABLE IF NOT EXISTS llm_cost_log (
+    id              SERIAL PRIMARY KEY,
+    client_id       VARCHAR(20)    NOT NULL,
+    call_type       VARCHAR(50)    NOT NULL,
+    model           VARCHAR(100)   NOT NULL,
+    input_tokens    INTEGER        NOT NULL DEFAULT 0,
+    output_tokens   INTEGER        NOT NULL DEFAULT 0,
+    total_tokens    INTEGER        NOT NULL DEFAULT 0,
+    input_cost_usd  NUMERIC(12,8)  NOT NULL DEFAULT 0,
+    output_cost_usd NUMERIC(12,8)  NOT NULL DEFAULT 0,
+    total_cost_usd  NUMERIC(12,8)  NOT NULL DEFAULT 0,
+    over_budget     BOOLEAN        NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_cost_log_client_created ON llm_cost_log (client_id, created_at DESC);
+
+COMMENT ON TABLE client_config             IS 'Per-tenant client configuration';
+COMMENT ON TABLE customers                 IS 'Customer master — one row per unique customer per client';
+COMMENT ON TABLE orders                    IS 'Order header — one row per order';
+COMMENT ON TABLE line_items                IS 'Order line items — one row per product per order';
+COMMENT ON TABLE customer_rfm_features     IS 'Computed RFM + engagement features — refreshed nightly';
+COMMENT ON TABLE churn_scores              IS 'ML model churn risk scores — refreshed nightly';
+COMMENT ON TABLE retention_interventions   IS 'Log of all retention offers sent by the AI agent';
+COMMENT ON TABLE customer_reviews          IS 'Customer product ratings and review text — added in v6';
+COMMENT ON TABLE support_tickets           IS 'Customer support ticket log — added in v6';
+COMMENT ON TABLE pricing_recommendations   IS 'Strategist Agent — pricing engine output (one row per run per product)';
+COMMENT ON TABLE customer_price_context    IS 'Strategist Agent — per-customer price suggestion from latest run';
+COMMENT ON TABLE llm_cost_log              IS 'Cost Tracking — per-call LLM usage + dollar cost';

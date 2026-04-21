@@ -76,6 +76,11 @@
   <!-- Scores Table -->
   @if (!loading() && scores().length > 0) {
     <div class="card">
+      <!-- Horizontal scroll wrapper: the 9-column churn table has a
+           min-width that doesn't fit on narrow viewports, so we let
+           the user scroll sideways instead of clipping columns like
+           Spend / Tier / Top Driver off the right edge. -->
+      <div class="churn-scroll">
       <table class="data-table churn-table">
         <thead>
           <tr>
@@ -166,6 +171,7 @@
           }
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- Pagination -->

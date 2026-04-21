@@ -29,28 +29,18 @@ export class UsersComponent implements OnInit {
 
   clientOptions = signal<{id: string; name: string}[]>([]);
 
+  // 'admin' role has been fully retired end-to-end. The backend no longer
+  // accepts it (see auth_router.py / users_router.py / client_router.py)
+  // and any legacy 'admin' rows in the DB are converted to 'client_user'
+  // by backend/db/migration_retire_admin_role.sql.
   roles: { value: UserRole; label: string }[] = [
     { value: 'super_admin', label: 'Super Admin' },
-    { value: 'admin',       label: 'Admin' },
     { value: 'client_user', label: 'Client User' },
     { value: 'viewer',      label: 'Viewer' },
   ];
 
-  perms = [
-    { perm:'Add / remove clients',     sa:true,  a:false, cu:false, v:false },
-    { perm:'Manage all users',         sa:true,  a:true,  cu:false, v:false },
-    { perm:'Upload data files',        sa:true,  a:true,  cu:true,  v:false },
-    { perm:'Run pipeline',             sa:true,  a:true,  cu:true,  v:false },
-    { perm:'View dashboard & reports', sa:true,  a:true,  cu:true,  v:true  },
-    { perm:'Edit Settings & Config',   sa:true,  a:true,  cu:true,  v:false },
-    { perm:'Download reports',         sa:true,  a:true,  cu:true,  v:false },
-    { perm:'View audit log',           sa:true,  a:true,  cu:false, v:false },
-    { perm:'System configuration',     sa:true,  a:false, cu:false, v:false },
-  ];
-
   // Stats
   superAdmins = computed(() => this.svc.users().filter(u => u.role === 'super_admin').length);
-  admins      = computed(() => this.svc.users().filter(u => u.role === 'admin').length);
   clientUsers = computed(() => this.svc.users().filter(u => u.role === 'client_user').length);
 
   ngOnInit() {
@@ -116,7 +106,6 @@ export class UsersComponent implements OnInit {
 
   roleColor(r: string) {
     if (r === 'super_admin') return 'purple';
-    if (r === 'admin')       return 'blue';
     if (r === 'viewer')      return 'cyan';
     return 'gray';
   }
@@ -133,7 +122,7 @@ export class UsersComponent implements OnInit {
   }
 
   roleLabel(r: UserRole): string {
-    const map: Record<string,string> = { super_admin:'Super Admin', admin:'Admin', client_user:'Client User', viewer:'Viewer' };
+    const map: Record<string,string> = { super_admin:'Super Admin', client_user:'Client User', viewer:'Viewer' };
     return map[r] ?? r;
   }
 }

@@ -138,6 +138,22 @@ export class UploadComponent implements OnInit {
     return Object.entries(res.rowsCommitted).map(([key, value]) => ({ key, value }));
   }
 
+  /** Look up the friendly display name + icon for a raw masterType key
+   *  (e.g. 'customer_reviews' → '⭐ Customer Reviews'). Used in the Pending
+   *  Batch and Commit Result panels so clients see human-readable labels
+   *  instead of snake_case DB-ish keys. Falls back to Title-Casing the key
+   *  with a generic 📄 icon if the key isn't in the masters config. */
+  masterDisplay(key: string): { icon: string; label: string } {
+    for (const grp of this.masters) {
+      const hit = grp.items.find(i => i.key === key);
+      if (hit) return { icon: hit.icon, label: hit.label.replace(/ Master$/, '') };
+    }
+    return {
+      icon: '📄',
+      label: key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+    };
+  }
+
   remove(key: MasterType) {
     this.uploadSvc.removeUpload(this.clientId, key).subscribe({
       next: () => this.refreshBatch(),  // batch totals need to shrink after a remove

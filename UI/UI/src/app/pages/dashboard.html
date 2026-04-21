@@ -95,53 +95,58 @@
                   } @else if (segmentCustomers().length === 0) {
                     <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">No customers in this segment</div>
                   } @else {
-                    <table class="drilldown-table">
-                      <thead>
-                        <tr>
-                          <th>Customer</th>
-                          <th>Tier</th>
-                          <th>Orders</th>
-                          <th>Spend</th>
-                          <th>Avg Order</th>
-                          <th>Days Since</th>
-                          <th>R / F / M</th>
-                          <th>Churn Prob</th>
-                          <th>Risk</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        @for (c of segmentCustomers(); track c.customerId) {
+                    <!-- Horizontal scroll wrapper: the 10-column table has a
+                         min-width that doesn't fit on narrow viewports, so we
+                         let the user scroll sideways instead of clipping. -->
+                    <div class="drilldown-scroll">
+                      <table class="drilldown-table">
+                        <thead>
                           <tr>
-                            <td>
-                              <div style="font-weight:600;font-size:13px">{{ c.customerName }}</div>
-                              <div style="font-size:11px;color:var(--text-muted)">{{ c.customerId }}</div>
-                            </td>
-                            <td><span class="badge" [class]="c.customerTier === 'Platinum' ? 'purple' : c.customerTier === 'Gold' ? 'yellow' : c.customerTier === 'Silver' ? 'gray' : 'brown'">{{ c.customerTier | tierLabel }}</span></td>
-                            <td>{{ c.totalOrders }}</td>
-                            <td>{{ formatCurrency(c.totalSpend) }}</td>
-                            <td>{{ formatCurrency(c.avgOrderValue) }}</td>
-                            <td>{{ c.daysSinceLastOrder }}d</td>
-                            <td class="font-mono" style="font-size:11px">{{ c.rfmRecency }}/{{ c.rfmFrequency }}/{{ c.rfmMonetary }}</td>
-                            <td>
-                              @if (c.churnProbability !== null) {
-                                {{ (c.churnProbability * 100) | number:'1.1-1' }}%
-                              } @else {
-                                —
-                              }
-                            </td>
-                            <td>
-                              @if (c.riskTier && c.riskTier !== 'N/A') {
-                                <span class="badge" [class]="riskClass(c.riskTier)">{{ c.riskTier }}</span>
-                              } @else {
-                                —
-                              }
-                            </td>
-                            <td><span class="badge" [class]="c.churnLabel === 'Churned' ? 'red' : 'green'">{{ c.churnLabel }}</span></td>
+                            <th>Customer</th>
+                            <th>Tier</th>
+                            <th>Orders</th>
+                            <th>Spend</th>
+                            <th>Avg Order</th>
+                            <th>Days Since</th>
+                            <th>R / F / M</th>
+                            <th>Churn Prob</th>
+                            <th>Risk</th>
+                            <th>Status</th>
                           </tr>
-                        }
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          @for (c of segmentCustomers(); track c.customerId) {
+                            <tr>
+                              <td>
+                                <div style="font-weight:600;font-size:13px">{{ c.customerName }}</div>
+                                <div style="font-size:11px;color:var(--text-muted)">{{ c.customerId }}</div>
+                              </td>
+                              <td><span class="badge" [class]="c.customerTier === 'Platinum' ? 'purple' : c.customerTier === 'Gold' ? 'yellow' : c.customerTier === 'Silver' ? 'gray' : 'brown'">{{ c.customerTier | tierLabel }}</span></td>
+                              <td>{{ c.totalOrders }}</td>
+                              <td>{{ formatCurrency(c.totalSpend) }}</td>
+                              <td>{{ formatCurrency(c.avgOrderValue) }}</td>
+                              <td>{{ c.daysSinceLastOrder }}d</td>
+                              <td class="font-mono" style="font-size:11px">{{ c.rfmRecency }}/{{ c.rfmFrequency }}/{{ c.rfmMonetary }}</td>
+                              <td>
+                                @if (c.churnProbability !== null) {
+                                  {{ (c.churnProbability * 100) | number:'1.1-1' }}%
+                                } @else {
+                                  —
+                                }
+                              </td>
+                              <td>
+                                @if (c.riskTier && c.riskTier !== 'N/A') {
+                                  <span class="badge" [class]="riskClass(c.riskTier)">{{ c.riskTier }}</span>
+                                } @else {
+                                  —
+                                }
+                              </td>
+                              <td><span class="badge" [class]="c.churnLabel === 'Churned' ? 'red' : 'green'">{{ c.churnLabel }}</span></td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
                     <div style="padding:8px 12px;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border)">
                       <span>{{ segmentTotal() }} customers · Page {{ segmentPage() }} of {{ segmentTotalPages() }}</span>
                       <button class="btn ghost sm" [disabled]="segmentPage()===1" (click)="segmentPrev()">◀ Prev</button>
@@ -229,7 +234,12 @@
       </div>
     } @else {
       <div class="card">
-        <table class="data-table">
+        <!-- Horizontal scroll wrapper: the detail tab tables have 8 columns
+             and get clipped on narrow viewports. Wrapping the table (but
+             NOT the pagination footer below) lets it scroll sideways while
+             keeping the footer pinned. -->
+        <div class="detail-tabs-scroll">
+        <table class="data-table detail-table">
           <thead>
             <tr>
               @for (h of activeHeaders(); track h) {
@@ -258,6 +268,7 @@
             }
           </tbody>
         </table>
+        </div>
         <div style="padding:12px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:12px">
           <span>Page {{ currentPage() }} of {{ tabTotalPages() }}</span>
           <button class="btn ghost sm" [disabled]="currentPage()===1" (click)="loadPage(currentPage()-1)">◀ Prev</button>

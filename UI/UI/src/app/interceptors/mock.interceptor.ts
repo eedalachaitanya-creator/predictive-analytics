@@ -21,9 +21,11 @@ const MOCK_CLIENT_USER = {
 let mockUsers = [
   { id:'usr-001', name:'Raj Mehta',        email:'raj@analytics.com',     role:'super_admin', clientAccess:['*'],           lastLogin:'2026-03-17', status:'active',   createdAt:'2025-01-01' },
   { id:'usr-002', name:'Priya Sharma',     email:'priya@analytics.com',   role:'super_admin', clientAccess:['*'],           lastLogin:'2026-03-16', status:'active',   createdAt:'2025-01-01' },
-  { id:'usr-003', name:'David Kim',        email:'d.kim@analytics.com',   role:'admin',       clientAccess:['CLT-001','CLT-002'], lastLogin:'2026-03-17', status:'active', createdAt:'2025-02-01' },
-  { id:'usr-004', name:'Sara Lee',         email:'s.lee@analytics.com',   role:'admin',       clientAccess:['CLT-003','CLT-004'], lastLogin:'2026-03-15', status:'active', createdAt:'2025-03-01' },
-  { id:'usr-005', name:'Tom Baker',        email:'t.baker@analytics.com', role:'admin',       clientAccess:['CLT-005'],     lastLogin:'2026-03-10', status:'inactive', createdAt:'2025-04-01' },
+  // 'admin' user role retired — these three were migrated to 'client_user'
+  // (their permission set was functionally identical).
+  { id:'usr-003', name:'David Kim',        email:'d.kim@analytics.com',   role:'client_user', clientAccess:['CLT-001','CLT-002'], lastLogin:'2026-03-17', status:'active', createdAt:'2025-02-01' },
+  { id:'usr-004', name:'Sara Lee',         email:'s.lee@analytics.com',   role:'client_user', clientAccess:['CLT-003','CLT-004'], lastLogin:'2026-03-15', status:'active', createdAt:'2025-03-01' },
+  { id:'usr-005', name:'Tom Baker',        email:'t.baker@analytics.com', role:'client_user', clientAccess:['CLT-005'],     lastLogin:'2026-03-10', status:'inactive', createdAt:'2025-04-01' },
   { id:'usr-006', name:'Walmart Ops',      email:'ops@walmart.com',       role:'client_user', clientAccess:['CLT-001'],     lastLogin:'2026-03-17', status:'active',   createdAt:'2025-01-15' },
   { id:'usr-007', name:'Target Analytics', email:'bi@target.com',         role:'client_user', clientAccess:['CLT-002'],     lastLogin:'2026-03-14', status:'active',   createdAt:'2025-02-10' },
   { id:'usr-008', name:'Costco BI',        email:'bi@costco.com',         role:'client_user', clientAccess:['CLT-003'],     lastLogin:'2026-03-12', status:'locked',   createdAt:'2025-03-05' },

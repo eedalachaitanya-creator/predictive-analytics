@@ -43,15 +43,20 @@ class UpdateUserRequest(BaseModel):
 # ── Auth helper ──────────────────────────────────────────────────────────────
 
 def _require_admin(authorization: Optional[str]) -> dict:
-    """Validate that the caller is an admin."""
+    """Validate that the caller is a super_admin.
+
+    The legacy 'admin' user role was retired (its permissions duplicated
+    client_user). Only super_admin now has platform-level privileges like
+    managing other users.
+    """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
     user = _find_user_by_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    if user["role"] not in ("super_admin", "admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    if user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
     return user
 
 

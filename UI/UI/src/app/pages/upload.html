@@ -6,93 +6,92 @@
     </div>
   </div>
 
-  <!-- ── Last Commit Result banner ──────────────────────────────
-       Shown after a successful commit. Lists per-master-type row counts
-       returned by the backend so the user sees exactly what landed in
-       the real tables. Also reports whether mv_customer_features was
-       refreshed. Dismiss via the × button or by starting a new upload.
+  <!-- ── Success banner (shown after a successful save) ────────
+       Uses friendly language: no batch IDs, no "materialized view",
+       no "UPSERT" — just row counts per data type and a green "all
+       done" headline. The mvRefreshWarning (which is a backend
+       concern about the refresh step) is folded into a generic
+       "some analysis features may need a moment to update" hint
+       so clients don't see raw engine terminology.
   -->
   @if (uploadSvc.lastCommitResult(); as result) {
-    <div class="card mb-20" style="border:1px solid var(--accent-green, #10b981); background:rgba(16,185,129,0.06)">
-      <div class="card-header">
+    <div class="batch-panel success mb-20">
+      <div class="batch-header">
         <div>
-          <div class="card-title" style="color:var(--accent-green, #10b981)">
-            ✅ Commit succeeded
-          </div>
-          <div class="card-subtitle">
-            Batch <code style="font-size:11px">{{ result.batchId }}</code> ·
-            Materialized view {{ result.mvRefreshed ? 'refreshed' : 'not refreshed' }}
-            @if (result.mvRefreshWarning) {
-              · <span style="color:var(--accent-red)">MV warning: {{ result.mvRefreshWarning }}</span>
-            }
-          </div>
+          <div class="batch-title">✅ All done — your data has been saved</div>
+          <div class="batch-subtitle">You can now run analysis on this data.</div>
         </div>
         <button class="btn outline sm" (click)="uploadSvc.dismissCommitResult()">✕ Dismiss</button>
       </div>
-      <div style="padding:16px 20px">
-        <div class="grid-3" style="gap:8px">
+      <div class="batch-body">
+        <div class="batch-stats">
           @for (entry of commitResultEntries(); track entry.key) {
-            <div class="stat-mini" style="display:flex;justify-content:space-between">
-              <span>{{ entry.key }}</span>
-              <strong>{{ entry.value | number }}</strong>
+            <div class="batch-chip">
+              <div class="chip-icon">{{ masterDisplay(entry.key).icon }}</div>
+              <div class="chip-text">
+                <div class="chip-label">{{ masterDisplay(entry.key).label }}</div>
+                <div class="chip-count">{{ entry.value | number }} <span>added</span></div>
+              </div>
             </div>
           }
         </div>
-        <div class="text-muted" style="font-size:11px;margin-top:10px">
-          Values include both fresh inserts and UPSERTed catalog updates. Fact tables
-          (orders, line_items, reviews, tickets) skip duplicates so their count reflects
-          only newly-inserted rows.
-        </div>
+        @if (result.mvRefreshWarning) {
+          <div class="batch-hint warn">
+            ⚠️ Some analysis features may need a moment to update. If anything looks off, refresh the page in a minute.
+          </div>
+        }
       </div>
     </div>
   }
 
-  <!-- ── Review & Commit panel ─────────────────────────────────
-       Shown only when the backend reports a pending batch (at least
-       one file staged). Files live in staging_* tables until the
-       user clicks Commit — which runs FK validation and moves them
-       into the real tables, then refreshes mv_customer_features.
+  <!-- ── Ready to save panel ───────────────────────────────────
+       Shown when at least one file is uploaded but not yet saved.
+       Intentionally free of engine jargon (no "batch", no
+       "commit", no "staging"). Clients see: what they uploaded,
+       how many rows, and a clear Save button.
   -->
   @if (uploadSvc.pendingBatch(); as batch) {
-    <div class="card mb-20" style="border:1px solid var(--accent-orange, #f59e0b); background:rgba(245,158,11,0.05)">
-      <div class="card-header">
+    <div class="batch-panel pending mb-20">
+      <div class="batch-header">
         <div>
-          <div class="card-title">📋 Pending Batch — Review &amp; Commit</div>
-          <div class="card-subtitle">
-            {{ batch.files.length }} file(s) staged · {{ batch.totalRows | number }} total rows ·
-            Batch <code style="font-size:11px">{{ batch.batchId }}</code>
+          <div class="batch-title">📋 Ready to save</div>
+          <div class="batch-subtitle">
+            {{ batch.files.length === 1 ? '1 file uploaded' : batch.files.length + ' files uploaded' }}
+            · {{ batch.totalRows | number }} rows total
           </div>
         </div>
         <div class="flex-row" style="gap:8px">
           <button class="btn outline sm"
                   [disabled]="uploadSvc.discarding() || uploadSvc.committing()"
                   (click)="discardBatch()">
-            {{ uploadSvc.discarding() ? 'Discarding…' : '✕ Discard' }}
+            {{ uploadSvc.discarding() ? 'Removing…' : '✕ Start Over' }}
           </button>
           <button class="btn primary sm"
                   [disabled]="uploadSvc.committing() || uploadSvc.discarding() || batch.files.length === 0"
                   (click)="commitBatch()">
-            {{ uploadSvc.committing() ? 'Committing…' : '✓ Commit to Database' }}
+            {{ uploadSvc.committing() ? 'Saving…' : '✓ Save My Data' }}
           </button>
         </div>
       </div>
-      <div style="padding:16px 20px">
-        <div class="grid-3" style="gap:8px">
+      <div class="batch-body">
+        <div class="batch-stats">
           @for (f of batch.files; track f.masterType) {
-            <div class="stat-mini" style="display:flex;justify-content:space-between">
-              <span>{{ f.masterType }}</span>
-              <strong>{{ f.rowCount | number }}</strong>
+            <div class="batch-chip">
+              <div class="chip-icon">{{ masterDisplay(f.masterType).icon }}</div>
+              <div class="chip-text">
+                <div class="chip-label">{{ masterDisplay(f.masterType).label }}</div>
+                <div class="chip-count">{{ f.rowCount | number }} <span>rows</span></div>
+              </div>
             </div>
           }
         </div>
         @if (uploadSvc.lastCommitError(); as err) {
-          <div class="notice" style="margin-top:12px;background:rgba(239,68,68,0.08);border-color:var(--accent-red)">
-            ❌ Commit failed: {{ err }}
+          <div class="batch-hint error">
+            ❌ We couldn't save your data. {{ err }}
           </div>
         }
-        <div class="text-muted" style="font-size:11px;margin-top:10px">
-          Commit runs FK validation across all staged files then inserts them into the real tables in a single
-          transaction. Materialized view <code>mv_customer_features</code> is refreshed on success.
+        <div class="batch-hint">
+          💡 When you click <strong>Save My Data</strong>, we'll check your files line up correctly and add them to your account in one step.
         </div>
       </div>
     </div>
@@ -110,7 +109,18 @@
         <div [class]="grp.items.length === 3 ? 'grid-3' : 'grid-2'">
           @for (m of grp.items; track m.key) {
             <div>
-              <div class="group-label">{{ m.icon }} {{ m.label }}</div>
+              <!-- Tile header: title on the left, required/optional badge on the right.
+                   The required/optional badge sits here (not inside the drop zone) so
+                   it's visible in every state — idle, uploading, uploaded, and error —
+                   not just before the client has picked a file. -->
+              <div class="tile-header-row">
+                <div class="group-label">{{ m.icon }} {{ m.label }}</div>
+                @if (m.required) {
+                  <span class="badge red req-badge" title="Required — upload this file to run the pipeline">● Required</span>
+                } @else {
+                  <span class="badge gray req-badge" title="Optional — the pipeline will run without this, but adds more signal">○ Optional</span>
+                }
+              </div>
               <div class="file-type-row">
                 @for (fmt of m.formats; track fmt) {
                   <span class="badge blue">{{ fmt }}</span>
@@ -159,7 +169,9 @@
                   <div class="icon">⬆</div>
                   <div class="hint">Drop file here or Browse</div>
                   <div class="cols">{{ m.columns }}</div>
-                  @if (m.required) { <div class="req">(Required)</div> }
+                  <!-- The Required / Optional indicator has moved OUT of the drop zone
+                       and UP into the tile-header-row, so it stays visible once a file
+                       is uploaded. Don't re-add it here. -->
                   <button class="btn outline sm" style="margin-top:10px" (click)="$event.stopPropagation(); fileInput.click()">Browse File…</button>
                 </div>
                 <input #fileInput type="file" [accept]="m.accept" style="display:none" (change)="onFileSelected($event, m.key)">

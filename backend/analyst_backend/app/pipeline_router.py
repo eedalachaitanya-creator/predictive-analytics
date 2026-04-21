@@ -215,10 +215,16 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         _update_stage(job, 3, "done" if ok else "error", msg[:200])
 
         # Stage 5: Train ML models
+        # --model-type all trains XGBoost, Random Forest, and Logistic Regression
+        # on the same feature set. Stage 6 (evaluate_model) then picks the
+        # winner by AUC-ROC and writes evaluation_summary.json, which Stage 7
+        # (predict) reads to load the best model. Without --model-type all,
+        # only XGBoost would train (train_model.py's argparse default) and
+        # the AUC-based selection degenerates to "pick the only model trained."
         _update_stage(job, 4, "running", f"Training models for {client_id}...")
-        ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id])
+        ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id, "--model-type", "all"])
         if not ok:
-            ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--no-plots", "--client-id", client_id])
+            ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--no-plots", "--client-id", client_id, "--model-type", "all"])
         _update_stage(job, 4, "done" if ok else "error", msg[:200])
 
         # Stage 6: Evaluate models
@@ -360,8 +366,26 @@ def _build_summary(client_id: str) -> dict:
                 summary.highValue = row[0] or 0
                 summary.repeatCustomers = row[1] or 0
 
-            # ML features count
-            r = conn.execute(text("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'mv_customer_features'"))
+            # ML features count.
+            # We query pg_catalog (pg_class + pg_attribute) instead of
+            # information_schema.columns because information_schema follows the
+            # ANSI SQL standard, which doesn't recognize MATERIALIZED VIEWs
+            # (a Postgres-only extension). mv_customer_features IS a materialized
+            # view, so the old information_schema query always returned 0.
+            #   relkind filter: 'm' = materialized view, 'r' = table, 'v' = view
+            #   attnum > 0     : skip system columns (ctid, oid, etc.)
+            #   NOT attisdropped: skip columns that were dropped but not VACUUMed
+            r = conn.execute(text("""
+                SELECT COUNT(*)
+                FROM pg_attribute a
+                JOIN pg_class c      ON a.attrelid = c.oid
+                JOIN pg_namespace n  ON c.relnamespace = n.oid
+                WHERE n.nspname = 'public'
+                  AND c.relname = 'mv_customer_features'
+                  AND c.relkind IN ('m', 'r', 'v')
+                  AND a.attnum > 0
+                  AND NOT a.attisdropped
+            """))
             summary.mlFeatures = r.scalar() or 0
 
             summary.outputSheets = 6  # scores CSV/JSON, eval report/JSON, alerts, risk summary

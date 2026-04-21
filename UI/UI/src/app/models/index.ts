@@ -15,7 +15,11 @@
 // ── Platform / Auth (app-level, no DB table) ─────────────────
 // These are managed by the backend auth system, not in the seed schema.
 
-export type UserRole = 'super_admin' | 'admin' | 'client_user' | 'viewer';
+// 'admin' is intentionally absent. The legacy 'admin' role was retired
+// because its permission set duplicated 'client_user'. Any admin rows
+// in an older DB are converted to 'client_user' by
+// backend/db/migration_retire_admin_role.sql.
+export type UserRole = 'super_admin' | 'client_user' | 'viewer';
 
 export interface AuthUser {
   id: string;

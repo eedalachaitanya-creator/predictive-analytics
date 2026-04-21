@@ -21,7 +21,11 @@ export class RunComponent implements OnInit, OnDestroy {
   msgSvc      = inject(MessagesService);
   private auth = inject(AuthService);
 
-  predMode    = signal<'churn' | 'retention' | 'segmentation' | 'full'>('full');
+  // Mode is always 'full' now. The UI selector was removed because churn /
+  // retention / segmentation as standalone modes were incomplete — only the
+  // full pipeline is wired end-to-end. Kept as a constant (not a signal) so
+  // the request body shape is unchanged for the backend.
+  private readonly predMode = 'full' as const;
   error       = signal<string | null>(null);
   private sub?: Subscription;
 
@@ -50,7 +54,7 @@ export class RunComponent implements OnInit, OnDestroy {
 
   run() {
     this.error.set(null);
-    const req: PipelineRunRequest = { clientId: this.clientId, mode: this.predMode() };
+    const req: PipelineRunRequest = { clientId: this.clientId, mode: this.predMode };
 
     this.pipelineSvc.run(req).subscribe({
       next: job => {

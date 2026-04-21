@@ -11,10 +11,16 @@ HOW IT WORKS:
 - /refresh: swaps old token for new one
 
 Accepts an optional 'loginRole' field in the login request.
-If loginRole='admin', the user must have role super_admin or admin.
-If loginRole='client', the user must have role client_user or viewer.
-This prevents admins from accidentally logging into the client portal
-and vice versa.
+  - loginRole='admin'  → user must have role super_admin
+                         ('admin' user role was retired — only super_admin
+                          now gets platform-level privileges).
+  - loginRole='client' → user must have role client_user or viewer.
+This prevents super_admins from accidentally logging into the client
+portal and vice versa.
+
+Note: loginRole='admin' is about which PORTAL the user is signing into
+(the admin console), not about a user-role named 'admin'. Keeping the
+parameter name avoids touching the UI login tab.
 """
 
 import hashlib
@@ -178,7 +184,10 @@ def _get_user_by_email(email: str) -> Optional[dict]:
 class LoginRequest(BaseModel):
     email: str
     password: str
-    loginRole: Optional[str] = None   # 'admin' or 'client' — from the UI tab
+    # 'admin' or 'client' — identifies which LOGIN TAB / PORTAL the user
+    # picked. Note this is a portal label, not a user-role name — the
+    # 'admin' user role was retired in favor of super_admin.
+    loginRole: Optional[str] = None
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -190,9 +199,11 @@ def login(req: LoginRequest):
     Reads from the 'users' table in PostgreSQL.
 
     If loginRole is provided:
-    - 'admin' → user must have role super_admin or admin
+    - 'admin'  → user must have role super_admin
+                 (The legacy 'admin' user role was retired; only
+                  super_admin can log into the admin portal now.)
     - 'client' → user must have role client_user or viewer
-    This ensures admins use the Admin tab and clients use the Client tab.
+    This ensures super_admins use the Admin tab and clients use the Client tab.
     """
     user = _get_user_by_email(req.email)
 
@@ -203,14 +214,17 @@ def login(req: LoginRequest):
         raise HTTPException(status_code=403, detail="Your account has been deactivated. Contact support.")
 
     # ── Role validation based on which tab they used ──────────────
+    # 'admin' user role has been retired — only super_admin can pass the
+    # admin-portal check now. Client-portal check mirrors that by only
+    # blocking super_admins (client_user and viewer both pass).
     if req.loginRole == "admin":
-        if user["role"] not in ("super_admin", "admin"):
+        if user["role"] != "super_admin":
             raise HTTPException(
                 status_code=403,
                 detail="This is the Admin login. Please use the Client tab to sign in.",
             )
     elif req.loginRole == "client":
-        if user["role"] in ("super_admin", "admin"):
+        if user["role"] == "super_admin":
             raise HTTPException(
                 status_code=403,
                 detail="This is the Client login. Please use the Admin tab to sign in.",

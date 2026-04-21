@@ -25,6 +25,9 @@ backend/analyst_backend/check.py
 *.sql.gz
 **/db/dumps/
 **/db/*_dump.sql
+# Master dumps named with a date (pg_dump output)
+**/db/walmart_crp_master_*.sql
+**/db/*_master_*.sql
 
 # ── Uploads (client data — never commit) ──
 **/uploads/
@@ -53,3 +56,11 @@ Thumbs.db
 **/costco/
 **/walmart/
 **/target/
+# Zipped client drops (whole dataset bundles)
+**/costco*.zip
+**/walmart*.zip
+**/target*.zip
+*.zip
+
+# ── Temporary commit-message scratchpads ──
+.commit_msg_*.txt

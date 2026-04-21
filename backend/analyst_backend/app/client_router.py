@@ -129,10 +129,11 @@ def register_client(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    if user["role"] not in ("super_admin", "admin"):
+    # 'admin' user role was retired — client registration now requires super_admin.
+    if user["role"] != "super_admin":
         raise HTTPException(
             status_code=403,
-            detail="Only admins can register new clients",
+            detail="Only super admins can register new clients",
         )
 
     # ── Check if client already exists ────────────────────────────────

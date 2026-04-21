@@ -13,26 +13,6 @@
     </div>
   </div>
 
-  <!-- Mode selector -->
-  <div class="card mb-20">
-    <div class="card-header"><div class="card-title">🎯 Prediction Mode</div></div>
-    <div style="padding:16px 20px">
-      <div class="radio-option" [class.selected]="predMode()==='churn'" (click)="predMode.set('churn')">
-        <div class="radio-dot"></div><div><div class="radio-label">🔴 Churn Prediction</div><div class="radio-desc">Predict which customers will stop buying</div></div>
-      </div>
-      <div class="radio-option" [class.selected]="predMode()==='retention'" (click)="predMode.set('retention')">
-        <div class="radio-dot"></div><div><div class="radio-label">🟡 Retention Analysis</div><div class="radio-desc">Score every customer by likelihood of staying</div></div>
-      </div>
-      <div class="radio-option" [class.selected]="predMode()==='segmentation'" (click)="predMode.set('segmentation')">
-        <div class="radio-dot"></div><div><div class="radio-label">🟣 Segmentation</div><div class="radio-desc">RFM + business segments for all customers</div></div>
-      </div>
-      <div class="radio-option" [class.selected]="predMode()==='full'" (click)="predMode.set('full')">
-        <div class="radio-dot"></div>
-        <div><div class="radio-label">🔵 Full Pipeline &nbsp;<span class="badge blue">Recommended</span></div><div class="radio-desc">Run churn + retention + segmentation in one pass</div></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Run button -->
   <div class="run-btn-wrap">
     <button class="btn walmart lg" style="font-size:16px;padding:16px 44px;border-radius:10px"

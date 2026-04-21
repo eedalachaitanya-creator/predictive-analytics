@@ -33,7 +33,9 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-surface, #fff);
-  overflow: hidden;
+  // NOTE: intentionally NOT using overflow:hidden here — that would clip
+  // the horizontal scrollbar on the child .drilldown-scroll wrapper.
+  // Rounded corners are preserved by the child wrapper's own border-radius.
   animation: slideDown 0.2s ease;
 }
 
@@ -42,8 +44,32 @@
   to   { opacity: 1; max-height: 600px; }
 }
 
+/* Horizontal scroll wrapper around the drilldown table.
+   The table itself has a min-width big enough to show all 10 columns
+   comfortably; when the viewport (or this card) is narrower than that,
+   the wrapper becomes horizontally scrollable instead of clipping
+   the right-most columns. */
+.drilldown-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;       // momentum scroll on iOS
+  border-radius: 8px;                      // keep rounded corners
+  // Subtle scrollbar so it's discoverable but not ugly
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+
+  &::-webkit-scrollbar        { height: 8px; }
+  &::-webkit-scrollbar-track  { background: transparent; }
+  &::-webkit-scrollbar-thumb  {
+    background: var(--border-bright, #cbd5e1);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
 .drilldown-table {
   width: 100%;
+  min-width: 860px;              // ~10 columns × ~86px — forces scroll on narrow screens
   border-collapse: collapse;
   font-size: 12px;
 
@@ -58,12 +84,18 @@
     letter-spacing: 0.3px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
+
+    // Keep the header row visible while scrolling vertically (if any)
+    position: sticky;
+    top: 0;
+    z-index: 1;
   }
 
   td {
     padding: 8px 10px;
     border-bottom: 1px solid var(--border-light, #f1f5f9);
     vertical-align: middle;
+    white-space: nowrap;         // prevents cells from wrapping into tiny columns
   }
 
   tbody tr:hover {
@@ -78,3 +110,32 @@
 /* Badge color additions for tiers */
 .badge.purple { background: #EDE9FE; color: #7C3AED; }
 .badge.brown  { background: #FEF3C7; color: #92400E; }
+
+/* ── Detail Data Tabs: horizontal scroll wrapper ─────────────────────
+   Applies only to the table inside "C. Detail Data Tabs" on the dashboard.
+   The global .data-table has no min-width, so on narrow viewports columns
+   like Net / Status get clipped by the parent .card (overflow:hidden).
+   .detail-table is a scoped subclass that adds a min-width only here,
+   and .detail-tabs-scroll is the scrollable container around it.       */
+.detail-tabs-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+
+  &::-webkit-scrollbar        { height: 8px; }
+  &::-webkit-scrollbar-track  { background: transparent; }
+  &::-webkit-scrollbar-thumb  {
+    background: var(--border-bright, #cbd5e1);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+.detail-table {
+  min-width: 960px;              // 8 cols: orderId(180) + customer(140) + date(160) + items(60) + gross(90) + disc(90) + net(90) + status(120) ≈ 930 + padding
+
+  th { white-space: nowrap; }
+  td { white-space: nowrap; }    // stops long order IDs / dates from wrapping into cramped columns
+}

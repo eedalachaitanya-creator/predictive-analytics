@@ -1,10 +1,9 @@
 <div class="page-anim">
 
   <!-- Stats row -->
-  <div class="grid-4 mb-20">
+  <div class="grid-3 mb-20">
     <div class="stat-card"><div class="stat-value">{{ svc.users().length }}</div><div class="stat-label">Total Users</div></div>
     <div class="stat-card"><div class="stat-value" style="color:var(--accent-purple)">{{ superAdmins() }}</div><div class="stat-label">Super Admins</div></div>
-    <div class="stat-card"><div class="stat-value text-blue">{{ admins() }}</div><div class="stat-label">Admins</div></div>
     <div class="stat-card"><div class="stat-value">{{ clientUsers() }}</div><div class="stat-label">Client Users</div></div>
   </div>
 
@@ -57,25 +56,6 @@
         No users found. <button class="btn outline sm" style="margin-left:8px" (click)="openModal()">Add the first user</button>
       </div>
     }
-  </div>
-
-  <!-- Permissions Matrix -->
-  <div class="section-heading">🔐 Role Permissions Matrix</div>
-  <div class="card">
-    <table class="perm-table">
-      <thead><tr><th>Permission</th><th>Super Admin</th><th>Admin</th><th>Client User</th><th>Viewer</th></tr></thead>
-      <tbody>
-        @for (p of perms; track p.perm) {
-          <tr>
-            <td>{{ p.perm }}</td>
-            <td><span [class]="p.sa?'yes':'no'">{{ p.sa ? '✅' : '❌' }}</span></td>
-            <td><span [class]="p.a?'yes':'no'">{{ p.a ? '✅' : '❌' }}</span></td>
-            <td><span [class]="p.cu?'yes':'no'">{{ p.cu ? '✅' : '❌' }}</span></td>
-            <td><span [class]="p.v?'yes':'no'">{{ p.v ? '✅' : '❌' }}</span></td>
-          </tr>
-        }
-      </tbody>
-    </table>
   </div>
 </div>
 

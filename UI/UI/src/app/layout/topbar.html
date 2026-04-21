@@ -5,7 +5,7 @@
   </div>
   <div class="topbar-right">
     <div class="chip"><span class="dot green"></span>&nbsp;Pipeline Ready</div>
-    <div class="chip">👤 {{ auth.user()?.role === 'super_admin' ? 'Super Admin' : auth.user()?.role === 'admin' ? 'Admin' : 'Client' }}</div>
+    <div class="chip">👤 {{ auth.user()?.role === 'super_admin' ? 'Super Admin' : 'Client' }}</div>
     <div class="chip font-mono" style="color:var(--accent-cyan)">{{ auth.getClientId() }}</div>
   </div>
 </header>

@@ -4,15 +4,29 @@ import { Observable, tap, catchError, throwError } from 'rxjs';
 import { ApiService } from './api.service';
 import { AuthUser, LoginRequest, LoginResponse, UserRole } from '../models';
 
-const TOKEN_KEY   = 'wap_token';
-const REFRESH_KEY = 'wap_refresh';
-const USER_KEY    = 'wap_user';
+const TOKEN_KEY      = 'wap_token';
+const REFRESH_KEY    = 'wap_refresh';
+const USER_KEY       = 'wap_user';
+const SESSION_ID_KEY = 'wap_session_id';
 
 // We use sessionStorage (not localStorage) so closing the browser tab/window
 // clears the session and the next visit lands on /login. Requested by the
 // team for demos — they don't want the app silently auto-resuming into the
-// dashboard from a stale token. sessionStorage is per-tab and dies when the
-// tab closes; localStorage persists indefinitely until explicitly cleared.
+// dashboard from a stale token.
+//
+// ⚠️ sessionStorage alone is NOT enough in Chrome: the "Continue where you
+// left off" startup setting and tab-restore (Cmd+Shift+T) both preserve
+// sessionStorage across a full browser close. To truly force re-login on
+// every fresh browser launch we pair sessionStorage with window.name:
+//
+//   - on login we mint a random session id, writing it to BOTH sessionStorage
+//     AND window.name.
+//   - on app boot we compare the two. If sessionStorage has a user but
+//     window.name is empty or mismatched, the tab was restored / freshly
+//     opened — we clear auth and the guard bounces to /login.
+//
+// window.name is a per-tab scratch string that Chrome does NOT repopulate on
+// session restore, so a mismatch is a reliable "this is a fresh tab" signal.
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -23,9 +37,10 @@ export class AuthService {
   private _user = signal<AuthUser | null>(this.loadUser());
   readonly user    = this._user.asReadonly();
   readonly isLoggedIn = computed(() => this._user() !== null);
-  readonly isAdmin    = computed(() =>
-    ['super_admin', 'admin'].includes(this._user()?.role ?? '')
-  );
+  // With the 'admin' user role retired, admin privileges belong exclusively
+  // to super_admin. isAdmin and isSuperAdmin are now equivalent — we keep
+  // both names so existing call-sites (guards, templates) still work.
+  readonly isAdmin    = computed(() => this._user()?.role === 'super_admin');
   readonly isSuperAdmin = computed(() => this._user()?.role === 'super_admin');
 
   // ── Public API ─────────────────────────────────────────────────────
@@ -141,9 +156,15 @@ export class AuthService {
 
   // ── Helpers ────────────────────────────────────────────────────────
   private persist(res: LoginResponse): void {
-    sessionStorage.setItem(TOKEN_KEY,   res.token);
-    sessionStorage.setItem(REFRESH_KEY, res.refreshToken);
-    sessionStorage.setItem(USER_KEY,    JSON.stringify(res.user));
+    // Mint a per-tab session id and stamp BOTH storages. window.name is the
+    // "tab is still alive" marker that Chrome does not restore on reopen,
+    // so on next boot we can tell active-tab from restored-tab apart.
+    const sessionId = this.newSessionId();
+    sessionStorage.setItem(TOKEN_KEY,      res.token);
+    sessionStorage.setItem(REFRESH_KEY,    res.refreshToken);
+    sessionStorage.setItem(USER_KEY,       JSON.stringify(res.user));
+    sessionStorage.setItem(SESSION_ID_KEY, sessionId);
+    window.name = sessionId;
     this._user.set(res.user);
   }
 
@@ -151,7 +172,9 @@ export class AuthService {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(REFRESH_KEY);
     sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(SESSION_ID_KEY);
     sessionStorage.removeItem('wap_selected_client');
+    window.name = '';
     this._user.set(null);
   }
 
@@ -165,9 +188,34 @@ export class AuthService {
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem('wap_selected_client');
     }
+
+    // Fresh-browser-launch guard: if sessionStorage has a session id (because
+    // Chrome restored it) but window.name doesn't match, this tab was NOT
+    // the one that logged in — force a clean re-login instead of silently
+    // resuming into the dashboard.
+    const storedSessionId = sessionStorage.getItem(SESSION_ID_KEY);
+    if (storedSessionId && window.name !== storedSessionId) {
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(REFRESH_KEY);
+      sessionStorage.removeItem(USER_KEY);
+      sessionStorage.removeItem(SESSION_ID_KEY);
+      sessionStorage.removeItem('wap_selected_client');
+      return null;
+    }
+
     try {
       const raw = sessionStorage.getItem(USER_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
+  }
+
+  private newSessionId(): string {
+    // crypto.randomUUID is available in all modern browsers; fall back to a
+    // Math.random string just in case the app is opened in a very old one.
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return 'wap-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
   }
 }

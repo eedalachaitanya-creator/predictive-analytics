@@ -129,11 +129,21 @@ def discover_best_model() -> Path:
     """
     Auto-discover the best available model in MODEL_DIR.
 
-    Searches for .joblib files and picks based on MODEL_PREFERENCE order.
-    Falls back to the most recently modified model if no preference matches.
+    Selection order (first match wins):
+      1. evaluation_summary.json — written by ml/evaluate_model.py after
+         comparing all trained models on the held-out test set. Its
+         ``best_model`` field is the one with the highest AUC-ROC. This
+         is the AUC-based winner the pipeline is designed around.
+      2. MODEL_PREFERENCE list — hardcoded fallback for cases where
+         evaluation_summary.json is missing (e.g., fresh install before
+         the first full pipeline run, or manual training outside the
+         pipeline).
+      3. Most recently modified .joblib — last-resort fallback if the
+         evaluation summary points at a model file that no longer exists
+         AND no preference-listed model is present.
 
     Returns:
-        Path to the best model file
+        Path to the selected model file
     """
     log.info("Auto-discovering best model in %s...", MODEL_DIR)
     model_files = list(MODEL_DIR.glob("churn_model_*.joblib"))
@@ -141,14 +151,39 @@ def discover_best_model() -> Path:
     if not model_files:
         raise FileNotFoundError(f"No model files found in {MODEL_DIR}")
 
-    # Try preference order first
+    # 1) Prefer the AUC-winner recorded by evaluate_model.py.
+    #    Shape of evaluation_summary.json:
+    #      { "best_model": "random_forest",
+    #        "all_results": [ {"model_type": "...", "auc_roc": 0.87, ...}, ... ] }
+    summary_path = OUTPUT_DIR / "evaluation_summary.json"
+    if summary_path.exists():
+        try:
+            with summary_path.open("r") as fh:
+                summary = json.load(fh)
+            best_name = summary.get("best_model")
+            if best_name:
+                expected = MODEL_DIR / f"churn_model_{best_name}.joblib"
+                if expected.exists():
+                    log.info(
+                        "  Using AUC-winning model from evaluation_summary.json: %s",
+                        expected.name,
+                    )
+                    return expected
+                log.warning(
+                    "  evaluation_summary.json names '%s' but %s is missing — falling back.",
+                    best_name, expected.name,
+                )
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("  Could not read evaluation_summary.json (%s) — falling back.", exc)
+
+    # 2) Preference order (only reached if the summary is absent or stale)
     for preferred in MODEL_PREFERENCE:
         for f in model_files:
             if preferred in f.name:
                 log.info("  Found preferred model: %s", f.name)
                 return f
 
-    # Fallback: most recent
+    # 3) Last resort: most recently modified .joblib
     best = max(model_files, key=lambda p: p.stat().st_mtime)
     log.info("  Using most recent model: %s", best.name)
     return best
@@ -523,13 +558,57 @@ def compute_churn_drivers(
             # Binary classifiers in sklearn return a list [neg_class, pos_class]
             shap_values = sv[1] if isinstance(sv, list) else sv
     except Exception as e:
+        # Last-resort fallback — SHAP unavailable or failed.
+        #
+        # Previously this returned a DataFrame of all-None, so the DB wrote
+        # NULL drivers and the UI showed "—" for every row. That happened
+        # in production when the AUC winner was Random Forest and the shap
+        # package wasn't installed.
+        #
+        # Instead of giving up, synthesize an approximate per-customer
+        # contribution using the model's feature_importances_ / coef_ and
+        # each customer's deviation from the population median:
+        #
+        #   contribution[row, feat] = weight[feat] * sign(x_row - median) * |x_row - median|
+        #
+        # This is NOT true SHAP — it doesn't account for interactions — but
+        # it's:
+        #   * signed (so protective features with below-median values don't
+        #     masquerade as drivers)
+        #   * per-customer (drivers vary row by row, not collapsed to the
+        #     same global top-3 for everyone)
+        #   * non-zero for high-risk customers (who deviate most from median)
+        #
+        # It's a safety net so drivers are never blank. Install `shap` for
+        # the real thing.
         log.warning(
-            "  SHAP computation failed (%s) — drivers will be empty. "
-            "Install the 'shap' package for non-XGBoost models.", e
+            "  SHAP computation failed (%s) — falling back to "
+            "importance × signed-deviation heuristic. Install the 'shap' "
+            "package for accurate per-customer drivers.", e
         )
-        return pd.DataFrame({
-            f'driver_{i+1}': [None] * n_customers for i in range(top_n)
-        })
+        try:
+            X_arr = X_score.values.astype(float)
+            if hasattr(model, 'feature_importances_'):
+                weights = np.asarray(model.feature_importances_, dtype=float)
+            elif hasattr(model, 'coef_'):
+                # Binary LogReg coef_ shape is (1, n_features); squeeze to 1-D
+                weights = np.asarray(model.coef_, dtype=float).reshape(-1)
+            else:
+                raise RuntimeError("model has neither feature_importances_ nor coef_")
+
+            median = np.median(X_arr, axis=0)
+            deviation = X_arr - median                 # signed, per-row
+            # Sign of deviation × magnitude × global weight gives a crude
+            # per-customer push toward churn (positive = toward churn).
+            shap_values = deviation * weights[np.newaxis, :]
+        except Exception as fallback_err:
+            log.warning(
+                "  Heuristic fallback also failed (%s) — writing empty drivers",
+                fallback_err,
+            )
+            return pd.DataFrame({
+                f'driver_{i+1}': [None] * n_customers for i in range(top_n)
+            })
 
     def _clean_feature_name(name: str) -> str:
         """Convert snake_case feature name to readable label."""
@@ -695,21 +774,24 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
         #   The schema is multi-tenant. TRUNCATE wipes every client's
         #   scores, so scoring CLT-001 alone would wipe CLT-002's predictions.
         #   We restrict the delete to clients present in the current batch.
+        #
+        # WHY one transaction (engine.begin) around DELETE + INSERT:
+        #   Previously the DELETE committed on one connection and the INSERT
+        #   ran on a second connection. Two overlapping pipeline runs for
+        #   the same client could both DELETE (each seeing the other's
+        #   already-deleted table), then both INSERT — producing 2× rows
+        #   per customer. Inside a single engine.begin() the DELETE holds
+        #   row locks until the INSERT is committed, so a concurrent run
+        #   blocks until this one finishes, then overwrites cleanly.
+        #   Belt-and-braces: the churn_scores (client_id, customer_id)
+        #   UNIQUE constraint (migration_churn_scores_unique.sql) makes a
+        #   duplicate INSERT fail loudly rather than silently duplicating.
         clients_in_batch = score_df['client_id'].dropna().unique().tolist()
         log.info("  Clearing existing churn_scores for %d client(s): %s",
                  len(clients_in_batch), clients_in_batch)
 
-        with engine.connect() as conn:
-            if clients_in_batch:
-                conn.execute(
-                    text("DELETE FROM churn_scores WHERE client_id = ANY(:cids)"),
-                    {"cids": clients_in_batch},
-                )
-            else:
-                log.warning("  No client_id values in score_df — skipping delete")
-            conn.commit()
-
-        # Map our columns to the teammate's schema
+        # Map our columns to the teammate's schema BEFORE opening the txn
+        # so any conversion error aborts without holding DB locks.
         db_df = pd.DataFrame()
         db_df['client_id'] = score_df['client_id']
         db_df['customer_id'] = score_df['customer_id']
@@ -727,7 +809,43 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
         db_df['model_version'] = 'v1.0'
         db_df['batch_run_id'] = f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        db_df.to_sql('churn_scores', engine, if_exists='append', index=False)
+        # Defensive: even if score_df somehow carries duplicates for a
+        # (client_id, customer_id) pair, keep only the first. Without this
+        # the INSERT would itself violate the UNIQUE constraint.
+        before_dedupe = len(db_df)
+        db_df = db_df.drop_duplicates(subset=['client_id', 'customer_id'], keep='first')
+        if len(db_df) != before_dedupe:
+            log.warning("  Dropped %d duplicate (client_id, customer_id) rows "
+                        "from score_df before insert", before_dedupe - len(db_df))
+
+        # engine.begin() = single transactional scope. DELETE + INSERT
+        # commit together at the end of the with-block; if anything raises,
+        # the whole thing rolls back and the table is left untouched.
+        with engine.begin() as conn:
+            if clients_in_batch:
+                # First null out any retention_interventions FK pointing at
+                # the rows we're about to delete — the FK has no ON DELETE
+                # action so PG would otherwise raise 23503.
+                conn.execute(
+                    text(
+                        "UPDATE retention_interventions SET churn_score_id = NULL "
+                        "WHERE churn_score_id IN ("
+                        "  SELECT score_id FROM churn_scores "
+                        "  WHERE client_id = ANY(:cids)"
+                        ")"
+                    ),
+                    {"cids": clients_in_batch},
+                )
+                conn.execute(
+                    text("DELETE FROM churn_scores WHERE client_id = ANY(:cids)"),
+                    {"cids": clients_in_batch},
+                )
+            else:
+                log.warning("  No client_id values in score_df — skipping delete")
+
+            # Pass the live connection into pandas so the INSERT joins the
+            # same transaction instead of grabbing a fresh pooled connection.
+            db_df.to_sql('churn_scores', conn, if_exists='append', index=False)
     else:
         # Table doesn't exist — create fresh with our data
         score_df.to_sql('churn_scores', engine, if_exists='replace', index=False)

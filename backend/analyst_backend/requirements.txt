@@ -37,6 +37,13 @@ httpx==0.27.0
 scikit-learn==1.5.0
 xgboost==2.0.3
 joblib==1.4.2
+# shap — required for per-customer driver attribution when the AUC winner is
+# NOT XGBoost (Random Forest, Logistic Regression). XGBoost ships TreeSHAP
+# built in; sklearn models don't, so predict.compute_churn_drivers falls back
+# to this package. Without it the fallback path raises ImportError and all
+# driver_1/2/3 columns are written as NULL, making the Churn Scores table
+# show "—" for the Top Driver column.
+shap>=0.44.0
 
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 vaderSentiment==3.3.2

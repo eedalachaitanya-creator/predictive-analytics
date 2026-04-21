@@ -77,8 +77,38 @@
 }
 
 // ── Table ──────────────────────────────────────────────
+
+/* Horizontal scroll wrapper around the 9-column churn table.
+   The parent .card has overflow:hidden (global style), but the scrollbar
+   lives INSIDE this wrapper at its bottom edge, so it's not clipped.
+   The table has a min-width big enough to keep columns readable; when
+   the viewport is narrower than that, this wrapper scrolls sideways
+   instead of cells collapsing / disappearing off the right edge. */
+.churn-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;       // momentum scroll on iOS trackpads
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+
+  &::-webkit-scrollbar        { height: 8px; }
+  &::-webkit-scrollbar-track  { background: transparent; }
+  &::-webkit-scrollbar-thumb  {
+    background: var(--border-bright, #cbd5e1);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
 .churn-table {
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  min-width: 1040px;   // 9 cols: rank(50) + cust(180) + prob(160) + risk(90) + orders(70) + spend(90) + tier(100) + driver(180) + expand(40) ≈ 960, +padding
+
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+
+  // Prevent cells from wrapping into tiny columns; let the scrollbar
+  // handle narrow viewports instead. The driver-cell already has its
+  // own ellipsis rule below, which still wins for that column.
+  td { white-space: nowrap; }
 
   tr {
     cursor: pointer;
@@ -145,6 +175,7 @@
 .detail-row td {
   padding: 0 !important;
   border: none !important;
+  white-space: normal !important;   // override .churn-table td nowrap so the detail panel's labels/values wrap normally
 }
 
 .detail-panel {

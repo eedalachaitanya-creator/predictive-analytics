@@ -308,9 +308,31 @@ def _load_df_to_staging(df: pd.DataFrame, master_type: str, client_id: str) -> d
     # ── Normalize column names in the uploaded DataFrame ────────────────
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
 
-    # If client_id column is expected but missing, inject it from the form field
-    if "client_id" in expected_cols and "client_id" not in df.columns:
-        df.insert(0, "client_id", client_id)
+    # Always stamp client_id from the authenticated form field — NEVER trust
+    # whatever client_id the CSV was saved with.
+    #
+    # Why: this is a multi-tenant system. A client admin (say, Sams Club) might
+    # re-use a CSV that was originally exported with client_id='CLT-001'
+    # (Walmart) baked into every row. The old code only injected client_id if
+    # the column was missing; if it was present with CLT-001, the rows went to
+    # staging with client_id='CLT-001' but batch_id for CLT-004. The downstream
+    # DELETE / preflight / INSERT all filter by WHERE client_id = :cid so
+    # nothing actually got committed — the upload silently did nothing.
+    #
+    # The fix: if the expected schema has client_id at all, overwrite whatever
+    # the file had. The form/token is the source of truth for tenancy.
+    if "client_id" in expected_cols:
+        if "client_id" in df.columns:
+            mismatched = (df["client_id"].astype(str) != str(client_id)).sum()
+            if mismatched:
+                log.warning(
+                    "Overriding client_id in %d/%d uploaded rows "
+                    "(file had a different client_id than target %s)",
+                    int(mismatched), len(df), client_id,
+                )
+            df["client_id"] = client_id
+        else:
+            df.insert(0, "client_id", client_id)
 
     # Keep only columns that exist in both the DataFrame and the expected list
     available_cols = [c for c in expected_cols if c in df.columns]

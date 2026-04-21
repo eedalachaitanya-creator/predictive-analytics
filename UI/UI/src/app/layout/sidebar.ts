@@ -43,11 +43,54 @@ export class SidebarComponent {
     ],
   };
 
+    scoutGroup: NavGroup = {
+    label: 'Scout Agent',
+    icon:  '🔍',
+    pathPrefixes: [
+      '/app/scout', '/app/scout2', '/app/scout3', '/app/scout4',
+      '/app/scout5',
+    ],
+    children: [
+      { path: '/app/scout', label: 'Chat', icon: '📤' },
+      { path: '/app/scout2', label: ' Price Monitor ', icon: '✅' },
+      { path: '/app/scout3', label: ' Search ', icon: '⚙️' },
+      { path: '/app/scout4', label: ' Compare ', icon: '🚀' },
+      { path: '/app/scout5', label: ' Platforms ', icon: '📊' }, 
+    ],
+  };
+
+    strategistGroup: NavGroup = {
+    label: 'Strategist Agent',
+    icon:  '🧠',
+    pathPrefixes: [
+      '/app/strategist', '/app/strategist2', '/app/strategist3',  
+    ],
+    children: [
+      { path: '/app/strategist', label: ' Pricing Engine ', icon: '📤' },
+      { path: '/app/strategist2', label: ' Market Trends ', icon: '✅' },
+      { path: '/app/strategist3', label: ' Pipeline Monitor ', icon: '⚙️' }, 
+    ],
+  };
+
+   retentionGroup: NavGroup = {
+    label: 'Retention Agent',
+    icon:  '🎯',
+    pathPrefixes: [
+      '/app/retention', '/app/retention2', '/app/retention3', '/app/retention4', 
+    ],
+    children: [
+      { path: '/app/retention', label: '  Run Pipeline ', icon: '📤' },
+      { path: '/app/retention2', label: ' Interventions', icon: '✅' },
+      { path: '/app/retention3', label: ' Escalations ', icon: '⚙️' }, 
+      { path: '/app/retention4', label: ' Summary ', icon: '📊' }, 
+    ],
+  };
+
   // Sibling top-level items (other agents).
   otherNav: NavItem[] = [
-    { path: '/app/scout',      label: 'Scout Agent',      icon: '🔍' },
-    { path: '/app/strategist', label: 'Strategist Agent', icon: '🧠' },
-    { path: '/app/retention',  label: 'Retention Agent',  icon: '🎯' },
+    // { path: '/app/scout',      label: 'Scout Agent',      icon: '🔍' },
+   // { path: '/app/strategist', label: 'Strategist Agent', icon: '🧠' },
+  //  { path: '/app/retention',  label: 'Retention Agent',  icon: '🎯' },
   ];
 
   // Expanded state — default OPEN if the current URL is inside the group,
@@ -63,7 +106,7 @@ export class SidebarComponent {
     // No stored preference → open if user is currently on a child page.
     return this.isInGroup();
   }
-
+ 
   isInGroup(): boolean {
     const url = this.router.url;
     return this.analystGroup.pathPrefixes.some(p => url.startsWith(p));
@@ -72,6 +115,72 @@ export class SidebarComponent {
   toggleAnalyst() {
     const next = !this.analystOpen();
     this.analystOpen.set(next);
+    sessionStorage.setItem(this.EXPAND_KEY, next ? '1' : '0');
+  }
+
+
+  private readonly SCOUT_EXPAND_KEY = 'wap_sidebar_scoutanalyst_open';
+  scoutOpen = signal<boolean>(this.scoutrestoreOpen());
+
+    private scoutrestoreOpen(): boolean {
+    const saved = sessionStorage.getItem(this.SCOUT_EXPAND_KEY);
+    if (saved === '0') return false;
+    if (saved === '1') return true;
+    // No stored preference → open if user is currently on a child page.
+    return this.isInscoutGroup();
+  }
+ 
+  isInscoutGroup(): boolean {
+    const url = this.router.url;
+    return this.scoutGroup.pathPrefixes.some(p => url.startsWith(p));
+  }
+
+    scoutAnalyst() {
+    const next = !this.scoutOpen();
+    this.scoutOpen.set(next);
+    sessionStorage.setItem(this.EXPAND_KEY, next ? '1' : '0');
+  }
+
+  private readonly STRATEGIST_EXPAND_KEY = 'wap_sidebar_Strategistanalyst_open';
+  StrategistOpen = signal<boolean>(this.StrategistrestoreOpen());
+
+    private StrategistrestoreOpen(): boolean {
+    const saved = sessionStorage.getItem(this.STRATEGIST_EXPAND_KEY);
+    if (saved === '0') return false;
+    if (saved === '1') return true;
+    return this.isInStrategistGroup();
+  }
+ 
+  isInStrategistGroup(): boolean {
+    const url = this.router.url;
+    return this.strategistGroup.pathPrefixes.some(p => url.startsWith(p));
+  }
+
+    StrategistAnalyst() {
+    const next = !this.StrategistOpen();
+    this.StrategistOpen.set(next);
+    sessionStorage.setItem(this.EXPAND_KEY, next ? '1' : '0');
+  }
+
+  //Code for Retention menu 
+  private readonly RETENTION_EXPAND_KEY = 'wap_sidebar_retentionanalyst_open';
+  retentionOpen = signal<boolean>(this.retentionrestoreOpen());
+
+    private retentionrestoreOpen(): boolean {
+    const saved = sessionStorage.getItem(this.RETENTION_EXPAND_KEY);
+    if (saved === '0') return false;
+    if (saved === '1') return true;
+    return this.isInretentionGroup();
+  }
+ 
+  isInretentionGroup(): boolean {
+    const url = this.router.url;
+    return this.retentionGroup.pathPrefixes.some(p => url.startsWith(p));
+  }
+
+    retentionAnalyst() {
+    const next = !this.retentionOpen();
+    this.retentionOpen.set(next);
     sessionStorage.setItem(this.EXPAND_KEY, next ? '1' : '0');
   }
 

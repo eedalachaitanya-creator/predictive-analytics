@@ -33,6 +33,81 @@
         </div>
       }
 
+      
+        <!-- scout Agent group (collapsible parent) -->
+      <button type="button"
+              class="nav-item nav-group-toggle"
+              [class.group-active]="isInscoutGroup()"
+              (click)="scoutAnalyst()" >
+        <span class="nav-icon">{{ scoutGroup.icon }}</span>
+        <span class="nav-label">{{ scoutGroup.label }}</span>
+        <span class="nav-chevron" [class.open]="scoutOpen()">›</span>
+      </button>
+
+      @if (scoutOpen()) {
+        <div class="nav-children">
+          @for (child of scoutGroup.children; track child.path) {
+            <a class="nav-item nav-child"
+               [routerLink]="child.path"
+               routerLinkActive="active"
+               [routerLinkActiveOptions]="{ exact: false }">
+              <span class="nav-icon">{{ child.icon }}</span>
+              <span>{{ child.label }}</span>
+            </a>
+          }
+        </div>
+      }
+
+         <!-- Strategist  Agent group (collapsible parent) -->
+      <button type="button"
+              class="nav-item nav-group-toggle"
+              [class.group-active]="isInStrategistGroup()"
+              (click)="StrategistAnalyst()" >
+        <span class="nav-icon">{{ strategistGroup.icon }}</span>
+        <span class="nav-label">{{ strategistGroup.label }}</span>
+        <span class="nav-chevron" [class.open]="StrategistOpen()">›</span>
+      </button>
+
+      @if (StrategistOpen()) {
+        <div class="nav-children">
+          @for (child of strategistGroup.children; track child.path) {
+            <a class="nav-item nav-child"
+               [routerLink]="child.path"
+               routerLinkActive="active"
+               [routerLinkActiveOptions]="{ exact: false }">
+              <span class="nav-icon">{{ child.icon }}</span>
+              <span>{{ child.label }}</span>
+            </a>
+          }
+        </div>
+      }
+
+         <!-- Retention  Agent group (collapsible parent) -->
+      <button type="button"
+              class="nav-item nav-group-toggle"
+              [class.group-active]="isInretentionGroup()"
+              (click)="retentionAnalyst()" >
+        <span class="nav-icon">{{ retentionGroup.icon }}</span>
+        <span class="nav-label">{{ retentionGroup.label }}</span>
+        <span class="nav-chevron" [class.open]="retentionOpen()">›</span>
+      </button>
+
+      @if (retentionOpen()) {
+        <div class="nav-children">
+          @for (child of retentionGroup.children; track child.path) {
+            <a class="nav-item nav-child"
+               [routerLink]="child.path"
+               routerLinkActive="active"
+               [routerLinkActiveOptions]="{ exact: false }">
+              <span class="nav-icon">{{ child.icon }}</span>
+              <span>{{ child.label }}</span>
+            </a>
+          }
+        </div>
+      }
+      
+
+
       <!-- Other top-level agents -->
       @for (item of otherNav; track item.path) {
         <a class="nav-item"

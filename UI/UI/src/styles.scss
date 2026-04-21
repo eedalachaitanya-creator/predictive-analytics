@@ -216,3 +216,7 @@ html,body{height:100%;font-family:'Sora',sans-serif;background:var(--bg-base);co
 
 /* Root element must fill viewport */
 app-root { display: block; height: 100vh; }
+
+.search-input-wrap {display: flex; align-items: center; gap: 1rem;}
+.add-form {display: flex; align-items: center; padding: 20px;    gap: 1rem;}
+.empty-state {text-align: center; padding: 10px;}

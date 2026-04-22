@@ -183,11 +183,16 @@ html,body{height:100%;font-family:'Sora',sans-serif;background:var(--bg-base);co
 .check-item .check-right{font-size:11px;color:var(--text-muted);text-align:right}
 .check-item.warn{background:rgba(217,119,6,.04)}
 
-/* Num pair */
-.num-pair{display:flex;align-items:stretch}
-.num-pair input{width:76px;padding:9px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm) 0 0 var(--radius-sm);color:var(--text-primary);font-family:'DM Mono',monospace;font-size:18px;font-weight:600;text-align:right}
+/* Num pair
+   Fixed total width (240px) so every row on the Pipeline Rules page lines
+   up regardless of how long the unit label is ("days" vs "or more orders"
+   vs "th percentile" vs "last orders"). The input keeps its 76px fixed
+   width; the .unit takes the remaining space via flex:1 and centers its
+   text so short words like "days" don't sit with a giant empty gap. */
+.num-pair{display:flex;align-items:stretch;width:240px;flex-shrink:0}
+.num-pair input{width:76px;flex-shrink:0;padding:9px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm) 0 0 var(--radius-sm);color:var(--text-primary);font-family:'DM Mono',monospace;font-size:18px;font-weight:600;text-align:right}
 .num-pair input:focus{outline:none;border-color:var(--accent-blue);box-shadow:0 0 0 3px rgba(26,111,212,.08)}
-.num-pair .unit{padding:9px 11px;background:#EBF1FB;border:1px solid var(--border);border-left:none;border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:12px;color:var(--text-muted);display:flex;align-items:center;white-space:nowrap}
+.num-pair .unit{flex:1;padding:9px 11px;background:#EBF1FB;border:1px solid var(--border);border-left:none;border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:12px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;white-space:nowrap}
 
 /* Dot */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}

@@ -447,6 +447,10 @@ export interface DashboardData {
 
 
 // ── Analytics (aggregated / computed — no direct DB table) ────
+// Pipeline-run fields (lastRun, avgDuration, pipelineRunsLast30,
+// monthlyTrend) were removed because there is no pipeline_runs log
+// table backing them. The backend either hardcoded them or counted
+// `orders` and mislabeled them as "runs".
 export interface ClientMetric {
   clientId: string;
   clientName: string;
@@ -454,16 +458,7 @@ export interface ClientMetric {
   orders: number;
   churnPct: number;
   highValue: number;
-  lastRun: string;
-  avgDuration: number;
   color: string;
-}
-
-export interface MonthlyTrend {
-  month: string;
-  runsByClient: Record<string, number>;
-  totalRuns: number;
-  avgDurationSeconds: number;
 }
 
 export interface AnalyticsData {
@@ -473,10 +468,8 @@ export interface AnalyticsData {
     totalCustomers: number;
     totalOrders: number;
     avgChurnRate: number;
-    pipelineRunsLast30: number;
   };
   clientMetrics: ClientMetric[];
-  monthlyTrend: MonthlyTrend[];
 }
 
 

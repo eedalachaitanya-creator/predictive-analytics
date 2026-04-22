@@ -29,7 +29,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -193,7 +193,7 @@ class LoginRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
     """
     Authenticate user with email and password.
     Reads from the 'users' table in PostgreSQL.
@@ -205,12 +205,30 @@ def login(req: LoginRequest):
     - 'client' → user must have role client_user or viewer
     This ensures super_admins use the Admin tab and clients use the Client tab.
     """
+    from app.audit_logger import log_audit_event  # local import to avoid circular
+
     user = _get_user_by_email(req.email)
 
     if not user or user["password"] != req.password:
+        # Audit failed-login: no user session yet, so user_id is null
+        log_audit_event(
+            request,
+            action_type="login",
+            details=f"Failed login attempt for '{req.email}'",
+            user_email=req.email,
+            outcome="failure",
+        )
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.get("is_active", True):
+        log_audit_event(
+            request,
+            action_type="login",
+            details="Login blocked — account deactivated",
+            user_id=user["id"],
+            user_email=user["email"],
+            outcome="failure",
+        )
         raise HTTPException(status_code=403, detail="Your account has been deactivated. Contact support.")
 
     # ── Role validation based on which tab they used ──────────────
@@ -219,12 +237,28 @@ def login(req: LoginRequest):
     # blocking super_admins (client_user and viewer both pass).
     if req.loginRole == "admin":
         if user["role"] != "super_admin":
+            log_audit_event(
+                request,
+                action_type="login",
+                details="Wrong portal — used Admin tab but role is not super_admin",
+                user_id=user["id"],
+                user_email=user["email"],
+                outcome="warning",
+            )
             raise HTTPException(
                 status_code=403,
                 detail="This is the Admin login. Please use the Client tab to sign in.",
             )
     elif req.loginRole == "client":
         if user["role"] == "super_admin":
+            log_audit_event(
+                request,
+                action_type="login",
+                details="Wrong portal — super_admin used Client tab",
+                user_id=user["id"],
+                user_email=user["email"],
+                outcome="warning",
+            )
             raise HTTPException(
                 status_code=403,
                 detail="This is the Client login. Please use the Admin tab to sign in.",
@@ -244,6 +278,21 @@ def login(req: LoginRequest):
             conn.commit()
     except Exception:
         pass  # non-critical
+
+    # Audit the successful login. Use the user's first client_access entry
+    # as the scoping client_id (super_admins with "*" land under NULL/SYSTEM).
+    audit_client = None
+    if user["clientAccess"] and user["clientAccess"] != ["*"] and user["role"] != "super_admin":
+        audit_client = user["clientAccess"][0]
+    log_audit_event(
+        request,
+        action_type="login",
+        details=f"Successful login via {req.loginRole or 'client'} portal",
+        user_id=user["id"],
+        user_email=user["email"],
+        client_id=audit_client,
+        outcome="success",
+    )
 
     user_response = {
         "id": user["id"],
@@ -284,11 +333,26 @@ def get_me(authorization: Optional[str] = Header(default=None)):
 
 
 @router.post("/auth/logout")
-def logout(authorization: Optional[str] = Header(default=None)):
+def logout(request: Request, authorization: Optional[str] = Header(default=None)):
     """Remove token from active sessions (database)."""
+    from app.audit_logger import log_audit_event  # local import to avoid circular
+
+    user_for_audit = None
     if authorization:
         token = authorization.replace("Bearer ", "")
+        # Snap the user BEFORE revoking, otherwise _find_user_by_token returns None.
+        user_for_audit = _find_user_by_token(token)
         _revoke_token(token)
+
+    if user_for_audit:
+        log_audit_event(
+            request,
+            action_type="logout",
+            details="User signed out",
+            user_id=user_for_audit["id"],
+            user_email=user_for_audit["email"],
+            outcome="success",
+        )
     return {}
 
 
@@ -321,4 +385,97 @@ def refresh_token(body: dict):
         "user": user_response,
         "token": new_token,
         "refreshToken": new_refresh,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Forgot password
+# ---------------------------------------------------------------------------
+# Resets the user's password to a freshly generated 12-character string and
+# returns it to the caller so the UI can show it in a modal. No email is sent.
+#
+# Security notes:
+#   - Passwords are stored as plaintext in `users.password_hash` today (see
+#     migration_users_table.sql line 13). That's a project-wide convention,
+#     not a forgot-password quirk. When the project switches to bcrypt, this
+#     endpoint and /auth/login both need to move together.
+#   - We deliberately return a 404 for unknown emails instead of a generic
+#     success response. Email enumeration is acceptable for the current
+#     stage of the product; UX wins over hiding which emails exist. Change
+#     this to a generic message before going to production.
+#   - All existing tokens for the user are revoked, forcing any open sessions
+#     to re-log in with the new password.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+def _generate_temp_password(length: int = 12) -> str:
+    """Return a readable random password (no ambiguous chars like 0/O, 1/l/I)."""
+    import secrets
+    import string
+    alphabet = "".join(
+        c for c in (string.ascii_letters + string.digits) if c not in "0O1lI"
+    )
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+@router.post("/auth/forgot-password")
+def forgot_password(req: ForgotPasswordRequest):
+    """
+    Generate a temporary password, save it, and return it in the response.
+
+    Flow:
+      1. Look up the user by email (case-insensitive).
+      2. 404 if unknown, 403 if deactivated.
+      3. Otherwise: generate new password, UPDATE users.password_hash,
+         DELETE all active_tokens for this user, return the new password.
+    """
+    email_trimmed = (req.email or "").strip()
+    if not email_trimmed:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    user = _get_user_by_email(email_trimmed)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No account found for {email_trimmed}",
+        )
+
+    if not user.get("is_active", True):
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been deactivated. Contact support.",
+        )
+
+    new_password = _generate_temp_password()
+
+    try:
+        with engine.begin() as conn:   # atomic: both updates commit together or not at all
+            conn.execute(
+                text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
+                {"pw": new_password, "uid": user["id"]},
+            )
+            # Kill every active session for this user so stale tokens stop working.
+            conn.execute(
+                text("DELETE FROM active_tokens WHERE user_id = :uid"),
+                {"uid": user["id"]},
+            )
+    except Exception as e:
+        log.error("Failed to reset password for %s: %s", email_trimmed, e)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not reset password. Please try again.",
+        )
+
+    log.info("Password reset for user %s (%s)", user["id"], email_trimmed)
+
+    return {
+        "email": user["email"],
+        "temp_password": new_password,
+        "message": (
+            "Your temporary password is shown below. Copy it, sign in with "
+            "it, and any open sessions have been logged out."
+        ),
     }

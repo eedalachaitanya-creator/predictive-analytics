@@ -187,8 +187,7 @@ export class SidebarComponent {
   adminNav: NavItem[] = [
     { path: '/app/clients',   label: 'Clients',    icon: '👥' },
     { path: '/app/users',     label: 'Users',      icon: '👤' },
-    { path: '/app/sysconfig', label: 'Sys Config', icon: '🖥️' },
-    { path: '/app/monitor',   label: 'Monitor',    icon: '📡' },
+    { path: '/app/monitor',   label: 'Cost Monitoring', icon: '💰' },
     { path: '/app/analytics', label: 'Analytics',  icon: '📈' },
     { path: '/app/audit',     label: 'Audit',      icon: '🔒' },
     { path: '/app/scout',      label: 'Scout Agent',      icon: '🔍' },

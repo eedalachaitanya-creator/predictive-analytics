@@ -11,12 +11,13 @@ import uuid
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
 from app.auth_router import _find_user_by_token
+from app.audit_logger import log_audit_event
 
 router = APIRouter(prefix="/api/v1", tags=["users"])
 log = logging.getLogger("users")
@@ -160,10 +161,11 @@ def create_user(
 def update_user(
     user_id: str,
     req: UpdateUserRequest,
+    request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
     """Update a user's details (admin only)."""
-    _require_admin(authorization)
+    caller = _require_admin(authorization)
 
     updates = []
     params = {"uid": user_id}
@@ -204,6 +206,25 @@ def update_user(
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Audit: describe which fields changed. Status toggles are the most
+        # common audit-worthy event here, but we log any field change so the
+        # audit trail stays complete when future UI exposes more fields.
+        changed: list[str] = []
+        if req.name is not None:       changed.append(f"name→{req.name}")
+        if req.email is not None:      changed.append(f"email→{req.email}")
+        if req.role is not None:       changed.append(f"role→{req.role}")
+        if req.clientAccess is not None: changed.append(f"access→{','.join(req.clientAccess) or '∅'}")
+        if req.status is not None:     changed.append(f"status→{req.status}")
+        log_audit_event(
+            request,
+            action_type="user_updated",
+            details=f"Updated {row[1]} ({user_id}) · " + " · ".join(changed),
+            client_id=None,
+            user_id=caller["id"],
+            user_email=caller["email"],
+            outcome="success",
+        )
+
         return {
             "id": row[0],
             "email": row[1],
@@ -224,6 +245,7 @@ def update_user(
 @router.delete("/users/{user_id}")
 def delete_user(
     user_id: str,
+    request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
     """Delete a user (admin only). Cannot delete yourself."""
@@ -231,6 +253,19 @@ def delete_user(
 
     if caller["id"] == user_id:
         raise HTTPException(status_code=400, detail="You cannot delete your own account")
+
+    # Snapshot the target's email BEFORE the DELETE so the audit row still
+    # carries a human-readable identity after the row is gone.
+    try:
+        with engine.connect() as conn:
+            target_row = conn.execute(
+                text("SELECT email, role FROM users WHERE user_id = :uid"),
+                {"uid": user_id},
+            ).fetchone()
+    except Exception:
+        target_row = None
+    target_email = target_row[0] if target_row else "unknown"
+    target_role  = target_row[1] if target_row else "unknown"
 
     try:
         with engine.connect() as conn:
@@ -244,6 +279,19 @@ def delete_user(
                 raise HTTPException(status_code=404, detail="User not found")
 
         log.info("Deleted user: %s", user_id)
+
+        # Audit: record who deleted whom, plus the deleted user's role so the
+        # audit reader can spot privileged-user deletions at a glance.
+        log_audit_event(
+            request,
+            action_type="user_deleted",
+            details=f"Deleted user {target_email} ({user_id}) · role {target_role}",
+            client_id=None,
+            user_id=caller["id"],
+            user_email=caller["email"],
+            outcome="success",
+        )
+
         return {}
 
     except HTTPException:

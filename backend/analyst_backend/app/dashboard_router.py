@@ -33,7 +33,10 @@ router = APIRouter(prefix="/api/v1", tags=["dashboard"])
 def get_dashboard(
     clientId: str = Query(default="CLT-001"),
     orderPage: int = Query(default=1, ge=1),
-    orderPageSize: int = Query(default=10, ge=1, le=50),
+    # Default bumped from 10 → 100 per CTO direction: one page with a
+    # vertical scroller is easier to scan than clicking through many
+    # 10-row pages. The max was raised from 50 → 500 to match churn_router.
+    orderPageSize: int = Query(default=100, ge=1, le=500),
 ):
     """
     All-in-one dashboard data for a specific client.
@@ -276,7 +279,9 @@ def get_segment_customers(
     clientId: str = Query(default="CLT-001"),
     segment: str = Query(..., description="Segment name, e.g. 'Champions', 'Loyal Customers'"),
     page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=10, ge=1, le=50),
+    # Default bumped from 10 → 100 per CTO direction. Max raised to 500
+    # so the UI can request larger pages without a backend redeploy.
+    pageSize: int = Query(default=100, ge=1, le=500),
 ):
     """
     Drill-down: returns customers belonging to a specific RFM segment.
@@ -393,7 +398,11 @@ def get_dashboard_orders(
     Each tab returns { orders: [...], total: N, pages: N } to match
     the frontend's expected response shape.
     """
-    page_size = 10
+    # page_size bumped from 10 → 100 per CTO direction: the detail tabs
+    # (Clean Orders, RFM, High Value, etc.) on the Dashboard are now
+    # served 100 rows at a time and scrolled vertically inside the
+    # table wrapper, rather than paginated in 10-row chunks.
+    page_size = 100
     offset = (page - 1) * page_size
 
     with engine.connect() as conn:

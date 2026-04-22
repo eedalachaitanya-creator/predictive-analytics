@@ -7,8 +7,13 @@
     <div class="stat-card"><div class="stat-value">{{ clientUsers() }}</div><div class="stat-label">Client Users</div></div>
   </div>
 
+  <!-- Loading / error indicators. The "+ Add New User" button has been
+       retired — new users are now created exclusively as part of the
+       "+ Add New Client" flow on the Clients page (the super admin picks a
+       contact name/email/password there and that user is provisioned in the
+       same transaction as the client_config row). This page is now a
+       read-only roster + status/delete controls. -->
   <div class="flex-row mb-20">
-    <button class="btn walmart" (click)="openModal()">➕ Add New User</button>
     @if (svc.loading()) { <span class="text-muted" style="font-size:12px">Loading…</span> }
     @if (svc.error()) { <span class="text-red" style="font-size:12px">⚠️ {{ svc.error() }}</span> }
   </div>
@@ -52,75 +57,12 @@
         </tbody>
       </table>
     } @else if (!svc.loading()) {
+      <!-- Empty state no longer offers a "create user" shortcut here —
+           users come in through the Clients page, so point the super admin
+           there instead of giving them a dead-end button. -->
       <div style="padding:40px;text-align:center;color:var(--text-muted)">
-        No users found. <button class="btn outline sm" style="margin-left:8px" (click)="openModal()">Add the first user</button>
+        No users found. New users are created automatically when you add a client from the <strong>Clients</strong> page.
       </div>
     }
   </div>
 </div>
-
-<!-- ── Add User Modal ── -->
-@if (showModal()) {
-  <div class="modal-backdrop" (click)="closeModal()">
-    <div class="modal-box" (click)="$event.stopPropagation()">
-      <div class="modal-header">
-        <div style="font-size:16px;font-weight:600">➕ Add New User</div>
-        <button class="btn ghost sm" (click)="closeModal()">✕</button>
-      </div>
-      <div class="modal-body">
-
-        @if (modalError()) {
-          <div class="notice warning mb-16">⚠️ {{ modalError() }}</div>
-        }
-
-        <div class="form-group">
-          <label class="form-label">Full Name *</label>
-          <input class="form-input" type="text" placeholder="e.g. Jane Smith"
-            [ngModel]="form().name" (ngModelChange)="updateField('name', $event)">
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Email Address *</label>
-          <input class="form-input" type="email" placeholder="jane@company.com"
-            [ngModel]="form().email" (ngModelChange)="updateField('email', $event)">
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Temporary Password *</label>
-          <input class="form-input" type="password" placeholder="Min 8 characters"
-            [ngModel]="form().password" (ngModelChange)="updateField('password', $event)">
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Role *</label>
-          <select class="form-select" [ngModel]="form().role" (ngModelChange)="updateField('role', $event)">
-            @for (r of roles; track r.value) {
-              <option [value]="r.value">{{ r.label }}</option>
-            }
-          </select>
-        </div>
-
-        <div class="form-group mb-0">
-          <label class="form-label">Client Access</label>
-          <div class="client-access-grid">
-            @for (c of clientOptions(); track c.id) {
-              <label class="client-check">
-                <input type="checkbox"
-                  [checked]="form().clientAccess.includes(c.id)"
-                  (change)="toggleClientAccess(c.id)">
-                <span>{{ c.id }} · {{ c.name }}</span>
-              </label>
-            }
-          </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Leave empty for Super Admins (they have all access)</div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn outline" (click)="closeModal()">Cancel</button>
-        <button class="btn walmart" [disabled]="saving()" (click)="saveUser()">
-          {{ saving() ? 'Creating…' : 'Create User' }}
-        </button>
-      </div>
-    </div>
-  </div>
-}

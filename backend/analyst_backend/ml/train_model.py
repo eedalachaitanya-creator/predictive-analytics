@@ -13,7 +13,7 @@ ARCHITECTURE:
     Section 1 — Data Loading (CSV / PostgreSQL)
     Section 2 — Feature Cleaning (zero-variance, multicollinearity)
     Section 3 — Preprocessing (scaling, imbalance, feature selection)
-    Section 4 — Model Definitions (XGBoost, Random Forest, Logistic Regression)
+    Section 4 — Model Definitions (XGBoost, Random Forest)
     Section 5 — Cross-Validation & Hyperparameter Tuning
     Section 6 — Evaluation & Metrics
     Section 7 — Visualization (ROC, confusion matrix, feature importance)
@@ -123,6 +123,18 @@ LEAKY_COLS = [
     'account_age_days',            # Tenure proxy for churn in synthetic data
     'first_order_date',            # Raw date form of account age
     'last_order_date',             # Derived from recency (same concern)
+    # ── Algebraic leak via refill cycle ─────────────────────────────────
+    # days_overdue_for_refill is computed as:
+    #     CURRENT_DATE - (last_purchase_date + avg_refill_days)
+    # which is algebraically identical to:
+    #     days_since_last_order - avg_refill_days
+    # So for any fixed avg_refill_days the feature is a linear shift of
+    # DSLO and carries the churn label almost verbatim. Observed effect:
+    # Logistic Regression saturated to exact 1.000 for short-history
+    # Bronze customers (e.g., Edward Williams, 2 orders) even when all
+    # other real-behaviour features were neutral. Drop to force the
+    # model to learn from genuine behavioural signal.
+    'days_overdue_for_refill',     # = DSLO − avg_refill_days (algebraic leak)
 ]
 
 # ── REVIEW FEATURES (excluded from model) ───────────────────────────────────
@@ -183,12 +195,12 @@ RF_PARAM_GRID = {
     'max_features': ['sqrt', 'log2', None],
 }
 
-LR_PARAM_GRID = {
-    'C': [0.001, 0.01, 0.1, 1, 10, 100],
-    'penalty': ['l1', 'l2'],
-    'solver': ['liblinear', 'saga'],
-    'max_iter': [500, 1000, 2000],
-}
+# NOTE: Logistic Regression was removed from the supported model set because
+# its sigmoid saturates to exactly 1.000 whenever a leaky feature pushes the
+# log-odds above ~25. RandomForest + XGBoost are tree ensembles that cap per-
+# leaf frequencies, so they don't saturate the same way and produce better-
+# calibrated risk probabilities. The best of the two (by held-out AUC-ROC) is
+# the one picked up by discover_best_model() in predict.py.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -287,7 +299,37 @@ def prepare_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     # Keep only numeric
     X = X.select_dtypes(include=[np.number])
 
-    # Fill NaN
+    # ── Impute columns that carry intentional NULLs ─────────────────────────
+    # median_days_between_orders is NULL by design for customers with <3
+    # orders (see the order_gaps CTE in walmart_crp_universal.sql). Filling
+    # with 0 would mislead the model into thinking short-history customers
+    # have a "0-day cadence" — the opposite of ignoring the feature. Fill
+    # with the *population* median so those rows contribute ~no signal on
+    # this feature and the model decides from their other features.
+    for col in ('median_days_between_orders', 'order_gap_mean_median_diff'):
+        if col in X.columns and X[col].isna().any():
+            pop_median = X[col].median()
+            n_missing = int(X[col].isna().sum())
+            if pd.isna(pop_median):
+                # Whole column is NULL. This signals an upstream data issue
+                # (e.g., every customer has <3 orders, or the MV column is
+                # broken) — imputing to 0 here lets training continue but
+                # the column will have zero variance and be dropped by
+                # drop_zero_variance_features shortly after. Warn loudly so
+                # the issue is visible in production logs.
+                log.warning(
+                    "  Column '%s' is 100%% NULL (%d rows) — falling back to "
+                    "0.0 imputation. Upstream feature extraction may be broken.",
+                    col, n_missing,
+                )
+                pop_median = 0.0
+            X[col] = X[col].fillna(pop_median)
+            log.info(
+                "  Imputed %d NULLs in '%s' with population median = %.2f",
+                n_missing, col, float(pop_median),
+            )
+
+    # Fill NaN (remaining columns default to 0)
     nan_count = X.isna().sum().sum()
     if nan_count > 0:
         log.warning("  Found %d NaN values — filling with 0", nan_count)
@@ -681,36 +723,13 @@ def build_random_forest(class_weight: Optional[str] = None, **params) -> Any:
     return RandomForestClassifier(**defaults)
 
 
-def build_logistic_regression(class_weight: Optional[str] = None, **params) -> Any:
-    """
-    Create a Logistic Regression classifier instance.
-
-    Args:
-        class_weight: 'balanced' or None
-        **params: Override any LR hyperparameter
-
-    Returns:
-        Unfitted LogisticRegression
-    """
-    from sklearn.linear_model import LogisticRegression
-    defaults = {
-        'max_iter': 1000,
-        'random_state': RANDOM_STATE,
-        'solver': 'liblinear',
-    }
-    if class_weight:
-        defaults['class_weight'] = class_weight
-    defaults.update(params)
-    return LogisticRegression(**defaults)
-
-
 def build_model(model_type: str, class_weight: Optional[str] = None, **params) -> Any:
     """
     Factory function — build any supported model by name.
 
     Args:
-        model_type: 'xgboost', 'random_forest', or 'logistic_regression'
-        class_weight: 'balanced' or None (for RF/LR); converted to ratio for XGBoost
+        model_type: 'xgboost' or 'random_forest'
+        class_weight: 'balanced' or None (for RF); converted to ratio for XGBoost
         **params: Passed to the specific builder
 
     Returns:
@@ -720,10 +739,11 @@ def build_model(model_type: str, class_weight: Optional[str] = None, **params) -
         return build_xgboost(**params)
     elif model_type == 'random_forest':
         return build_random_forest(class_weight=class_weight, **params)
-    elif model_type == 'logistic_regression':
-        return build_logistic_regression(class_weight=class_weight, **params)
     else:
-        raise ValueError(f"Unknown model type: {model_type}")
+        raise ValueError(
+            f"Unknown model type: {model_type} "
+            "(supported: 'xgboost', 'random_forest')"
+        )
 
 
 def train_single_model(
@@ -827,7 +847,7 @@ def tune_hyperparameters(
     Randomized hyperparameter search with stratified K-fold.
 
     Args:
-        model_type: 'xgboost', 'random_forest', or 'logistic_regression'
+        model_type: 'xgboost' or 'random_forest'
         X: Feature matrix
         y: Target
         n_folds: CV folds
@@ -848,8 +868,6 @@ def tune_hyperparameters(
         param_grid = XGBOOST_PARAM_GRID
     elif model_type == 'random_forest':
         param_grid = RF_PARAM_GRID
-    elif model_type == 'logistic_regression':
-        param_grid = LR_PARAM_GRID
     else:
         raise ValueError(f"No param grid for model type: {model_type}")
 
@@ -935,8 +953,6 @@ def get_feature_importances(
 
     if model_type in ('xgboost', 'random_forest'):
         importances = model.feature_importances_
-    elif model_type == 'logistic_regression':
-        importances = np.abs(model.coef_[0])
     else:
         log.warning("  Feature importance not available for %s", model_type)
         return pd.DataFrame(columns=['feature', 'importance'])
@@ -1390,9 +1406,10 @@ Examples:
     parser.add_argument('--db-url', type=str,
                         help='PostgreSQL URL (also reads DB_URL from .env)')
     parser.add_argument('--model-type',
-                        choices=['xgboost', 'random_forest', 'logistic_regression', 'all'],
-                        default='xgboost',
-                        help='Model to train (default: xgboost)')
+                        choices=['xgboost', 'random_forest', 'all'],
+                        default='all',
+                        help='Model to train (default: all — trains both and '
+                             'picks the AUC-ROC winner for prediction)')
     parser.add_argument('--imbalance-method', choices=['smote', 'class_weight', 'none'],
                         default='none',
                         help='Class imbalance handling (default: none — data is balanced)')
@@ -1457,18 +1474,13 @@ def run_pipeline_for_model(
         model = train_single_model(model, X_train, y_train, model_type)
 
     # ─ Cross-validation (on full data with fresh model)
-    # Uses Pipeline with scaler so LR gets properly scaled data inside each fold
+    # XGBoost + RandomForest are both scale-invariant trees, so no inner
+    # scaler pipeline is required — the same features that went into the
+    # held-out fit work unchanged inside each CV fold.
     cv_results = None
     if not args.no_cv:
         cv_model = build_model(model_type)
-        if model_type == 'logistic_regression' and args.scale_method != 'none':
-            from sklearn.pipeline import Pipeline
-            from sklearn.preprocessing import StandardScaler, MinMaxScaler
-            scaler_cls = StandardScaler if args.scale_method == 'standard' else MinMaxScaler
-            cv_pipeline = Pipeline([('scaler', scaler_cls()), ('model', cv_model)])
-            cv_results = cross_validate_model(cv_pipeline, X_full, y_full)
-        else:
-            cv_results = cross_validate_model(cv_model, X_full, y_full)
+        cv_results = cross_validate_model(cv_model, X_full, y_full)
 
     # ─ Evaluate on held-out test set
     metrics = evaluate_model(model, X_test, y_test)
@@ -1572,8 +1584,12 @@ def main():
     # CV uses X_full/y_full which are unscaled — sklearn CV handles this internally
 
     # ── Step 8: Train model(s) ─────────────────────────────────────────────
+    # Supported models: XGBoost + RandomForest. LogisticRegression was
+    # removed because its sigmoid saturated to 1.000 under leaky features
+    # and produced poorly-calibrated risk scores. The AUC winner of the
+    # two is selected at prediction time by discover_best_model().
     models_to_train = (
-        ['xgboost', 'random_forest', 'logistic_regression']
+        ['xgboost', 'random_forest']
         if args.model_type == 'all'
         else [args.model_type]
     )

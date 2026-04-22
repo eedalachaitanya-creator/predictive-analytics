@@ -32,11 +32,12 @@ from datetime import datetime
 
 import pandas as pd
 from sqlalchemy import text
-from fastapi import APIRouter, File, Form, UploadFile, Query, HTTPException, Header
+from fastapi import APIRouter, File, Form, UploadFile, Query, HTTPException, Header, Request
 from typing import Optional
 
 from app.database import engine
 from app.auth_router import _find_user_by_token
+from app.audit_logger import log_audit_event
 
 router = APIRouter(prefix="/api/v1", tags=["uploads"])
 log = logging.getLogger("upload")
@@ -656,6 +657,7 @@ def discard_batch(clientId: str = Query(...)):
 @router.post("/uploads/{master_type}")
 async def upload_file(
     master_type: str,
+    request: Request,
     file: UploadFile = File(...),
     clientId: str = Form(None),             # NOW OPTIONAL — auto-detected from token
     masterType: str = Form(None),
@@ -759,6 +761,21 @@ async def upload_file(
             status_code=400,
             detail=f"Could not stage file: {db_result.get('reason', 'unknown error')}",
         )
+
+    # ── Audit the successful upload ─────────────────────────────────
+    # The UI's "File Upload" row in the audit log comes from here.
+    audit_user = None
+    if authorization:
+        audit_user = _find_user_by_token(authorization.replace("Bearer ", ""))
+    log_audit_event(
+        request,
+        action_type="file_upload",
+        details=f"{master_type} · {filename} · {row_count:,} rows",
+        client_id=clientId,
+        user_id=audit_user["id"] if audit_user else None,
+        user_email=audit_user["email"] if audit_user else None,
+        outcome="success",
+    )
 
     return {
         "masterType": master_type,

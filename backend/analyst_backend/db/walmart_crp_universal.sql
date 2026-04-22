@@ -679,11 +679,22 @@ order_agg AS (
 ),
 
 -- ── Order gap statistics (mean + median) ─────────────────────────────────────
+-- A customer with N non-cancelled orders has N-1 gap rows (first order has no
+-- predecessor). We only compute the median when there are at least TWO gap
+-- rows (i.e., the customer has placed 3+ orders) — with one gap the "median"
+-- is just that single value, which gave us noisy saturation for short-history
+-- customers (example: Edward Williams, 2 orders → 1 gap → model treated that
+-- single gap as a reliable cadence). The mean is still emitted with any
+-- gap count because it's used elsewhere (propensity heuristics) and is less
+-- misleading as a single-value statistic.
 order_gaps AS (
     SELECT client_id, customer_id,
         ROUND(AVG(gap_days)::NUMERIC, 1)                                    AS avg_days_between_orders,
-        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY gap_days)::NUMERIC, 1)
-                                                                            AS median_days_between_orders
+        CASE
+            WHEN COUNT(gap_days) >= 2 THEN
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY gap_days)::NUMERIC, 1)
+            ELSE NULL
+        END                                                                 AS median_days_between_orders
     FROM (
         SELECT client_id, customer_id,
             EXTRACT(DAY FROM order_date - LAG(order_date) OVER (
@@ -886,9 +897,17 @@ SELECT
     oa.orders_last_90d,
     oa.orders_last_180d,
     COALESCE(og.avg_days_between_orders, 0)                                 AS avg_days_between_orders,
-    COALESCE(og.median_days_between_orders, 0)                              AS median_days_between_orders,
-    ROUND(ABS(COALESCE(og.avg_days_between_orders, 0)
-              - COALESCE(og.median_days_between_orders, 0))::NUMERIC, 1)   AS order_gap_mean_median_diff,
+    -- Intentionally NOT coalesced: median_days_between_orders stays NULL for
+    -- customers with <3 orders (see order_gaps CTE above). The ML trainer
+    -- imputes with the population median so short-history customers don't
+    -- contribute a fake "0 day cadence" signal.
+    og.median_days_between_orders                                           AS median_days_between_orders,
+    -- diff is NULL when median is NULL — intentional, same reasoning.
+    CASE
+        WHEN og.median_days_between_orders IS NULL THEN NULL
+        ELSE ROUND(ABS(COALESCE(og.avg_days_between_orders, 0)
+                       - og.median_days_between_orders)::NUMERIC, 1)
+    END                                                                     AS order_gap_mean_median_diff,
     COALESCE(rg.recent_avg_gap_days, 0)                                     AS recent_avg_gap_days,
 
     -- Monetary

@@ -58,17 +58,16 @@ const MOCK_DASHBOARD = {
   totalOrderPages: 379,
 };
 
+// Mock kept in sync with AnalyticsData in models/index.ts. Pipeline-run
+// fields (pipelineRunsLast30, lastRun, avgDuration, monthlyTrend) were
+// removed from the real API because there is no pipeline_runs log table
+// backing them — the mock mirrors that shape so dev mode matches prod.
 const MOCK_ANALYTICS = {
-  platformKpis: { activeClients:3, totalClients:5, totalCustomers:697, totalOrders:6526, avgChurnRate:42.3, pipelineRunsLast30:142 },
+  platformKpis: { activeClients:3, totalClients:5, totalCustomers:697, totalOrders:6526, avgChurnRate:42.3 },
   clientMetrics: [
-    { clientId:'CLT-001', clientName:'Walmart Inc.',     customers:200, orders:1894, churnPct:44.0, highValue:50, lastRun:'2026-03-17 22:43', avgDuration:6.3, color:'' },
-    { clientId:'CLT-002', clientName:'Target Corp.',     customers:185, orders:1742, churnPct:39.5, highValue:46, lastRun:'2026-03-16 14:12', avgDuration:5.8, color:'' },
-    { clientId:'CLT-003', clientName:'Costco Wholesale', customers:312, orders:2890, churnPct:43.4, highValue:78, lastRun:'2026-03-15 09:30', avgDuration:7.1, color:'' },
-  ],
-  monthlyTrend: [
-    { month:'Jan 2026', runsByClient:{'CLT-001':28,'CLT-002':25,'CLT-003':29}, totalRuns:82, avgDurationSeconds:6.0 },
-    { month:'Feb 2026', runsByClient:{'CLT-001':26,'CLT-002':24,'CLT-003':27}, totalRuns:77, avgDurationSeconds:6.1 },
-    { month:'Mar 2026', runsByClient:{'CLT-001':17,'CLT-002':16,'CLT-003':18}, totalRuns:51, avgDurationSeconds:6.1 },
+    { clientId:'CLT-001', clientName:'Walmart Inc.',     customers:200, orders:1894, churnPct:44.0, highValue:50, color:'' },
+    { clientId:'CLT-002', clientName:'Target Corp.',     customers:185, orders:1742, churnPct:39.5, highValue:46, color:'' },
+    { clientId:'CLT-003', clientName:'Costco Wholesale', customers:312, orders:2890, churnPct:43.4, highValue:78, color:'' },
   ],
 };
 

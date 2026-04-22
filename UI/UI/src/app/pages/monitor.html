@@ -1,13 +1,8 @@
 <div class="page-anim">
-  <div class="grid-5 mb-24">
-    <div class="stat-card"><div class="stat-value text-blue">2</div><div class="stat-label">Running</div></div>
-    <div class="stat-card"><div class="stat-value text-yellow">1</div><div class="stat-label">Queued</div></div>
-    <div class="stat-card"><div class="stat-value text-green">47</div><div class="stat-label">Completed Today</div></div>
-    <div class="stat-card"><div class="stat-value text-red">0</div><div class="stat-label">Failed</div></div>
-    <div class="stat-card"><div class="stat-value">6.1s</div><div class="stat-label">Avg Duration</div></div>
-  </div>
-
-  <!-- LLM Cost Tracking Section -->
+  <!-- LLM Cost Tracking (LangFuse) — the only live section. Everything else
+       (KPI cards, Live Job Queue, Recent Run History, Performance Summary)
+       was removed because there is no pipeline_runs table or async job
+       queue backing those sections — they were hardcoded demo data. -->
   <div class="section-heading">💰 LLM Cost Tracking (LangFuse)</div>
   <div class="card mb-24" style="padding:24px">
     @if (costLoading()) {
@@ -56,54 +51,95 @@
     }
   </div>
 
-  <div class="section-heading">⚡ Live Job Queue</div>
-  <div class="card mb-24">
-    <table class="data-table">
-      <thead><tr><th>Job ID</th><th>Client</th><th>Triggered By</th><th>Started</th><th>Stage</th><th>Progress</th><th>ETA</th><th>Status</th></tr></thead>
-      <tbody>
-        @for (j of live; track j.id) {
-          <tr>
-            <td>{{j.id}}</td><td>{{j.client}}</td>
-            <td class="font-mono" style="font-size:11px">{{j.by}}</td>
-            <td class="font-mono" style="font-size:11px">{{j.started}}</td>
-            <td>{{j.stage}}</td>
-            <td>
-              <div class="job-bar"><div class="fill" [style.width]="j.pct+'%'"></div></div>
-            </td>
-            <td>{{j.eta}}</td>
-            <td>
-              @if (j.status==='running') { <span class="badge yellow">⏳ Running</span> }
-              @if (j.status==='queued')  { <span class="badge gray">🕐 Queued</span> }
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  </div>
-
-  <div class="section-heading">📜 Recent Run History (last 10 runs)</div>
-  <div class="card mb-24">
-    <table class="data-table">
-      <thead><tr><th>Job ID</th><th>Client</th><th>Date</th><th>Duration</th><th>Customers</th><th>Orders</th><th>Features</th><th>Output</th><th>Status</th></tr></thead>
-      <tbody>
-        @for (h of history; track h.id) {
-          <tr>
-            <td>{{h.id}}</td><td>{{h.client}}</td>
-            <td class="font-mono" style="font-size:11px">{{h.date}}</td>
-            <td>{{h.dur}}</td><td>{{h.cust}}</td><td>{{h.ord | number}}</td><td>{{h.feat}}</td><td>{{h.sheets}}</td>
-            <td><span class="badge" [class]="h.ok?'green':'yellow'">{{h.ok?'✅':'⚠️'}}</span></td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  </div>
-
-  <div class="section-heading">📊 Performance Summary (last 30 days)</div>
-  <div class="grid-5">
-    <div class="stat-card"><div class="stat-value">142</div><div class="stat-label">Total Jobs</div><div class="stat-sub">Last 30 days</div></div>
-    <div class="stat-card"><div class="stat-value text-green">99.3%</div><div class="stat-label">Success Rate</div><div class="stat-sub">141 / 142</div></div>
-    <div class="stat-card"><div class="stat-value">6.1s</div><div class="stat-label">Avg Duration</div><div class="stat-sub">All clients</div></div>
-    <div class="stat-card"><div class="stat-value">7.9K</div><div class="stat-label">Avg Records/Run</div><div class="stat-sub">Avg rows</div></div>
-    <div class="stat-card"><div class="stat-value text-red">1</div><div class="stat-label">Failed Jobs</div><div class="stat-sub">CLT-004 warn</div></div>
+  <!-- ──────────────────────────────────────────────────────────────────────
+       Per-client cost breakdown.
+       One row per client that has made at least one tracked LLM call.
+       Data source: GET /api/v1/cost-tracking/per-client
+         → SELECT … FROM llm_cost_log GROUP BY client_id
+         → LEFT JOIN client_config for the human-readable name
+       Rows are ordered by total_cost DESC so biggest spenders appear first.
+       ────────────────────────────────────────────────────────────────────── -->
+  <div class="section-heading">👥 Per-Client Cost Breakdown</div>
+  <div class="card" style="padding:0;overflow:hidden">
+    @if (perClientLoading()) {
+      <div style="text-align:center;color:var(--text-muted);padding:24px">Loading per-client usage...</div>
+    } @else if (perClientError()) {
+      <div style="text-align:center;color:#e74c3c;padding:24px">{{ perClientError() }}</div>
+    } @else if (perClient().length === 0) {
+      <div style="text-align:center;color:var(--text-muted);padding:24px">
+        No LLM calls tracked yet. Once any client runs the Analyst agent or generates outreach emails,
+        their usage will appear here.
+      </div>
+    } @else {
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead style="background:var(--surface-alt, #f8fafc);border-bottom:2px solid var(--border)">
+            <tr>
+              <th style="padding:12px 16px;text-align:left;font-weight:600">Client</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">Today</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">Last 30d</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">All-Time Calls</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">All-Time Cost</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">Avg / Call</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">Over Budget</th>
+              <th style="padding:12px 16px;text-align:right;font-weight:600">Last Call</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of perClient(); track row.client_id) {
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:12px 16px;font-weight:500">{{ formatClient(row) }}</td>
+                <td style="padding:12px 16px;text-align:right">
+                  {{ row.calls_today }} · <span style="color:var(--text-muted)">{{ formatUsd(row.cost_today) }}</span>
+                </td>
+                <td style="padding:12px 16px;text-align:right">
+                  {{ row.calls_30d }} · <span style="color:var(--text-muted)">{{ formatUsd(row.cost_30d) }}</span>
+                </td>
+                <td style="padding:12px 16px;text-align:right">{{ row.total_calls }}</td>
+                <td style="padding:12px 16px;text-align:right;font-weight:600">{{ formatUsd(row.total_cost) }}</td>
+                <td style="padding:12px 16px;text-align:right"
+                    [style.color]="costConfig() && row.avg_cost_per_call > costConfig()!.target_per_call ? '#e74c3c' : 'inherit'">
+                  {{ formatUsd(row.avg_cost_per_call) }}
+                </td>
+                <td style="padding:12px 16px;text-align:right">
+                  @if (row.over_budget_count > 0) {
+                    <span style="color:#e74c3c">
+                      {{ row.over_budget_count }} ({{ row.over_budget_pct.toFixed(1) }}%)
+                    </span>
+                  } @else {
+                    <span style="color:#10b981">0</span>
+                  }
+                </td>
+                <td style="padding:12px 16px;text-align:right;color:var(--text-muted)">
+                  {{ formatTimestamp(row.last_call) }}
+                </td>
+              </tr>
+            }
+            @if (perClientTotals()) {
+              <tr style="background:var(--surface-alt, #f8fafc);border-top:2px solid var(--border);font-weight:600">
+                <td style="padding:12px 16px">Total ({{ perClient().length }} clients)</td>
+                <td style="padding:12px 16px;text-align:right">
+                  {{ perClientTotals()!.calls_today }} · <span style="color:var(--text-muted)">{{ formatUsd(perClientTotals()!.cost_today) }}</span>
+                </td>
+                <td style="padding:12px 16px;text-align:right">
+                  {{ perClientTotals()!.calls_30d }} · <span style="color:var(--text-muted)">{{ formatUsd(perClientTotals()!.cost_30d) }}</span>
+                </td>
+                <td style="padding:12px 16px;text-align:right">{{ perClientTotals()!.total_calls }}</td>
+                <td style="padding:12px 16px;text-align:right">{{ formatUsd(perClientTotals()!.total_cost) }}</td>
+                <td style="padding:12px 16px;text-align:right">—</td>
+                <td style="padding:12px 16px;text-align:right">
+                  @if (perClientTotals()!.over_budget_count > 0) {
+                    <span style="color:#e74c3c">{{ perClientTotals()!.over_budget_count }}</span>
+                  } @else {
+                    <span style="color:#10b981">0</span>
+                  }
+                </td>
+                <td style="padding:12px 16px"></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
   </div>
 </div>

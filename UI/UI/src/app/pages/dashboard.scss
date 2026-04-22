@@ -44,21 +44,29 @@
   to   { opacity: 1; max-height: 600px; }
 }
 
-/* Horizontal scroll wrapper around the drilldown table.
-   The table itself has a min-width big enough to show all 10 columns
+/* Scroll wrapper around the segment drilldown table.
+   The table has a min-width big enough to show all 10 columns
    comfortably; when the viewport (or this card) is narrower than that,
    the wrapper becomes horizontally scrollable instead of clipping
-   the right-most columns. */
+   the right-most columns.
+
+   Vertical scroll (NEW): per CTO direction, segment pages now show 100
+   customers at a time instead of 10. Rather than growing the card to
+   fit all 100 rows, this wrapper caps at 60vh and scrolls vertically.
+   The table header uses position:sticky (see .drilldown-table th below)
+   so column labels stay visible while scrolling. */
 .drilldown-scroll {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;                        // NEW — was hidden, now scrolls vertically
+  max-height: 60vh;                         // NEW — cap so 100 rows scroll instead of pushing the page
   -webkit-overflow-scrolling: touch;       // momentum scroll on iOS
   border-radius: 8px;                      // keep rounded corners
   // Subtle scrollbar so it's discoverable but not ugly
   scrollbar-width: thin;
   scrollbar-color: var(--border-bright, #cbd5e1) transparent;
 
-  &::-webkit-scrollbar        { height: 8px; }
+  // width applies to vertical scrollbar, height applies to horizontal
+  &::-webkit-scrollbar        { width: 8px; height: 8px; }
   &::-webkit-scrollbar-track  { background: transparent; }
   &::-webkit-scrollbar-thumb  {
     background: var(--border-bright, #cbd5e1);
@@ -111,26 +119,44 @@
 .badge.purple { background: #EDE9FE; color: #7C3AED; }
 .badge.brown  { background: #FEF3C7; color: #92400E; }
 
-/* ── Detail Data Tabs: horizontal scroll wrapper ─────────────────────
+/* ── Detail Data Tabs: scroll wrapper ────────────────────────────────
    Applies only to the table inside "C. Detail Data Tabs" on the dashboard.
    The global .data-table has no min-width, so on narrow viewports columns
    like Net / Status get clipped by the parent .card (overflow:hidden).
    .detail-table is a scoped subclass that adds a min-width only here,
-   and .detail-tabs-scroll is the scrollable container around it.       */
+   and .detail-tabs-scroll is the scrollable container around it.
+
+   Vertical scroll (NEW): per CTO direction, detail tabs now return 100
+   rows per page instead of 10. Rather than growing the card to fit all
+   100 rows, this wrapper caps at 60vh and scrolls vertically. Column
+   headers stay visible via position:sticky on .data-table th (scoped
+   rule below).                                                        */
 .detail-tabs-scroll {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;                        // NEW — was hidden, now vertical scrolls
+  max-height: 60vh;                         // NEW — cap so 100 rows scroll instead of pushing the page
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: var(--border-bright, #cbd5e1) transparent;
 
-  &::-webkit-scrollbar        { height: 8px; }
+  &::-webkit-scrollbar        { width: 8px; height: 8px; }
   &::-webkit-scrollbar-track  { background: transparent; }
   &::-webkit-scrollbar-thumb  {
     background: var(--border-bright, #cbd5e1);
     border-radius: 4px;
   }
   &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+/* Sticky header row for the Detail Data Tabs table.
+   Without this, scrolling 100 rows would lose the column labels.
+   z-index:2 keeps the header above badges and status-pill backgrounds. */
+.detail-tabs-scroll .detail-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-muted, #f8fafc);
+  box-shadow: inset 0 -1px 0 var(--border, #e2e8f0);  // bottom divider
 }
 
 .detail-table {

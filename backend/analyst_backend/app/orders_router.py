@@ -22,7 +22,10 @@ router = APIRouter(prefix="/api/v1", tags=["orders"])
 def get_orders(
     clientId: str = Query(default="CLT-001"),
     page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=50, ge=1, le=200),
+    # Default bumped from 50 → 100 per CTO direction: one long page with
+    # a vertical scroller is easier to scan than clicking through pages.
+    # Max raised from 200 → 500 to match churn_router for consistency.
+    pageSize: int = Query(default=100, ge=1, le=500),
 ):
     """
     Fetch paginated orders for a given client.

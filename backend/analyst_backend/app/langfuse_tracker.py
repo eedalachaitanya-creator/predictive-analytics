@@ -409,6 +409,88 @@ def get_cost_aggregates(engine, client_id: str) -> dict:
     return result
 
 
+def get_per_client_cost_summary(engine) -> list:
+    """
+    Cross-tenant cost aggregation for the admin Cost Monitoring page.
+
+    Unlike `get_cost_aggregates()`, which is scoped to one client, this
+    returns one row per client_id found in `llm_cost_log`, LEFT JOINed to
+    `client_config` so the UI can display the human-readable client name.
+
+    Returns:
+        [
+            {
+                "client_id":         "CLT-001",
+                "client_name":       "Walmart",          # None if not in client_config
+                "total_calls":       int,
+                "total_cost":        float,
+                "total_tokens":      int,
+                "calls_today":       int,
+                "cost_today":        float,
+                "calls_30d":         int,
+                "cost_30d":          float,
+                "over_budget_count": int,                # lifetime count of over-budget calls
+                "over_budget_pct":   float,              # % over budget (lifetime)
+                "avg_cost_per_call": float,
+                "last_call":         ISO-8601 string or None,
+            },
+            ...
+        ]
+    Sorted by total_cost DESC so the biggest spenders appear first.
+    """
+    _ensure_cost_log_table(engine)
+
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT
+                    l.client_id,
+                    c.client_name,
+                    COUNT(*)                                             AS total_calls,
+                    COALESCE(SUM(l.total_cost_usd), 0)                   AS total_cost,
+                    COALESCE(SUM(l.total_tokens), 0)                     AS total_tokens,
+                    COALESCE(SUM(CASE WHEN l.created_at >= date_trunc('day', NOW())
+                                       THEN 1 ELSE 0 END), 0)            AS calls_today,
+                    COALESCE(SUM(CASE WHEN l.created_at >= date_trunc('day', NOW())
+                                       THEN l.total_cost_usd ELSE 0 END), 0) AS cost_today,
+                    COALESCE(SUM(CASE WHEN l.created_at >= NOW() - INTERVAL '30 days'
+                                       THEN 1 ELSE 0 END), 0)            AS calls_30d,
+                    COALESCE(SUM(CASE WHEN l.created_at >= NOW() - INTERVAL '30 days'
+                                       THEN l.total_cost_usd ELSE 0 END), 0) AS cost_30d,
+                    COALESCE(SUM(CASE WHEN l.over_budget THEN 1 ELSE 0 END), 0) AS over_budget_count,
+                    MAX(l.created_at)                                    AS last_call
+                FROM llm_cost_log l
+                LEFT JOIN client_config c ON c.client_id = l.client_id
+                GROUP BY l.client_id, c.client_name
+                ORDER BY total_cost DESC, l.client_id
+            """)).mappings().all()
+    except Exception as e:
+        log.debug("Per-client cost summary query failed: %s", e)
+        return []
+
+    out = []
+    for r in rows:
+        total_calls = int(r["total_calls"] or 0)
+        total_cost = float(r["total_cost"] or 0.0)
+        over_count = int(r["over_budget_count"] or 0)
+        out.append({
+            "client_id":         r["client_id"],
+            "client_name":       r["client_name"],
+            "total_calls":       total_calls,
+            "total_cost":        round(total_cost, 6),
+            "total_tokens":      int(r["total_tokens"] or 0),
+            "calls_today":       int(r["calls_today"] or 0),
+            "cost_today":        round(float(r["cost_today"] or 0.0), 6),
+            "calls_30d":         int(r["calls_30d"] or 0),
+            "cost_30d":          round(float(r["cost_30d"] or 0.0), 6),
+            "over_budget_count": over_count,
+            "over_budget_pct":   round(100.0 * over_count / total_calls, 2) if total_calls else 0.0,
+            "avg_cost_per_call": round(total_cost / total_calls, 6) if total_calls else 0.0,
+            "last_call":         r["last_call"].isoformat() if r["last_call"] else None,
+        })
+    return out
+
+
 def flush_langfuse():
     """Flush pending events to LangFuse. Call at application shutdown."""
     if _langfuse_client:

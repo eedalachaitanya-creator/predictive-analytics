@@ -2,8 +2,7 @@ import { Component, OnInit, signal, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UserManagementService } from '../services/user-management.service';
-import { ApiService } from '../services/api.service';
-import { AppUser, CreateUserRequest, UserRole } from '../models';
+import { AppUser, UserRole } from '../models';
 
 @Component({
   selector: 'app-users',
@@ -14,30 +13,13 @@ import { AppUser, CreateUserRequest, UserRole } from '../models';
 })
 export class UsersComponent implements OnInit {
   svc = inject(UserManagementService);
-  private api = inject(ApiService);
 
-  // Add User modal
-  showModal  = signal(false);
-  saving     = signal(false);
-  modalError = signal('');
+  // The "+ Add New User" modal has been retired — new users are created by
+  // the "+ Add New Client" flow on the Clients page (which provisions a
+  // client_config row AND its first user in one transaction). This page
+  // now only shows the roster + lets a super admin toggle status or delete.
+  // deleteConfirmId drives the two-click delete pattern below.
   deleteConfirmId = signal<string | null>(null);
-
-  // Form fields
-  form = signal<CreateUserRequest>({
-    name: '', email: '', password: '', role: 'client_user', clientAccess: []
-  });
-
-  clientOptions = signal<{id: string; name: string}[]>([]);
-
-  // 'admin' role has been fully retired end-to-end. The backend no longer
-  // accepts it (see auth_router.py / users_router.py / client_router.py)
-  // and any legacy 'admin' rows in the DB are converted to 'client_user'
-  // by backend/db/migration_retire_admin_role.sql.
-  roles: { value: UserRole; label: string }[] = [
-    { value: 'super_admin', label: 'Super Admin' },
-    { value: 'client_user', label: 'Client User' },
-    { value: 'viewer',      label: 'Viewer' },
-  ];
 
   // Stats
   superAdmins = computed(() => this.svc.users().filter(u => u.role === 'super_admin').length);
@@ -45,48 +27,6 @@ export class UsersComponent implements OnInit {
 
   ngOnInit() {
     this.svc.loadUsers().subscribe({ error: () => {} });
-    // Load real client list from database for the dropdown
-    this.api.get<{client_id: string; client_name: string}[]>('/clients').subscribe({
-      next: (clients) => {
-        this.clientOptions.set(clients.map(c => ({ id: c.client_id, name: c.client_name })));
-      },
-      error: () => {}
-    });
-  }
-
-  openModal() {
-    this.form.set({ name:'', email:'', password:'', role:'client_user', clientAccess:[] });
-    this.modalError.set('');
-    this.showModal.set(true);
-  }
-
-  closeModal() { this.showModal.set(false); }
-
-  updateField(field: keyof CreateUserRequest, value: unknown) {
-    this.form.update(f => ({ ...f, [field]: value }));
-  }
-
-  toggleClientAccess(id: string) {
-    this.form.update(f => {
-      const access = f.clientAccess.includes(id)
-        ? f.clientAccess.filter(c => c !== id)
-        : [...f.clientAccess, id];
-      return { ...f, clientAccess: access };
-    });
-  }
-
-  saveUser() {
-    const f = this.form();
-    if (!f.name || !f.email || !f.password) {
-      this.modalError.set('Name, email and password are required.');
-      return;
-    }
-    this.saving.set(true);
-    this.modalError.set('');
-    this.svc.createUser(f).subscribe({
-      next: () => { this.saving.set(false); this.showModal.set(false); },
-      error: e  => { this.saving.set(false); this.modalError.set(e.message ?? 'Failed to create user.'); }
-    });
   }
 
   confirmDelete(id: string) { this.deleteConfirmId.set(id); }

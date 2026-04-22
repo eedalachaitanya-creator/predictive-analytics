@@ -11,6 +11,42 @@ interface CostConfig {
   langfuse_configured: boolean;
 }
 
+interface PerClientRow {
+  client_id: string;
+  client_name: string | null;
+  total_calls: number;
+  total_cost: number;
+  total_tokens: number;
+  calls_today: number;
+  cost_today: number;
+  calls_30d: number;
+  cost_30d: number;
+  over_budget_count: number;
+  over_budget_pct: number;
+  avg_cost_per_call: number;
+  last_call: string | null;
+}
+
+interface PerClientTotals {
+  total_calls: number;
+  total_cost: number;
+  total_tokens: number;
+  calls_today: number;
+  cost_today: number;
+  calls_30d: number;
+  cost_30d: number;
+  over_budget_count: number;
+}
+
+interface PerClientResponse {
+  clients: PerClientRow[];
+  totals: PerClientTotals;
+  target_per_call?: number;
+  langfuse_enabled?: boolean;
+  langfuse_configured?: boolean;
+  error?: string;
+}
+
 @Component({
   selector: 'app-monitor',
   standalone: true,
@@ -26,26 +62,15 @@ export class MonitorComponent implements OnInit {
   costLoading = signal(true);
   costError = signal<string | null>(null);
 
-  live = [
-    { id: 'JOB-4821', client: 'CLT-001 · Walmart', by: 'ops@walmart.com', started: '22:43:41', stage: 'Stage 9/10', pct: 85, eta: '~1s', status: 'running' },
-    { id: 'JOB-4820', client: 'CLT-002 · Target', by: 'bi@target.com', started: '22:41:10', stage: 'Stage 5/10', pct: 50, eta: '~8s', status: 'running' },
-    { id: 'JOB-4819', client: 'CLT-003 · Costco', by: 'bi@costco.com', started: '22:44:00', stage: '—', pct: 0, eta: '—', status: 'queued' },
-  ];
-  history = [
-    { id: 'JOB-4818', client: 'CLT-001', date: '2026-03-17 21:10', dur: '6.1s', cust: 200, ord: 1894, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4817', client: 'CLT-002', date: '2026-03-17 14:12', dur: '5.8s', cust: 185, ord: 1742, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4816', client: 'CLT-003', date: '2026-03-17 09:30', dur: '7.1s', cust: 312, ord: 2890, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4815', client: 'CLT-001', date: '2026-03-16 22:45', dur: '6.3s', cust: 200, ord: 1891, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4814', client: 'CLT-002', date: '2026-03-16 14:10', dur: '5.9s', cust: 185, ord: 1740, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4813', client: 'CLT-003', date: '2026-03-16 10:00', dur: '7.4s', cust: 312, ord: 2888, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4812', client: 'CLT-004', date: '2026-03-15 11:20', dur: '3.2s', cust: 50, ord: 310, feat: 65, sheets: '12 sheets', ok: false },
-    { id: 'JOB-4811', client: 'CLT-001', date: '2026-03-15 22:31', dur: '6.0s', cust: 200, ord: 1889, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4810', client: 'CLT-002', date: '2026-03-15 13:55', dur: '5.7s', cust: 185, ord: 1738, feat: 65, sheets: '12 sheets', ok: true },
-    { id: 'JOB-4809', client: 'CLT-003', date: '2026-03-15 09:10', dur: '7.6s', cust: 312, ord: 2885, feat: 65, sheets: '12 sheets', ok: true },
-  ];
+  // Cross-tenant per-client breakdown for admins.
+  perClient = signal<PerClientRow[]>([]);
+  perClientTotals = signal<PerClientTotals | null>(null);
+  perClientLoading = signal(true);
+  perClientError = signal<string | null>(null);
 
   ngOnInit() {
     this.loadCostConfig();
+    this.loadPerClient();
   }
 
   loadCostConfig() {
@@ -63,7 +88,49 @@ export class MonitorComponent implements OnInit {
     });
   }
 
+  loadPerClient() {
+    this.perClientLoading.set(true);
+    this.perClientError.set(null);
+    this.http.get<PerClientResponse>(`${this.base}/cost-tracking/per-client`).subscribe({
+      next: (res) => {
+        this.perClient.set(res.clients || []);
+        this.perClientTotals.set(res.totals || null);
+        this.perClientLoading.set(false);
+        if (res.error) this.perClientError.set(res.error);
+      },
+      error: () => {
+        this.perClientError.set('Could not load per-client cost data.');
+        this.perClientLoading.set(false);
+      },
+    });
+  }
+
   formatTokenCost(cost: number): string {
     return '$' + (cost * 1_000_000).toFixed(2) + ' / 1M tokens';
+  }
+
+  // Cost can be fractions of a cent — show 4 decimals for clarity.
+  formatUsd(value: number | null | undefined): string {
+    if (value == null) return '$0.0000';
+    return '$' + Number(value).toFixed(4);
+  }
+
+  // "2026-04-21T14:33:11.123+00:00" → "Apr 21, 14:33" (local time).
+  formatTimestamp(iso: string | null): string {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+    } catch {
+      return iso;
+    }
+  }
+
+  // "CLT-001" + "Walmart" → "Walmart (CLT-001)" ; unknown names fall back to the id.
+  formatClient(row: PerClientRow): string {
+    if (row.client_name) return `${row.client_name} (${row.client_id})`;
+    return row.client_id;
   }
 }

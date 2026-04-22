@@ -2,7 +2,13 @@ import { Component, OnInit, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AnalyticsService } from '../services/analytics.service';
 
-const CLIENT_COLORS = ['linear-gradient(90deg,#0071CE,#0099FF)', 'linear-gradient(90deg,#EF4444,#DC2626)', 'linear-gradient(90deg,#10B981,#059669)', 'linear-gradient(90deg,#8B5CF6,#6D28D9)', 'linear-gradient(90deg,#F59E0B,#D97706)'];
+const CLIENT_COLORS = [
+  'linear-gradient(90deg,#0071CE,#0099FF)',
+  'linear-gradient(90deg,#EF4444,#DC2626)',
+  'linear-gradient(90deg,#10B981,#059669)',
+  'linear-gradient(90deg,#8B5CF6,#6D28D9)',
+  'linear-gradient(90deg,#F59E0B,#D97706)',
+];
 
 @Component({
   selector: 'app-analytics',
@@ -16,9 +22,9 @@ export class AnalyticsComponent implements OnInit {
 
   kpis    = computed(() => this.svc.data()?.platformKpis);
   clients = computed(() =>
-    (this.svc.data()?.clientMetrics ?? []).map((c, i) => ({ ...c, color: c.color || CLIENT_COLORS[i % CLIENT_COLORS.length] }))
+    (this.svc.data()?.clientMetrics ?? [])
+      .map((c, i) => ({ ...c, color: c.color || CLIENT_COLORS[i % CLIENT_COLORS.length] }))
   );
-  trend   = computed(() => this.svc.data()?.monthlyTrend ?? []);
 
   // Max values for bar scaling
   maxCustomers = computed(() => Math.max(...this.clients().map(c => c.customers), 1));
@@ -29,13 +35,6 @@ export class AnalyticsComponent implements OnInit {
   orderPct = (c: number) => Math.round((c / this.maxOrders())    * 100);
   hvPct    = (c: number) => Math.round((c / this.maxHV())        * 100);
   churnPct = (pct: number) => Math.round(pct);
-
-  // Trend client keys (dynamic from data)
-  trendClients = computed(() => {
-    const first = this.trend()[0];
-    if (!first) return [];
-    return Object.keys(first.runsByClient);
-  });
 
   ngOnInit() {
     this.svc.load().subscribe({ error: () => {} });

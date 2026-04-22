@@ -517,7 +517,10 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
 def get_outreach_history(
     clientId: str = Query(...),
     page: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    # Default bumped from 20 → 100 per CTO direction: one long page with
+    # a vertical scroller. Max raised 100 → 500 for consistency with
+    # churn_router / dashboard_router.
+    pageSize: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     """

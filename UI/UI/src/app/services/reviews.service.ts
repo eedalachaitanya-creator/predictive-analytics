@@ -14,7 +14,9 @@ export class ReviewsService {
   readonly loading = signal(false);
   readonly error   = signal<string | null>(null);
 
-  load(clientId: string, page = 1, pageSize = 50): Observable<{ data: CustomerReview[]; total: number; pages: number }> {
+  // pageSize default bumped 50 → 100 per CTO direction so any future
+  // consumer of this service matches the rest of the UI's page size.
+  load(clientId: string, page = 1, pageSize = 100): Observable<{ data: CustomerReview[]; total: number; pages: number }> {
     this.loading.set(true);
     this.error.set(null);
     return this.api.get<{ data: CustomerReview[]; total: number; pages: number }>(

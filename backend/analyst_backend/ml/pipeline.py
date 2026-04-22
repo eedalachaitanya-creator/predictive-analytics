@@ -404,7 +404,7 @@ def step_train_model(
 
     Args:
         db_url: Database URL
-        model_type: 'xgboost', 'random_forest', 'logistic_regression'
+        model_type: 'xgboost' or 'random_forest' (LogisticRegression removed)
         imbalance_strategy: 'smote', 'class_weight', 'none'
 
     Returns:
@@ -772,9 +772,10 @@ def main():
     )
     parser.add_argument(
         "--model-type",
-        choices=["xgboost", "random_forest", "logistic_regression"],
+        choices=["xgboost", "random_forest"],
         default="xgboost",
-        help="ML model type for training (default: xgboost)",
+        help="ML model type for training (default: xgboost). LogisticRegression "
+             "was removed — see ml/train_model.py comment for rationale.",
     )
 
     args = parser.parse_args()

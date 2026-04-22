@@ -16,12 +16,13 @@ how the ML pipeline processes data:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
 from app.auth_router import _find_user_by_token
+from app.audit_logger import log_audit_event
 
 router = APIRouter(prefix="/api/v1", tags=["settings"])
 log = logging.getLogger("settings")
@@ -119,6 +120,7 @@ def get_settings(
 @router.put("/settings")
 def update_settings(
     req: SettingsUpdate,
+    request: Request,
     clientId: str = Query(...),
     authorization: Optional[str] = Header(default=None),
 ):
@@ -170,6 +172,20 @@ def update_settings(
             conn.commit()
 
         log.info("Settings updated for %s: %s", clientId, list(field_map.keys()))
+
+        # Audit the save. The "details" summarises which fields changed and
+        # their new values so the audit reader can reconstruct the change.
+        changed_pairs = [f"{k}→{v}" for k, v in field_map.items() if v is not None]
+        log_audit_event(
+            request,
+            action_type="settings_saved",
+            details=" · ".join(changed_pairs)[:1000],  # cap to keep audit rows lean
+            client_id=clientId,
+            user_id=user["id"],
+            user_email=user["email"],
+            outcome="success",
+        )
+
         return {"status": "saved", "client_id": clientId, "updated_fields": [k for k, v in field_map.items() if v is not None]}
 
     except Exception as e:

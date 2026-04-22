@@ -11,8 +11,10 @@ export class OrdersService {
   readonly loading = signal(false);
   readonly error   = signal<string | null>(null);
 
-  /** Load paginated orders for a client */
-  load(clientId: string, page = 1, pageSize = 50): Observable<{ data: Order[]; total: number; pages: number }> {
+  /** Load paginated orders for a client.
+   *  pageSize default bumped 50 → 100 per CTO direction so any future
+   *  consumer of this service matches the rest of the UI's page size. */
+  load(clientId: string, page = 1, pageSize = 100): Observable<{ data: Order[]; total: number; pages: number }> {
     this.loading.set(true);
     this.error.set(null);
     return this.api.get<{ data: Order[]; total: number; pages: number }>(

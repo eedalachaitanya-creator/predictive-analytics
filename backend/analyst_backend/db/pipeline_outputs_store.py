@@ -113,7 +113,7 @@ FILE_CATALOGUE = {
         "title": "Model Evaluation Report",
         "icon": "🔍",
         "desc": "AUC-ROC, precision, recall, F1 scores for all trained models — "
-                "Random Forest, XGBoost, Logistic Regression comparison",
+                "Random Forest and XGBoost side-by-side comparison",
         "category": "reports",
         "mime": "text/plain",
     },
@@ -251,6 +251,12 @@ def save_all_output_files(engine, client_id: str, output_dir: str):
 
     This is the key function — it takes every file the pipeline generated
     on disk and copies it into the pipeline_outputs table.
+
+    Also PURGES orphan rows: any row in pipeline_outputs whose filename
+    isn't in the current ml/output/ scan for this client gets deleted.
+    Without this, files we stop generating (e.g. training_report_logistic_
+    regression.txt after dropping LR) would linger forever because
+    save_output_file only does UPSERT, never DELETE.
     """
     ensure_table(engine)
 
@@ -259,6 +265,7 @@ def save_all_output_files(engine, client_id: str, output_dir: str):
         log.warning("Output directory not found: %s", output_dir)
         return 0
 
+    current_files: set[str] = set()
     count = 0
     for filepath in sorted(output_path.iterdir()):
         # Skip directories (like plots/) and hidden files
@@ -268,9 +275,31 @@ def save_all_output_files(engine, client_id: str, output_dir: str):
         try:
             content = filepath.read_bytes()
             save_output_file(engine, client_id, filepath.name, content)
+            current_files.add(filepath.name)
             count += 1
         except Exception as e:
             log.warning("  Failed to store %s: %s", filepath.name, e)
+
+    # ── Purge orphan rows (files we no longer generate) ────────────────
+    # Only purge when we actually wrote something — otherwise a failed or
+    # empty run would nuke the whole client's previous outputs.
+    if current_files:
+        from sqlalchemy import bindparam
+        purge_stmt = text(
+            """
+            DELETE FROM pipeline_outputs
+             WHERE client_id = :cid
+               AND filename NOT IN :keep
+            """
+        ).bindparams(bindparam("keep", expanding=True))
+        with engine.begin() as conn:
+            result = conn.execute(
+                purge_stmt,
+                {"cid": client_id, "keep": list(current_files)},
+            )
+            purged = result.rowcount or 0
+        if purged:
+            log.info("  Purged %d orphan rows from pipeline_outputs.", purged)
 
     log.info("Stored %d output files in pipeline_outputs table.", count)
     return count

@@ -36,7 +36,6 @@ export const routes: Routes = [
       // ── Admin Console (blocked for clients) ──────────────────
       { path: 'clients',   loadComponent: () => import('./pages/clients').then(m => m.ClientsComponent),   canActivate: [adminGuard] },
       { path: 'users',     loadComponent: () => import('./pages/users').then(m => m.UsersComponent),       canActivate: [adminGuard] },
-      { path: 'sysconfig', loadComponent: () => import('./pages/sys-config').then(m => m.SysConfigComponent), canActivate: [adminGuard] },
       { path: 'monitor',   loadComponent: () => import('./pages/monitor').then(m => m.MonitorComponent),   canActivate: [adminGuard] },
       { path: 'analytics', loadComponent: () => import('./pages/analytics').then(m => m.AnalyticsComponent), canActivate: [adminGuard] },
       { path: 'audit',     loadComponent: () => import('./pages/audit').then(m => m.AuditComponent),       canActivate: [adminGuard] },

@@ -6,9 +6,105 @@
     <div class="stat-card"><div class="stat-label" style="margin-top:4px">Data Source</div><div class="font-mono" style="font-size:13px;color:var(--accent-cyan);margin-top:6px">PostgreSQL</div></div>
   </div>
 
-  <div class="flex-row mb-20">
+  <div class="flex-row mb-20" style="gap:10px">
     <button class="btn outline" (click)="loadClients()">🔄 Refresh</button>
+    @if (isSuperAdmin()) {
+      <button class="btn walmart" (click)="openAddForm()">+ Add New Client</button>
+    }
   </div>
+
+  <!-- Success banner after creating a new client — sticks around until the
+       super admin dismisses it or opens the form again. -->
+  @if (addSuccess()) {
+    <div class="success-banner mb-20">
+      {{ addSuccess() }}
+      <button class="btn outline sm" (click)="addSuccess.set('')" style="margin-left:auto">Dismiss</button>
+    </div>
+  }
+
+  <!-- ════════════════════════════════════════════════════════════════════
+       Add New Client — collapsible form (super admin only)
+       ────────────────────────────────────────────────────────────────────
+       Mirrors the public /register page exactly: company name, company code,
+       contact name + email, password. Submitting hits POST /clients/admin-create
+       which creates BOTH a client_config row AND the first user account in
+       one transaction, so the client can log in immediately.
+       ════════════════════════════════════════════════════════════════════ -->
+  @if (showAddForm()) {
+    <div class="card mb-24" style="padding:24px">
+      <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:16px">
+        <div class="section-heading" style="margin:0; border:none; padding:0">+ Add New Client</div>
+        <button class="btn outline sm" (click)="closeAddForm()">✕ Cancel</button>
+      </div>
+
+      <!-- Company details -->
+      <div class="form-section-label">Company Details</div>
+
+      <label class="form-label">Company Name <span class="required">*</span></label>
+      <input class="form-input mb-12"
+             type="text"
+             placeholder="e.g. Target Corporation"
+             [ngModel]="addForm().client_name"
+             (ngModelChange)="updateAddField('client_name', $event)"
+             [disabled]="addSaving()"
+             required />
+
+      <label class="form-label">Company Code <span class="required">*</span></label>
+      <input class="form-input mb-16"
+             type="text"
+             placeholder="e.g. TARGET (max 10 chars, will be uppercased)"
+             maxlength="10"
+             [ngModel]="addForm().client_code"
+             (ngModelChange)="updateAddField('client_code', $event)"
+             [disabled]="addSaving()"
+             required />
+
+      <!-- First user — required because without a user nobody can log in -->
+      <div class="form-section-label">Initial Contact / Login</div>
+
+      <label class="form-label">Contact Name <span class="required">*</span></label>
+      <input class="form-input mb-12"
+             type="text"
+             placeholder="e.g. Jane Smith"
+             [ngModel]="addForm().contact_name"
+             (ngModelChange)="updateAddField('contact_name', $event)"
+             [disabled]="addSaving()"
+             required />
+
+      <label class="form-label">Contact Email <span class="required">*</span></label>
+      <input class="form-input mb-12"
+             type="email"
+             placeholder="e.g. jane@target.com"
+             [ngModel]="addForm().contact_email"
+             (ngModelChange)="updateAddField('contact_email', $event)"
+             [disabled]="addSaving()"
+             required />
+
+      <label class="form-label">Temporary Password <span class="required">*</span></label>
+      <input class="form-input mb-16"
+             type="text"
+             placeholder="Min 6 characters — share with the contact"
+             [ngModel]="addForm().password"
+             (ngModelChange)="updateAddField('password', $event)"
+             [disabled]="addSaving()"
+             required />
+
+      @if (addError()) {
+        <div class="err-msg">⚠️ {{ addError() }}</div>
+      }
+
+      <div class="flex-row" style="justify-content:flex-end; gap:10px">
+        <button class="btn outline" (click)="closeAddForm()" [disabled]="addSaving()">Cancel</button>
+        <button class="btn walmart" (click)="saveNewClient()" [disabled]="addSaving()">
+          {{ addSaving() ? 'Creating…' : 'Create Client' }}
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (deleteError()) {
+    <div class="err-msg mb-20">⚠️ {{ deleteError() }}</div>
+  }
 
   @if (loading()) {
     <div class="loading-state"><div class="spinner">⏳</div><div>Loading clients...</div></div>
@@ -19,7 +115,16 @@
     <div class="card mb-24">
       <table class="data-table">
         <thead>
-          <tr><th>ID</th><th>Client Name</th><th>Code</th><th>Registered</th><th>Action</th></tr>
+          <tr>
+            <th>ID</th>
+            <th>Client Name</th>
+            <th>Code</th>
+            <th>Registered</th>
+            <th>Action</th>
+            <!-- Only show the Delete column header to super admins so the
+                 table isn't pointlessly wider for viewer/client_user roles. -->
+            @if (isSuperAdmin()) { <th>Delete</th> }
+          </tr>
         </thead>
         <tbody>
           @for (c of clients(); track c.client_id) {
@@ -29,6 +134,36 @@
               <td class="font-mono">{{ c.client_code }}</td>
               <td style="font-size:12px">{{ formatDate(c.created_at) }}</td>
               <td><button class="btn outline sm" (click)="selectClient(c)">▶ View</button></td>
+
+              <!-- ─ Delete cell (super_admin only) ─────────────────────────
+                   Two-click confirmation so a single misclick can't wipe a
+                   tenant. First click arms the row (sets deleteConfirmId);
+                   second click actually fires the DELETE. Any Cancel click
+                   clears the arm state. -->
+              @if (isSuperAdmin()) {
+                <td>
+                  @if (deleteConfirmId() === c.client_id) {
+                    <div class="flex-row" style="gap:6px; flex-wrap:nowrap">
+                      <button class="btn danger sm"
+                              [disabled]="deleting()"
+                              (click)="deleteClient(c.client_id)">
+                        {{ deleting() ? 'Deleting…' : '✓ Confirm' }}
+                      </button>
+                      <button class="btn outline sm"
+                              [disabled]="deleting()"
+                              (click)="cancelDelete()">
+                        ✕ Cancel
+                      </button>
+                    </div>
+                  } @else {
+                    <button class="btn outline sm"
+                            (click)="confirmDelete(c.client_id)"
+                            title="Delete this client and all their data">
+                      🗑 Delete
+                    </button>
+                  }
+                </td>
+              }
             </tr>
           }
         </tbody>
@@ -37,12 +172,208 @@
 
     @if (selected(); as s) {
       <div class="section-heading">🔍 Client Detail — {{ s.client_id }} · {{ s.client_name }}</div>
-      <div class="card" style="padding:20px">
+
+      <!-- Basic identity card -->
+      <div class="card mb-20" style="padding:20px">
         <div class="detail-row"><span class="detail-label">Client ID</span><span class="param-value font-mono">{{ s.client_id }}</span></div>
         <div class="detail-row"><span class="detail-label">Client Name</span><span>{{ s.client_name }}</span></div>
         <div class="detail-row"><span class="detail-label">Client Code</span><span class="param-value font-mono">{{ s.client_code }}</span></div>
         <div class="detail-row"><span class="detail-label">Registered</span><span class="param-value">{{ formatDate(s.created_at) }}</span></div>
       </div>
+
+      <!-- ════════════════════════════════════════════════════════════════
+           Data overview — what this client has in the warehouse.
+           Split into TWO tables:
+             • Uploaded by Client  → the raw facts they sent us
+             • Generated by ML     → rows the churn pipeline produced
+           Each row shows count + most-recent timestamp so a super admin
+           can spot empty / stale data in one glance.
+           ════════════════════════════════════════════════════════════════ -->
+      <div class="flex-row mb-12" style="align-items:center; justify-content:space-between">
+        <div class="section-heading" style="margin:0">📦 Data Overview</div>
+        <button class="btn outline sm" (click)="refreshOverview()" [disabled]="overviewLoading()">
+          {{ overviewLoading() ? 'Refreshing…' : '🔄 Refresh' }}
+        </button>
+      </div>
+
+      @if (overviewLoading()) {
+        <div class="loading-state"><div class="spinner">⏳</div><div>Loading data overview…</div></div>
+      }
+
+      @if (overviewError()) {
+        <div class="err-msg">⚠️ {{ overviewError() }}</div>
+      }
+
+      @if (overview(); as ov) {
+        <!-- Summary tiles so super admin sees grand totals at a glance -->
+        <div class="grid-4 mb-20">
+          <div class="stat-card">
+            <div class="stat-value text-blue">{{ formatCount(ov.totals.uploaded_rows) }}</div>
+            <div class="stat-label">Uploaded Rows (Total)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-green">{{ formatCount(ov.totals.generated_rows) }}</div>
+            <div class="stat-label">ML Generated Rows (Total)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ ov.uploaded.length }}</div>
+            <div class="stat-label">Uploaded Tables</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ ov.generated.length }}</div>
+            <div class="stat-label">Generated Tables</div>
+          </div>
+        </div>
+
+        <!-- A) Uploaded-by-client tables -->
+        <div class="section-heading">📤 Uploaded by Client</div>
+        <div class="card mb-24">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Dataset</th>
+                <th>Table (DB)</th>
+                <th style="text-align:right">Row Count</th>
+                <th>Last Updated</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of ov.uploaded; track row.table) {
+                <tr [class.dim]="row.row_count === 0">
+                  <td>{{ row.label }}</td>
+                  <td class="font-mono" style="font-size:12px; color:var(--text-muted)">{{ row.table }}</td>
+                  <td style="text-align:right" class="font-mono">{{ formatCount(row.row_count) }}</td>
+                  <td style="font-size:12px">{{ formatTimestamp(row.last_updated) }}</td>
+                  <td>
+                    <button class="btn outline sm"
+                            [disabled]="row.row_count === 0"
+                            (click)="openDataView(row.table, row.label)">
+                      ▶ View
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- B) Generated-by-ML tables -->
+        <div class="section-heading">🤖 Generated by ML Pipeline</div>
+        <div class="card mb-24">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Dataset</th>
+                <th>Table (DB)</th>
+                <th style="text-align:right">Row Count</th>
+                <th>Last Computed</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of ov.generated; track row.table) {
+                <tr [class.dim]="row.row_count === 0">
+                  <td>{{ row.label }}</td>
+                  <td class="font-mono" style="font-size:12px; color:var(--text-muted)">{{ row.table }}</td>
+                  <td style="text-align:right" class="font-mono">{{ formatCount(row.row_count) }}</td>
+                  <td style="font-size:12px">{{ formatTimestamp(row.last_updated) }}</td>
+                  <td>
+                    <button class="btn outline sm"
+                            [disabled]="row.row_count === 0"
+                            (click)="openDataView(row.table, row.label)">
+                      ▶ View
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
     }
+  }
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       Per-table data viewer modal
+       ────────────────────────────────────────────────────────────────────
+       Opens when the super admin clicks "View" on a specific dataset row.
+       Shows a scrollable table of actual rows with prev/next pagination.
+       Backdrop click closes the modal; modal card stops click propagation.
+       ══════════════════════════════════════════════════════════════════════ -->
+  @if (viewTable()) {
+    <div class="modal-backdrop" (click)="closeDataView()">
+      <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
+        <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
+          <h3 class="modal-title" style="margin:0">
+            📋 {{ viewLabel() }}
+            <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:8px">
+              ({{ viewTable() }})
+            </span>
+          </h3>
+          <button class="btn outline sm" (click)="closeDataView()">✕ Close</button>
+        </div>
+        <p class="modal-sub">
+          Client: <span class="font-mono">{{ selected()?.client_id }}</span> · {{ selected()?.client_name }}
+        </p>
+
+        @if (viewLoading()) {
+          <div class="loading-state"><div class="spinner">⏳</div><div>Loading rows…</div></div>
+        }
+
+        @if (viewError()) {
+          <div class="err-msg">⚠️ {{ viewError() }}</div>
+        }
+
+        @if (viewData(); as d) {
+          <!-- Scrollable region — wide tables (RFM has 30+ columns) would
+               blow out the modal otherwise. overflow-x gives horizontal
+               scroll; max-height caps vertical so the footer stays visible. -->
+          <div class="data-viewer-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  @for (col of d.columns; track col) {
+                    <th>{{ col }}</th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of d.rows; track $index) {
+                  <tr>
+                    @for (col of d.columns; track col) {
+                      <td>{{ renderCell(row[col]) }}</td>
+                    }
+                  </tr>
+                }
+                @if (d.rows.length === 0) {
+                  <tr>
+                    <td [attr.colspan]="d.columns.length"
+                        style="text-align:center; color:var(--text-muted); padding:24px">
+                      No rows on this page.
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination footer -->
+          <div class="flex-row" style="justify-content:space-between; margin-top:14px">
+            <div style="font-size:12px; color:var(--text-muted)">
+              {{ paginationLabel() }}
+            </div>
+            <div class="flex-row" style="gap:8px">
+              <button class="btn outline sm"
+                      [disabled]="viewOffset() === 0 || viewLoading()"
+                      (click)="prevPage()">← Prev</button>
+              <button class="btn outline sm"
+                      [disabled]="(viewOffset() + viewLimit) >= d.total || viewLoading()"
+                      (click)="nextPage()">Next →</button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
   }
 </div>

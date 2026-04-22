@@ -1,82 +1,150 @@
 <div class="page-anim">
+  <!-- ── KPI cards ──────────────────────────────────────────────────── -->
+  <!-- These numbers come from GET /audit/stats and refresh whenever the
+       user clicks Apply Filter. The Export CSV button lives on the fourth
+       cell so the row stays evenly distributed across the width. -->
   <div class="grid-4 mb-20">
-    <div class="stat-card"><div class="stat-value">247</div><div class="stat-label">Events Today</div></div>
-    <div class="stat-card"><div class="stat-value text-yellow">3</div><div class="stat-label">Warnings</div></div>
-    <div class="stat-card"><div class="stat-value text-green">0</div><div class="stat-label">Security Alerts</div></div>
-    <div style="display:flex;align-items:center"><button class="btn outline">↓ Export CSV</button></div>
+    <div class="stat-card">
+      <div class="stat-value">{{ stats().events_today }}</div>
+      <div class="stat-label">Events Today</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value text-yellow">{{ stats().warnings }}</div>
+      <div class="stat-label">Warnings</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value text-green">{{ stats().security_alerts }}</div>
+      <div class="stat-label">Security Alerts</div>
+    </div>
+    <div style="display:flex;align-items:center">
+      <button class="btn outline" (click)="exportCsv()">↓ Export CSV</button>
+    </div>
   </div>
 
-  <!-- Filters -->
+  <!-- ── Filter bar ────────────────────────────────────────────────── -->
+  <!-- All inputs bind to the filters signal via ngModel / updateFilter.
+       The Apply button triggers a fresh fetch; no live-filtering because
+       audit volumes can get large and we prefer explicit reloads. -->
   <div class="card mb-20">
     <div class="card-header"><div class="card-title">🔍 Filters</div></div>
     <div style="padding:16px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
       <div>
         <label class="form-label">Date Range</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="date" class="form-input" style="width:150px" value="2026-03-01">
+          <input type="date" class="form-input" style="width:150px"
+                 [ngModel]="filters().start"
+                 (ngModelChange)="updateFilter('start', $event)" />
           <span class="text-muted">→</span>
-          <input type="date" class="form-input" style="width:150px" value="2026-03-17">
+          <input type="date" class="form-input" style="width:150px"
+                 [ngModel]="filters().end"
+                 (ngModelChange)="updateFilter('end', $event)" />
         </div>
       </div>
+
       <div>
         <label class="form-label">Client</label>
-        <select class="form-select" style="width:180px">
-          <option>All Clients</option>
-          <option>CLT-001 · Walmart</option>
-          <option>CLT-002 · Target</option>
-          <option>CLT-003 · Costco</option>
+        <select class="form-select" style="width:200px"
+                [ngModel]="filters().client_id"
+                (ngModelChange)="updateFilter('client_id', $event)">
+          <option value="ALL">All Clients</option>
+          @for (c of options().clients; track c.client_id) {
+            <option [value]="c.client_id">{{ c.client_id }} · {{ c.client_name }}</option>
+          }
         </select>
       </div>
+
       <div>
         <label class="form-label">User</label>
-        <select class="form-select" style="width:180px">
-          <option>All Users</option>
-          <option>ops@walmart.com</option>
-          <option>raj@analytics.com</option>
-          <option>bi@target.com</option>
+        <select class="form-select" style="width:200px"
+                [ngModel]="filters().user_email"
+                (ngModelChange)="updateFilter('user_email', $event)">
+          <option value="ALL">All Users</option>
+          @for (u of options().users; track u) {
+            <option [value]="u">{{ u }}</option>
+          }
         </select>
       </div>
+
       <div>
         <label class="form-label">Action Type</label>
-        <select class="form-select" style="width:160px">
-          <option>All</option>
-          <option>Pipeline Run</option>
-          <option>File Upload</option>
-          <option>Settings Saved</option>
-          <option>User Added</option>
-          <option>Login</option>
+        <select class="form-select" style="width:180px"
+                [ngModel]="filters().action_type"
+                (ngModelChange)="updateFilter('action_type', $event)">
+          <option value="ALL">All</option>
+          @for (a of options().action_types; track a) {
+            <option [value]="a">{{ actionLabel(a) }}</option>
+          }
         </select>
       </div>
+
       <div>
         <label class="form-label">Outcome</label>
-        <select class="form-select" style="width:130px">
-          <option>All</option>
-          <option>✅ Success</option>
-          <option>⚠️ Warning</option>
+        <select class="form-select" style="width:140px"
+                [ngModel]="filters().outcome"
+                (ngModelChange)="updateFilter('outcome', $event)">
+          <option value="ALL">All</option>
+          @for (o of options().outcomes; track o) {
+            <option [value]="o">{{ o }}</option>
+          }
         </select>
       </div>
-      <button class="btn primary sm">🔍 Apply Filter</button>
+
+      <button class="btn primary sm" (click)="onApplyClick()" [disabled]="loading()">
+        @if (loading()) { ⏳ Loading… } @else { 🔍 Apply Filter }
+      </button>
     </div>
   </div>
 
-  <!-- Events -->
-  <div class="section-heading">📋 Audit Events</div>
+  <!-- Inline error banner — doesn't block the table so stale data remains
+       visible while the user corrects the filter. -->
+  @if (error()) {
+    <div class="card mb-20" style="padding:12px 16px;border-left:3px solid var(--red);color:var(--red)">
+      ⚠️ {{ error() }}
+    </div>
+  }
+
+  <!-- ── Events table ──────────────────────────────────────────────── -->
+  <div class="section-heading">
+    📋 Audit Events
+    <span style="font-weight:normal;color:var(--text-muted);font-size:12px;margin-left:12px">
+      {{ rowSummary() }}
+    </span>
+  </div>
   <div class="card">
     <table class="data-table">
-      <thead><tr><th>#</th><th>Timestamp</th><th>User</th><th>Client</th><th>Action</th><th>Details</th><th>IP</th><th>Outcome</th></tr></thead>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Timestamp</th>
+          <th>User</th>
+          <th>Client</th>
+          <th>Action</th>
+          <th>Details</th>
+          <th>IP</th>
+          <th>Outcome</th>
+        </tr>
+      </thead>
       <tbody>
-        @for (e of events; track e.n) {
+        @for (e of events(); track e.id) {
           <tr>
-            <td>{{e.n}}</td>
-            <td class="font-mono" style="font-size:11px">{{e.ts}}</td>
-            <td class="font-mono" style="font-size:11px">{{e.user}}</td>
-            <td>{{e.client}}</td>
-            <td><span class="badge blue">{{e.action}}</span></td>
-            <td style="font-size:12px">{{e.detail}}</td>
-            <td class="font-mono" style="font-size:11px">{{e.ip}}</td>
+            <td>{{ e.id }}</td>
+            <td class="font-mono" style="font-size:11px">{{ formatTs(e.ts) }}</td>
+            <td class="font-mono" style="font-size:11px">{{ e.user_email }}</td>
+            <td>{{ e.client_id }}</td>
+            <td><span class="badge" [ngClass]="actionColor(e.action_type)">{{ actionLabel(e.action_type) }}</span></td>
+            <td style="font-size:12px">{{ e.details }}</td>
+            <td class="font-mono" style="font-size:11px">{{ e.ip_address }}</td>
             <td>
-              @if (e.ok)  { <span class="badge green">✅</span> }
-              @if (!e.ok) { <span class="badge yellow">⚠️</span> }
+              @if (e.outcome === 'success') { <span class="badge green">✅</span> }
+              @else if (e.outcome === 'warning') { <span class="badge yellow">⚠️</span> }
+              @else { <span class="badge red">❌</span> }
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">
+              @if (loading()) { ⏳ Loading events… }
+              @else            { No audit events match the current filters. }
             </td>
           </tr>
         }

@@ -78,26 +78,49 @@
 
 // ── Table ──────────────────────────────────────────────
 
-/* Horizontal scroll wrapper around the 9-column churn table.
-   The parent .card has overflow:hidden (global style), but the scrollbar
-   lives INSIDE this wrapper at its bottom edge, so it's not clipped.
-   The table has a min-width big enough to keep columns readable; when
-   the viewport is narrower than that, this wrapper scrolls sideways
-   instead of cells collapsing / disappearing off the right edge. */
+/* Scroll wrapper around the 9-column churn table.
+   The parent .card has overflow:hidden (global style), but the scrollbars
+   live INSIDE this wrapper at its bottom + right edges, so they're not
+   clipped.
+
+   - Horizontal scroll: the table has min-width:1040px; when the viewport
+     is narrower, this wrapper scrolls sideways instead of columns
+     collapsing.
+   - Vertical scroll (NEW): page size is now 100 rows; rather than growing
+     the whole page to ~3000px tall, the wrapper caps at 70vh and scrolls
+     internally. The table header uses position:sticky so it stays visible
+     while the user scrolls customers.
+
+   max-height:70vh keeps the page header + summary cards + filters + first
+   rows all on screen at once; the user scrolls within the table only. */
 .churn-scroll {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;                        // NEW — was hidden, now vertical scrolls internally
+  max-height: 70vh;                         // NEW — cap table height so it scrolls instead of pushing the page
   -webkit-overflow-scrolling: touch;       // momentum scroll on iOS trackpads
   scrollbar-width: thin;
   scrollbar-color: var(--border-bright, #cbd5e1) transparent;
 
-  &::-webkit-scrollbar        { height: 8px; }
+  // Width applies to vertical scrollbar; height applies to horizontal.
+  &::-webkit-scrollbar        { width: 8px; height: 8px; }
   &::-webkit-scrollbar-track  { background: transparent; }
   &::-webkit-scrollbar-thumb  {
     background: var(--border-bright, #cbd5e1);
     border-radius: 4px;
   }
   &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+/* Sticky table header so column labels stay visible while the user
+   scrolls through 100 customers. The background matches the default
+   table header so it doesn't show rows bleeding through. z-index:2 keeps
+   the header above probability-bar fills and the per-row detail panel. */
+.churn-scroll .churn-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-card, #ffffff);
+  box-shadow: inset 0 -1px 0 var(--border, #e2e8f0);  // bottom divider
 }
 
 .churn-table {

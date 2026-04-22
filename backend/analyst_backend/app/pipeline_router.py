@@ -29,11 +29,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Header
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
+from app.audit_logger import log_audit_event
+from app.auth_router import _find_user_by_token
 
 log = logging.getLogger("crp_api.pipeline")
 
@@ -401,7 +403,11 @@ def _build_summary(client_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/run", response_model=PipelineRunResponse)
-def run_pipeline(req: PipelineRunRequest):
+def run_pipeline(
+    req: PipelineRunRequest,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
     """Start a new pipeline run. Returns immediately with a jobId for polling."""
     job_id = str(uuid.uuid4())[:8]
 
@@ -426,6 +432,23 @@ def run_pipeline(req: PipelineRunRequest):
     thread.start()
 
     log.info("Pipeline job %s started (mode=%s, client=%s)", job_id, req.mode, req.clientId)
+
+    # Audit: record who kicked off this job. We extract the user from the
+    # bearer token if present; background/automated runs will have no token
+    # and simply land in the log with user_email=None.
+    caller = None
+    if authorization and authorization.lower().startswith("bearer "):
+        caller = _find_user_by_token(authorization.split(None, 1)[1].strip())
+    log_audit_event(
+        request,
+        action_type="pipeline_run",
+        details=f"JOB-{job_id} started · mode={req.mode}",
+        client_id=req.clientId,
+        user_id=caller["id"] if caller else None,
+        user_email=caller["email"] if caller else None,
+        outcome="success",
+    )
+
     return PipelineRunResponse(**job)
 
 

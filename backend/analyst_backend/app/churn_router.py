@@ -26,7 +26,11 @@ log = logging.getLogger("churn")
 def get_churn_scores(
     clientId: str = Query(...),
     page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=25, ge=1, le=100),
+    # Default is 100 per CTO direction: one page + vertical scroller.
+    # Cap raised to 500 so the UI can request larger pages in future
+    # without a backend redeploy. Rows are cheap — one small join, one
+    # LIMIT/OFFSET — so 500 is still comfortable.
+    pageSize: int = Query(default=100, ge=1, le=500),
     riskTier: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     authorization: Optional[str] = Header(default=None),
@@ -35,7 +39,7 @@ def get_churn_scores(
     Get churn scores for a client, sorted by churn probability (descending).
 
     Features:
-    - Paginated (default 25 per page)
+    - Paginated (default 100 per page)
     - Filter by risk tier (HIGH, MEDIUM, LOW)
     - Search by customer name or ID
     - Joined with customer details + RFM features

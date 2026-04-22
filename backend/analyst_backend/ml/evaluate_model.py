@@ -78,7 +78,7 @@ NON_FEATURE_COLS = [
 
 TIER_ORDER = {'Bronze': 1, 'Silver': 2, 'Gold': 3, 'Platinum': 4}
 
-MODEL_PREFERENCE = ['random_forest', 'xgboost', 'logistic_regression']
+MODEL_PREFERENCE = ['random_forest', 'xgboost']
 
 TEST_SIZE = 0.20
 RANDOM_STATE = 42
@@ -256,8 +256,6 @@ def get_feature_importances(
     """Extract top 15 feature importances."""
     if model_type in ('xgboost', 'random_forest'):
         importances = model.feature_importances_
-    elif model_type == 'logistic_regression':
-        importances = np.abs(model.coef_[0])
     else:
         return []
 

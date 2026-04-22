@@ -30,6 +30,7 @@ from app.downloads_router import router as downloads_router
 from app.validation_router import router as validation_router
 from app.chat_router import router as chat_router
 from app.messages_router import router as messages_router
+from app.audit_router import router as audit_router
 from scout.router import scout_router
 from scout_agent.routes import router as agent_router
 
@@ -109,6 +110,7 @@ app.include_router(downloads_router)
 app.include_router(validation_router)
 app.include_router(chat_router)
 app.include_router(messages_router)
+app.include_router(audit_router)
 app.include_router(scout_router)
 app.include_router(agent_router, prefix="/agent", tags=["agent"])
 app.include_router(strategist_router)  # /api/strategist/* — prefix built into router
@@ -142,6 +144,49 @@ def get_cost_tracking(clientId: str = _Query("CLT-001")):
         payload["aggregates_error"] = str(e)
         payload["aggregates"] = None
 
+    return payload
+
+
+@app.get("/api/v1/cost-tracking/per-client", tags=["ops"])
+def get_cost_tracking_per_client():
+    """
+    Admin Cost Monitoring — cross-tenant cost breakdown.
+
+    Returns one row per client_id in `llm_cost_log`, joined to
+    `client_config` for client_name. The admin UI renders this as a table
+    so super admins can see which clients are burning the most LLM budget.
+    """
+    payload: dict = {"clients": [], "totals": {
+        "total_calls": 0, "total_cost": 0.0, "total_tokens": 0,
+        "calls_today": 0, "cost_today": 0.0,
+        "calls_30d": 0,   "cost_30d":   0.0,
+        "over_budget_count": 0,
+    }}
+    try:
+        from app.langfuse_tracker import get_per_client_cost_summary, get_cost_summary
+        from app.database import engine
+        clients = get_per_client_cost_summary(engine)
+        payload["clients"] = clients
+
+        # Roll up grand totals so the page can show one summary row.
+        for c in clients:
+            payload["totals"]["total_calls"]       += c["total_calls"]
+            payload["totals"]["total_cost"]        += c["total_cost"]
+            payload["totals"]["total_tokens"]      += c["total_tokens"]
+            payload["totals"]["calls_today"]       += c["calls_today"]
+            payload["totals"]["cost_today"]        += c["cost_today"]
+            payload["totals"]["calls_30d"]         += c["calls_30d"]
+            payload["totals"]["cost_30d"]          += c["cost_30d"]
+            payload["totals"]["over_budget_count"] += c["over_budget_count"]
+        # Round totals after summing.
+        payload["totals"]["total_cost"] = round(payload["totals"]["total_cost"], 6)
+        payload["totals"]["cost_today"] = round(payload["totals"]["cost_today"], 6)
+        payload["totals"]["cost_30d"]   = round(payload["totals"]["cost_30d"], 6)
+
+        # Static config so the UI can show the per-call budget on the page.
+        payload.update(get_cost_summary())
+    except Exception as e:
+        payload["error"] = str(e)
     return payload
 
 

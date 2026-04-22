@@ -55,8 +55,12 @@ export class ChurnScoresComponent implements OnInit {
   summary = signal<Summary>({ total_scored: 0, high_risk: 0, medium_risk: 0, low_risk: 0, avg_probability: 0 });
 
   // Pagination
+  // pageSize = 100 per CTO direction: one long page with a vertical
+  // scroller inside the table wrapper is easier to scan than clicking
+  // through 4×25-row pages. The scroll container is defined in
+  // .churn-scroll (churn-scores.scss) with max-height + overflow-y:auto.
   page = signal(1);
-  pageSize = signal(25);
+  pageSize = signal(100);
   totalRows = signal(0);
   totalPages = signal(1);
 

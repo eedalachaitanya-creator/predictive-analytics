@@ -92,30 +92,43 @@ RISK_THRESHOLDS = {
                        # < 0.35  → LOW risk
 }
 
-# Business tier weights — applied AFTER model scoring to prioritize
+# Business tier adjustments — applied AFTER model scoring to prioritize
 # high-value customers. Losing a Platinum customer costs far more than
-# losing a Bronze customer, so we boost their churn probability to
-# ensure they surface as HIGH risk sooner.
+# losing a Bronze customer, so we shift their churn probability toward
+# HIGH risk without destroying calibration.
 #
-# Example: Platinum customer with 0.50 raw probability → 0.50 × 1.25 = 0.625
-#          This pushes them from MEDIUM into HIGH risk tier (threshold 0.65
-#          is close), making the business act faster on valuable customers.
+# WHY LOG-ODDS SHIFT INSTEAD OF MULTIPLICATION:
+#   The previous implementation multiplied p × weight then clipped to
+#   [0, 1]. That saturated at the top: any Platinum customer with raw
+#   p ≥ 0.80 became 0.80 × 1.25 = 1.00 → clipped to exactly 1.0. Dozens
+#   of customers ended up with identical 100.0% scores even though their
+#   true probabilities differed (visible in the Churn Scores page where
+#   8+ rows all showed 100.0% on a single screen).
 #
-# Why these specific values?
-#   Platinum × 1.25 → aggressive boost (most revenue at stake)
-#   Gold     × 1.15 → moderate boost
-#   Silver   × 1.00 → no change (baseline)
-#   Bronze   × 0.90 → slight reduction (lower business impact)
-TIER_WEIGHTS = {
-    'Platinum': 1.25,
-    'Gold':     1.15,
-    'Silver':   1.00,
-    'Bronze':   0.90,
+#   A log-odds shift is monotonic and non-saturating:
+#     logit(p)  = ln(p / (1 - p))    # map (0, 1) → (-∞, +∞)
+#     logit(p) + shift               # add bias in log-odds space
+#     p_adj    = 1 / (1 + exp(-x))   # map back to (0, 1)
+#
+#   Ordering is preserved and probabilities stay strictly inside (0, 1) —
+#   even a raw 0.99 Platinum ends up at ~0.993, not saturated to 1.000.
+#
+# BEHAVIOR AT TYPICAL RAW PROBABILITIES (reference table):
+#   Raw 0.50 → Platinum +0.4 → 0.599 | Gold +0.2 → 0.550 | Bronze -0.2 → 0.450
+#   Raw 0.80 → Platinum +0.4 → 0.856 | Gold +0.2 → 0.830 | Bronze -0.2 → 0.766
+#   Raw 0.95 → Platinum +0.4 → 0.966 | Gold +0.2 → 0.958 | Bronze -0.2 → 0.939
+TIER_LOGIT_SHIFTS = {
+    'Platinum':  0.4,   # aggressive boost (most revenue at stake)
+    'Gold':      0.2,   # moderate boost
+    'Silver':    0.0,   # no change (baseline)
+    'Bronze':   -0.2,   # slight reduction (lower business impact)
 }
-TIER_WEIGHT_DEFAULT = 1.00  # Used when tier is missing or unknown
+TIER_LOGIT_SHIFT_DEFAULT = 0.0  # Used when tier is missing or unknown
 
-# Default model preference order (best AUC-ROC first)
-MODEL_PREFERENCE = ['random_forest', 'xgboost', 'logistic_regression']
+# Default model preference order (best AUC-ROC first). LogisticRegression
+# was removed from the supported model set — see ml/train_model.py — so we
+# only fall back between the two tree ensembles here.
+MODEL_PREFERENCE = ['random_forest', 'xgboost']
 
 # API default port
 DEFAULT_API_PORT = 8000
@@ -434,52 +447,76 @@ def apply_tier_weighting(
     original_df: pd.DataFrame,
 ) -> np.ndarray:
     """
-    Apply business-tier weighting to raw churn probabilities.
+    Apply a business-tier log-odds shift to raw churn probabilities.
 
     WHY: The ML model treats all customers equally — a Platinum customer
     with 50% churn probability and a Bronze customer with 50% are scored
     the same. But from a BUSINESS perspective, losing a Platinum customer
-    is far more costly. This function boosts high-tier probabilities so
-    they surface as HIGH risk sooner.
+    is far more costly. This function nudges high-tier probabilities up
+    (and low-tier down) so the top of the High Risk list is biased toward
+    customers whose loss costs more.
 
-    HOW: Multiply raw probability by the tier weight, then clip to [0, 1].
-    The weights are defined in TIER_WEIGHTS (Section 0).
+    HOW: Instead of multiplying probability by a weight (which saturated
+    at the 1.0 ceiling and collapsed many Platinum/Gold customers to
+    identical 100% scores), we shift in log-odds space:
+
+        logit(p)  = ln(p / (1 - p))    # probability → real line
+        logit_adj = logit(p) + shift   # add tier bias
+        p_adj     = sigmoid(logit_adj) # real line → probability
+
+    Log-odds addition is monotonic and non-saturating — ordering is
+    preserved and probabilities stay strictly inside (0, 1). The shift
+    values are defined in TIER_LOGIT_SHIFTS (Section 0).
 
     Args:
         probabilities: Raw model-output churn probabilities (0 to 1)
         original_df: Full customer DataFrame (must have 'customer_tier' column)
 
     Returns:
-        Adjusted probabilities (same length, clipped to [0, 1])
+        Adjusted probabilities (same length, in the open interval (0, 1))
     """
     if 'customer_tier' not in original_df.columns:
-        log.warning("  No customer_tier column found — skipping tier weighting")
+        log.warning("  No customer_tier column found — skipping tier adjustment")
         return probabilities
 
-    log.info("Applying business-tier weighting...")
+    log.info("Applying business-tier log-odds shift...")
 
-    # Map each customer's tier to its weight
+    # Map each customer's tier to its log-odds shift
     tier_series = original_df['customer_tier'].fillna('Unknown')
-    weights = tier_series.map(TIER_WEIGHTS).fillna(TIER_WEIGHT_DEFAULT).values
+    shifts = (
+        tier_series.map(TIER_LOGIT_SHIFTS)
+                   .fillna(TIER_LOGIT_SHIFT_DEFAULT)
+                   .values.astype(float)
+    )
 
-    # Multiply raw probability by tier weight
-    adjusted = probabilities * weights
+    # Guard against exactly 0.0 or 1.0 (logit is ±∞ there). Clamp a
+    # hair inside the open interval so the transform stays finite.
+    eps = 1e-6
+    p_safe = np.clip(probabilities.astype(float), eps, 1.0 - eps)
 
-    # Clip to valid probability range [0, 1]
-    adjusted = np.clip(adjusted, 0.0, 1.0)
+    # Forward: probability → log-odds, add shift, back to probability.
+    logits = np.log(p_safe / (1.0 - p_safe))
+    logits_adj = logits + shifts
+    adjusted = 1.0 / (1.0 + np.exp(-logits_adj))
 
-    # Log the impact of tier weighting
-    changed_count = int((adjusted != probabilities).sum())
+    # Log the impact per tier for observability
+    changed_count = int((shifts != 0.0).sum())
     if changed_count > 0:
-        log.info("  Tier weighting adjusted %d / %d customers:", changed_count, len(probabilities))
+        log.info(
+            "  Tier adjustment affected %d / %d customers:",
+            changed_count, len(probabilities),
+        )
         for tier in ['Platinum', 'Gold', 'Silver', 'Bronze']:
-            mask = tier_series == tier
+            mask = (tier_series == tier).values
             if mask.any():
                 tier_count = int(mask.sum())
                 avg_before = float(probabilities[mask].mean())
                 avg_after = float(adjusted[mask].mean())
-                log.info("    %s (%d): avg probability %.4f → %.4f (×%.2f)",
-                         tier, tier_count, avg_before, avg_after, TIER_WEIGHTS.get(tier, 1.0))
+                log.info(
+                    "    %s (%d): avg probability %.4f → %.4f (logit shift %+.2f)",
+                    tier, tier_count, avg_before, avg_after,
+                    TIER_LOGIT_SHIFTS.get(tier, 0.0),
+                )
 
     return adjusted
 
@@ -515,7 +552,7 @@ def compute_churn_drivers(
     if it's installed.
 
     Args:
-        model: Trained classifier (XGBoost, RandomForest, LogReg, ...)
+        model: Trained classifier (XGBoost or RandomForest)
         X_score: Scaled feature matrix (customers × features)
         top_n: Number of top drivers to extract (default: 3)
 
@@ -544,7 +581,8 @@ def compute_churn_drivers(
             contribs = booster.predict(dmatrix, pred_contribs=True)
             shap_values = contribs[:, :-1]
         else:
-            # Fallback for RandomForest / GradientBoosting / LogReg: use `shap`.
+            # Fallback for RandomForest (or any other tree/linear model a
+            # future developer plugs in): use the `shap` package.
             import shap as _shap
             if hasattr(model, 'feature_importances_'):
                 explainer = _shap.TreeExplainer(model)
@@ -591,7 +629,8 @@ def compute_churn_drivers(
             if hasattr(model, 'feature_importances_'):
                 weights = np.asarray(model.feature_importances_, dtype=float)
             elif hasattr(model, 'coef_'):
-                # Binary LogReg coef_ shape is (1, n_features); squeeze to 1-D
+                # Defensive branch — kept in case a future linear model is
+                # added back. Binary linear coef_ is (1, n_features); squeeze.
                 weights = np.asarray(model.coef_, dtype=float).reshape(-1)
             else:
                 raise RuntimeError("model has neither feature_importances_ nor coef_")

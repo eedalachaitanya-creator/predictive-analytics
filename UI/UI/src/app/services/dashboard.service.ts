@@ -26,7 +26,11 @@ export class DashboardService {
     return this.api.get(`/dashboard/orders?clientId=${clientId}&page=${page}&tab=${tab}`);
   }
 
-  loadSegmentCustomers(clientId: string, segment: string, page: number = 1, pageSize: number = 10): Observable<any> {
+  // pageSize default bumped 10 → 100 per CTO direction: the segment
+  // drill-down on the Dashboard now shows 100 customers per page and
+  // scrolls vertically inside .drilldown-scroll (see dashboard.scss)
+  // instead of paginating in 10-row chunks.
+  loadSegmentCustomers(clientId: string, segment: string, page: number = 1, pageSize: number = 100): Observable<any> {
     return this.api.get(`/dashboard/segment-customers?clientId=${clientId}&segment=${encodeURIComponent(segment)}&page=${page}&pageSize=${pageSize}`);
   }
 

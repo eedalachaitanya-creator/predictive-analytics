@@ -108,8 +108,8 @@ def _load_model_bundle():
 
     import joblib
 
-    # Preference order
-    preference = ['random_forest', 'xgboost', 'logistic_regression']
+    # Preference order (LogisticRegression removed — see ml/train_model.py)
+    preference = ['random_forest', 'xgboost']
     model_files = list(MODEL_DIR.glob("churn_model_*.joblib"))
 
     if not model_files:

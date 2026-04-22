@@ -51,6 +51,18 @@ export class AuthService {
     );
   }
 
+  /**
+   * Request a password reset. Backend generates a temporary 12-char password
+   * and returns it inline — no email is sent. The caller (login page) shows
+   * the temp password in a modal with a Copy button.
+   */
+  forgotPassword(email: string): Observable<{ email: string; temp_password: string; message: string }> {
+    return this.api.post<{ email: string; temp_password: string; message: string }>(
+      '/auth/forgot-password',
+      { email }
+    );
+  }
+
   logout(): void {
     // Best-effort server-side revoke
     const token = sessionStorage.getItem(TOKEN_KEY);

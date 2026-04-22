@@ -3,7 +3,15 @@ export const environment = {
   apiUrl: 'http://localhost:8000/api/v1',
   clientId: 'CLT-001',
   appVersion: '4.0.0',
-  // Set to true to use built-in mock data (no backend needed)
-  // Set to false when your real backend is running
-  useMocks: true,
+  // Set to true to use built-in mock data (no backend needed).
+  // Set to false when the real backend is running.
+  //
+  // Must stay FALSE whenever the backend is up. The mock interceptor
+  // (mock.interceptor.ts) was written against CLT-001 before the
+  // backend existed — it returns the same canned stages / dashboard /
+  // churn scores for every client, so a client selector switch (e.g.
+  // CLT-001 → CLT-002) in the header has no effect on the data shown.
+  // That produces the bug where the Run page says "Client config
+  // wired · CLT-001" even when CLT-002 is selected.
+  useMocks: false,
 };

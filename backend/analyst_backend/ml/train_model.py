@@ -80,6 +80,29 @@ PLOT_DIR.mkdir(exist_ok=True)
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
+
+# ── GRAY-ZONE EXCLUSION (Step 3, 2026-04-22) ────────────────────────────────
+# The churn label has a hard cutoff: churn_label = 1 WHEN DSLO >= 90.
+# Customers with DSLO very close to 90 days carry ambiguous labels —
+# a DSLO=85 ("active") and a DSLO=95 ("churned") customer behave almost
+# identically in every other feature, yet receive opposite labels. Training
+# on these boundary customers forces the model to fit arbitrary label flips
+# and injects noise into the learned decision boundary.
+#
+# We exclude DSLO in [85, 95) from the TRAINING set only. The test set,
+# cross-validation set, and live prediction input keep all customers, so
+# evaluation metrics reflect real-world performance.
+#
+# ── Window history (2026-04-22) ─────────────────────────────────────────────
+# First attempt used [75, 105) (±15 around the cutoff). That window removed
+# too many borderline training rows, so the model never saw "ambiguous"
+# patterns and polarized to near-0 or near-1 at inference. The dashboard
+# showed 128 HIGH at 99.4–99.5% with only 6 MEDIUM between them — a clear
+# bimodal polarization fingerprint. Narrowed to ±5 to keep DSLO 75-84 and
+# 95-105 in the training set so the model still sees the full
+# probability continuum while we strip only the most-ambiguous boundary.
+GRAY_ZONE_LOWER = 85   # Customers with DSLO >= this are ambiguous
+GRAY_ZONE_UPPER = 95   # Customers with DSLO < this are ambiguous
 N_FOLDS = 5
 TARGET_COL = 'churn_label'
 
@@ -135,6 +158,27 @@ LEAKY_COLS = [
     # other real-behaviour features were neutral. Drop to force the
     # model to learn from genuine behavioural signal.
     'days_overdue_for_refill',     # = DSLO − avg_refill_days (algebraic leak)
+    # ── 90-day behavioral-trend leaks (Step 2 migration, 2026-04-22) ────
+    # All 9 of these features are computed on the last-90-day window,
+    # which is the SAME window as the churn label
+    # (churn_label = 1 WHEN days_since_last_order >= 90). When a customer
+    # has no orders in the last 90 days (the churn definition itself),
+    # every one of these features collapses to an extreme value — 0,
+    # NaN→0, or −100 — acting as a perfect proxy for the label.
+    # Observed effect: AUC jumped from 0.877 → 1.000 on both
+    # XGBoost and Random Forest immediately after these features
+    # appeared in the feature set. Classic target-window leak.
+    # Leave the Step-2 migration's MV columns in place for EDA / BI
+    # but exclude them from the training feature matrix.
+    'avg_order_value_last_90d_usd',   # = 0 when orders_last_90d = 0
+    'aov_trend_pct',                  # = −100 when 90d AOV = 0
+    'avg_items_per_order_last_90d',   # = 0 when orders_last_90d = 0
+    'basket_size_trend_pct',          # = −100 when 90d basket = 0
+    'orders_with_discount_last_90d',  # = 0 when orders_last_90d = 0
+    'pct_orders_discounted_last_90d', # = 0 / NULL when orders_last_90d = 0
+    'discount_rate_last_90d_pct',     # = 0 when spend_last_90d = 0
+    'spend_velocity_ratio',           # = 0 when spend_last_90d = 0
+    'order_gap_inflation_pct',        # collapses for no-recent-order customers
 ]
 
 # ── REVIEW FEATURES (excluded from model) ───────────────────────────────────
@@ -161,6 +205,22 @@ REVIEW_COLS = [
     'pct_positive_reviews',        # % VADER=positive
     'pct_negative_reviews',        # % VADER=negative
     'days_since_last_review',      # 9999 sentinel for non-reviewers → proxy leak
+    # ── Step 1 migration additions (2026-04-22) ─────────────────────────
+    # Same 9999-sentinel / all-time proxy problems as the features above:
+    #   - days_since_last_negative_review uses 9999 for customers who
+    #     never left a negative review (i.e., most customers), so the
+    #     feature acts as "has no negative reviews ↔ inactive" rather
+    #     than measuring real churn signal.
+    #   - avg_sentiment_score is all-time (non-windowed), so silent
+    #     customers and happy customers both get neutral/NULL values
+    #     that the model misreads as a churn proxy.
+    # The other 4 Step-1 review features (reviews_last_90d,
+    # avg_sentiment_score_last_90d, negative_reviews_last_90d,
+    # low_star_reviews_last_90d) are KEPT in the feature set — they are
+    # windowed (no 9999 sentinel, just 0 for non-reviewers) and represent
+    # legitimate leading signal.
+    'days_since_last_negative_review',  # 9999 sentinel → proxy leak
+    'avg_sentiment_score',              # all-time, non-windowed proxy
 ]
 
 # Threshold for dropping highly correlated features
@@ -526,6 +586,79 @@ def split_data(
     log.info("  Train distribution: %s", y_train.value_counts().to_dict())
     log.info("  Test distribution:  %s", y_test.value_counts().to_dict())
     return X_train, X_test, y_train, y_test
+
+
+def exclude_gray_zone_from_training(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    df_full: pd.DataFrame,
+    lower: int = GRAY_ZONE_LOWER,
+    upper: int = GRAY_ZONE_UPPER,
+) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Any]]:
+    """
+    Remove rows with days_since_last_order in [lower, upper) from the
+    TRAINING set. These customers sit near the hard 90-day churn cutoff,
+    so their binary labels are noisy even though their feature vectors
+    look identical to customers on either side of the boundary.
+
+    IMPORTANT: This touches the TRAINING data only. The caller must NOT
+    pass X_test / y_test through this function — the test set needs to
+    include boundary customers so held-out metrics reflect real-world
+    performance (where gray-zone customers definitely exist).
+
+    Because `days_since_last_order` is in LEAKY_COLS and has already been
+    dropped from X_train, we look it up from the original DataFrame via
+    X_train.index. train_test_split preserves indices, so this works.
+
+    Args:
+        X_train: Training feature matrix (after leaky/review drops and split)
+        y_train: Training target series
+        df_full: The original DataFrame before prepare_features, still
+                 containing days_since_last_order
+        lower: Lower bound of gray zone (inclusive)
+        upper: Upper bound of gray zone (exclusive)
+
+    Returns:
+        (X_train_clean, y_train_clean, gray_zone_log)
+        where gray_zone_log captures counts for the training report.
+    """
+    log.info("Excluding gray-zone customers from training "
+             "(DSLO in [%d, %d))...", lower, upper)
+
+    if 'days_since_last_order' not in df_full.columns:
+        log.warning("  days_since_last_order missing from source df — "
+                    "skipping gray-zone exclusion")
+        return X_train, y_train, {
+            'lower': lower, 'upper': upper,
+            'excluded': 0, 'reason': 'dslo_missing',
+        }
+
+    dslo = df_full.loc[X_train.index, 'days_since_last_order']
+    gray_mask = (dslo >= lower) & (dslo < upper)
+    n_excluded = int(gray_mask.sum())
+    n_total = len(X_train)
+
+    if n_excluded == 0:
+        log.info("  No customers in gray zone — no rows excluded")
+    else:
+        pct = 100.0 * n_excluded / max(n_total, 1)
+        log.info("  %d rows excluded (%.1f%% of train set, %d → %d)",
+                 n_excluded, pct, n_total, n_total - n_excluded)
+
+    X_train_clean = X_train.loc[~gray_mask]
+    y_train_clean = y_train.loc[~gray_mask]
+
+    log.info("  Train distribution after exclusion: %s",
+             y_train_clean.value_counts().to_dict())
+
+    gray_zone_log = {
+        'lower': lower,
+        'upper': upper,
+        'excluded': n_excluded,
+        'train_before': n_total,
+        'train_after': len(X_train_clean),
+    }
+    return X_train_clean, y_train_clean, gray_zone_log
 
 
 def scale_features(
@@ -1227,6 +1360,24 @@ def generate_training_report(
     lines.append(f"  Features retained: {len(feature_names)}")
     lines.append("")
 
+    # Gray-zone exclusion summary (Step 3)
+    gz = cleaning_log.get('gray_zone', {})
+    lines.append("-" * 75)
+    lines.append("  GRAY-ZONE EXCLUSION (TRAINING ONLY)")
+    lines.append("-" * 75)
+    if gz.get('skipped'):
+        lines.append("  Skipped (--skip-gray-zone flag)")
+    elif gz.get('reason') == 'dslo_missing':
+        lines.append("  Skipped: days_since_last_order column unavailable")
+    elif gz:
+        lines.append(f"  Gray zone window: DSLO in [{gz.get('lower')}, {gz.get('upper')})")
+        lines.append(f"  Excluded from train: {gz.get('excluded', 0)} rows")
+        lines.append(f"  Train size: {gz.get('train_before', 0)} → {gz.get('train_after', 0)}")
+        lines.append("  (Test set keeps all customers for honest evaluation)")
+    else:
+        lines.append("  No gray-zone info recorded")
+    lines.append("")
+
     # Test set metrics
     lines.append("-" * 75)
     lines.append("  TEST SET PERFORMANCE")
@@ -1433,6 +1584,16 @@ Examples:
                         help='Skip generating plots')
     parser.add_argument('--client-id', type=str, default=None,
                         help='Filter data by client_id (e.g., CLT-002)')
+    # Gray-zone exclusion (Step 3): drop ambiguous boundary customers from
+    # training only. Defaults to [75, 105) around the 90-day churn cutoff.
+    parser.add_argument('--skip-gray-zone', action='store_true',
+                        help='Disable gray-zone exclusion (train on all customers)')
+    parser.add_argument('--gray-zone-lower', type=int, default=GRAY_ZONE_LOWER,
+                        help=f'Lower DSLO bound of gray zone '
+                             f'(default: {GRAY_ZONE_LOWER})')
+    parser.add_argument('--gray-zone-upper', type=int, default=GRAY_ZONE_UPPER,
+                        help=f'Upper DSLO bound of gray zone '
+                             f'(default: {GRAY_ZONE_UPPER})')
     return parser.parse_args()
 
 
@@ -1573,6 +1734,21 @@ def main():
 
     # ── Step 5: Train/test split ───────────────────────────────────────────
     X_train, X_test, y_train, y_test = split_data(X, y)
+
+    # ── Step 5b: Gray-zone exclusion (training only) ───────────────────────
+    # Customers with DSLO near the 90-day churn cutoff have ambiguous labels.
+    # Remove them from TRAINING only — test set keeps all customers so
+    # held-out metrics reflect real-world performance.
+    if not args.skip_gray_zone:
+        X_train, y_train, gray_zone_log = exclude_gray_zone_from_training(
+            X_train, y_train, df,
+            lower=args.gray_zone_lower,
+            upper=args.gray_zone_upper,
+        )
+        cleaning_log['gray_zone'] = gray_zone_log
+    else:
+        log.info("Gray-zone exclusion disabled via --skip-gray-zone")
+        cleaning_log['gray_zone'] = {'skipped': True}
 
     # ── Step 6: Handle class imbalance ─────────────────────────────────────
     X_train, y_train = handle_class_imbalance(X_train, y_train, method=args.imbalance_method)

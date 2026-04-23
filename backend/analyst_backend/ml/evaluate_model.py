@@ -60,15 +60,52 @@ PLOT_DIR = OUTPUT_DIR / "plots"
 
 TARGET_COL = 'churn_label'
 
-# Must match train_model.py
+# Must match train_model.py — see LEAKY_COLS / REVIEW_COLS there for rationale.
+# Any drift between these two files means evaluate sees features the trained
+# model never learned on (or vice versa), which silently breaks comparisons.
 LEAKY_COLS = [
+    # Direct recency / RFM leaks
     'days_since_last_order',
     'rfm_recency_score',
     'rfm_total_score',
+    # 90/180-day window leaks (same window as churn label)
     'orders_last_90d',
     'spend_last_90d_usd',
     'orders_last_180d',
     'spend_last_180d_usd',
+    # Tenure-based leaks (synthetic-data artifact)
+    'account_age_days',
+    'first_order_date',
+    'last_order_date',
+    # Algebraic leak via refill cycle (= DSLO − avg_refill_days)
+    'days_overdue_for_refill',
+    # 90-day behavioral-trend leaks (Step 2 migration, 2026-04-22) —
+    # all collapse to extreme values when orders_last_90d = 0 (the
+    # churn definition), pushing AUC to 1.000.
+    'avg_order_value_last_90d_usd',
+    'aov_trend_pct',
+    'avg_items_per_order_last_90d',
+    'basket_size_trend_pct',
+    'orders_with_discount_last_90d',
+    'pct_orders_discounted_last_90d',
+    'discount_rate_last_90d_pct',
+    'spend_velocity_ratio',
+    'order_gap_inflation_pct',
+]
+
+# Must match train_model.py — review-derived features are excluded
+# because `days_since_last_review = 9999` and `total_reviews = 0`
+# sentinels act as proxies for "inactive customer" rather than
+# true leading churn signal.
+REVIEW_COLS = [
+    'total_reviews',
+    'avg_rating',
+    'pct_positive_reviews',
+    'pct_negative_reviews',
+    'days_since_last_review',
+    # Step 1 additions with 9999-sentinel / all-time-proxy issues
+    'days_since_last_negative_review',
+    'avg_sentiment_score',
 ]
 
 NON_FEATURE_COLS = [

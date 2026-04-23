@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ScoutService, Website } from '../../../services/scout.service';
@@ -13,7 +13,10 @@ import { ScoutService, Website } from '../../../services/scout.service';
 export class ScoutPlatformsTab implements OnInit {
   private svc = inject(ScoutService);
 
-  websites  = signal<Website[]>([]);
+  // Read directly from the shared signal. When Search, Monitor, or any other
+  // component triggers a refresh (or when add/delete/toggle here completes),
+  // this table updates without a manual reload.
+  websites = computed(() => this.svc.websites());
   loading   = signal(true);
   adding    = signal(false);
   newName   = signal('');
@@ -27,19 +30,14 @@ export class ScoutPlatformsTab implements OnInit {
   deleting      = signal(false);
 
   ngOnInit() {
-    this.loadWebsites();
-  }
-
-  loadWebsites() {
-    this.loading.set(true);
-    this.svc.loadWebsites().subscribe({
-      next: res => {
-        this.websites.set(res.data || []);
-        this.loading.set(false);
-      },
-      error: () => this.loading.set(false)
+    // Service handles the network call and updates the shared signal.
+    this.svc.refreshPlatforms().subscribe({
+      next: () => this.loading.set(false),
+      error: () => this.loading.set(false),
     });
   }
+
+  
 
   addWebsite() {
     const name = this.newName().trim();
@@ -49,12 +47,12 @@ export class ScoutPlatformsTab implements OnInit {
     this.error.set('');
     this.success.set('');
 
+    // svc.addWebsite now auto-refreshes via tap() — no loadWebsites() needed.
     this.svc.addWebsite(name).subscribe({
       next: res => {
         this.success.set(`Added "${res.data.name}" — search URL: ${res.data.search_url}`);
         this.newName.set('');
         this.adding.set(false);
-        this.loadWebsites();
       },
       error: err => {
         this.error.set(err.message || 'Failed to add website');
@@ -63,16 +61,18 @@ export class ScoutPlatformsTab implements OnInit {
     });
   }
 
-  toggleActive(site: Website) {
-  const action = site.active
-    ? this.svc.deactivateWebsite(site)           // pass full site object
-    : this.svc.reactivateWebsite(site.name);
 
-  action.subscribe({
-    next: () => this.loadWebsites(),
-    error: err => this.error.set(err.message || 'Toggle failed')
-  });
-}
+  toggleActive(site: Website) {
+    const action = site.active
+      ? this.svc.deactivateWebsite(site)
+      : this.svc.reactivateWebsite(site.name);
+
+    // svc methods auto-refresh the shared signal, so table + Search tab
+    // both update without manual reload.
+    action.subscribe({
+      error: err => this.error.set(err.message || 'Toggle failed')
+    });
+  }
 
   startEdit(i: number) {
     this.editingIdx.set(i);
@@ -84,24 +84,22 @@ export class ScoutPlatformsTab implements OnInit {
     this.editUrl.set('');
   }
 
+
   saveEdit(site: Website) {
     this.svc.updateWebsite({ name: site.name, search_url: this.editUrl() }).subscribe({
       next: () => {
         this.editingIdx.set(null);
         this.success.set(`Updated search URL for "${site.name}"`);
-        this.loadWebsites();
       },
       error: err => this.error.set(err.message || 'Update failed')
     });
   }
 
-  // Opens the confirmation modal (called by the trash icon)
   askDeleteWebsite(site: Website) {
     this.confirmDelete.set(site);
     this.clearMessages();
   }
 
-  // Cancels the modal
   cancelDelete() {
     this.confirmDelete.set(null);
   }
@@ -128,7 +126,6 @@ export class ScoutPlatformsTab implements OnInit {
         );
         this.confirmDelete.set(null);
         this.deleting.set(false);
-        this.loadWebsites();
       },
       error: err => {
         this.error.set(err.message || 'Delete failed');

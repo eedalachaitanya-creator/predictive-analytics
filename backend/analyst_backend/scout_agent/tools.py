@@ -282,7 +282,8 @@ def get_alerts(input: str = "") -> str:
     # LangChain passes a string — parse it
     include_acknowledged = input.strip().lower() in ("all", "true", "yes", "acknowledged")
 
-    alerts = db.get_alerts(unacknowledged_only=not include_acknowledged, limit=50)
+    # get_alerts() returns (alerts, total). We only need alerts here.
+    alerts, _ = db.get_alerts(unacknowledged_only=not include_acknowledged, limit=50)
     unread_count = db.get_unacknowledged_count()
 
     return json.dumps({
@@ -326,7 +327,8 @@ def run_price_monitor(confirm: str = "yes") -> str:
     from scout.scout_db import db
     from scout.router import _search_across_sites
 
-    rows, _ = db.get_all_products()
+    # get_all_products() returns (rows, platforms, total). We only need rows.
+    rows, _, _ = db.get_all_products()
     if not rows:
         return json.dumps({"status": "nothing_to_monitor", "products_checked": 0})
 
@@ -340,7 +342,8 @@ def run_price_monitor(confirm: str = "yes") -> str:
         _run(_search_across_sites(product_name, platforms, force_refresh=True))
         checked += 1
 
-    alerts = db.get_alerts(limit=checked * 10)
+    # get_alerts() returns (alerts, total). We only need alerts for counting.
+    alerts, _ = db.get_alerts(limit=checked * 10)
     return json.dumps({
         "status": "completed",
         "products_checked": checked,

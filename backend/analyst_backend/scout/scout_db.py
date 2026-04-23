@@ -63,6 +63,20 @@ class Database:
             raise
         finally:
             conn.close()
+    # Normalization rules:
+#   - lowercase (case-insensitive grouping)
+#   - collapse all whitespace runs to single space (no double-space dupes)
+#   - strip leading/trailing whitespace
+#
+# We deliberately do NOT strip punctuation or trademark symbols here —
+# those are meaningful for distinguishing "coach watch" from "coach watch ™"
+# and the brand normalization belongs in entity_resolver, not here.
+    @staticmethod
+    def _normalize_name(name: Optional[str]) -> str:
+        if not name:
+            return ""
+        import re as _re
+        return _re.sub(r"\s+", " ", str(name).strip().lower())
 
     def _fetchall(self, conn, query: str, params: tuple = ()) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -328,7 +342,10 @@ class Database:
         """
         with self._conn() as conn:
             for listing in row.get("listings", []):
-                product_name = str(row.get("name", ""))
+                # Normalize before insert — this is the root of all downstream keys.
+                # If we save "NIVEA lip balm" here but price_history saves "nivea lip balm",
+                # they won't match on JOIN or WHERE and the monitor UI will show duplicates.
+                product_name = self._normalize_name(row.get("name", ""))
                 platform     = str(listing.get("platform", ""))
 
                 product_url  = listing.get("url") or None
@@ -373,10 +390,21 @@ class Database:
                     json.dumps(product_details, default=str),
                 ))
 
-    def get_all_products(self) -> tuple[list[dict], list[str]]:
+    def get_all_products(
+        self,
+        limit:  int = 0,   # 0 = no limit (preserves existing callers)
+        offset: int = 0,
+        ) -> tuple[list[dict], list[str], int]:
         """
         All tracked products from DB, grouped by product name.
-        Returns (products_list, sorted_platform_names).
+        Returns (products_list, sorted_platform_names, total_count).
+
+        Pagination happens at PRODUCT level (not row level) so the UI page
+        size matches what the user sees. total_count is the number of
+        distinct products so the frontend can render "Showing X-Y of N".
+
+        When limit=0, returns all products (backward-compatible for any
+        caller that wants the full list — e.g. tools.py).
         """
         with self._conn() as conn:
             rows = self._fetchall(conn, """
@@ -416,7 +444,19 @@ class Database:
                 **{k: v for k, v in details.items() if k != "price"},
             })
 
-        return list(products.values()), sorted(platform_set)
+        all_products = list(products.values())
+        # Products are already in insertion order, which matches SQL ORDER BY
+        # scraped_at DESC on the first row that introduced each product name.
+        # That gives us "most recently scraped first" at the product level —
+        # a sensible default for "Tracked Products".
+        total = len(all_products)
+
+        if limit > 0:
+            paged = all_products[offset : offset + limit]
+        else:
+            paged = all_products
+
+        return paged, sorted(platform_set), total
 
     # ── Price history ─────────────────────────────────────────────────
 
@@ -427,13 +467,21 @@ class Database:
         price:        float,
         currency:     str = "INR",
         url:          str = "",
-    ) -> Optional[dict]:
+        ) -> Optional[dict]:
         """
         Save a price observation. Skips duplicates within the last hour.
         Detects and saves price change alerts automatically.
         """
         if price <= 0:
             return None
+
+        # Normalize at the start — every downstream read (get_last_price)
+        # and write (price_history INSERT, price_alerts INSERT via
+        # _detect_price_change) uses this same canonical form, so lookups
+        # always hit. Before this fix, a scrape with "NIVEA lip balm" would
+        # miss the lowercase rows from previous scrapes and fire a spurious
+        # "new" alert even though history existed.
+        product_name = self._normalize_name(product_name)
 
         last = self.get_last_price(product_name, platform)
 
@@ -458,6 +506,10 @@ class Database:
 
     def get_last_price(self, product_name: str, platform: str) -> Optional[dict]:
         """Most recent price record for a product+platform pair."""
+        # Defensive: callers that bypass save_price (e.g. direct lookups from
+        # tools.py or ad-hoc scripts) shouldn't have to remember to normalize.
+        # Normalizing here makes all reads safe regardless of caller discipline.
+        product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             return self._fetchone(conn, """
                 SELECT price, currency, url, scraped_at
@@ -478,6 +530,9 @@ class Database:
         If platform given → single platform.
         Otherwise         → all platforms.
         """
+        # Normalize for same reason as get_last_price — this is a public
+        # lookup method and callers shouldn't need to pre-normalize.
+        product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             if platform:
                 return self._fetchall(conn, """
@@ -619,20 +674,34 @@ class Database:
         self,
         unacknowledged_only: bool = False,
         limit:               int  = 50,
-    ) -> list[dict]:
+        offset:              int  = 0,
+    ) -> tuple[list[dict], int]:
+        """
+        Returns (rows, total_count).
+        total_count is the full unpaged size — used by the frontend to render
+        "Showing X-Y of N" and determine whether to enable the Next button.
+        """
         with self._conn() as conn:
             if unacknowledged_only:
-                return self._fetchall(conn, """
+                rows = self._fetchall(conn, """
                     SELECT * FROM price_alerts
                     WHERE acknowledged = FALSE
                     ORDER BY detected_at DESC
-                    LIMIT %s
-                """, (limit,))
-            return self._fetchall(conn, """
-                SELECT * FROM price_alerts
-                ORDER BY detected_at DESC
-                LIMIT %s
-            """, (limit,))
+                    LIMIT %s OFFSET %s
+                """, (limit, offset))
+                total_row = self._fetchone(conn,
+                    "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE")
+            else:
+                rows = self._fetchall(conn, """
+                    SELECT * FROM price_alerts
+                    ORDER BY detected_at DESC
+                    LIMIT %s OFFSET %s
+                """, (limit, offset))
+                total_row = self._fetchone(conn,
+                    "SELECT COUNT(*) AS count FROM price_alerts")
+
+            total = int(total_row["count"]) if total_row else 0
+            return rows, total
 
     def acknowledge_alert(self, alert_id: int) -> bool:
         with self._conn() as conn:
@@ -667,6 +736,7 @@ class Database:
         ttl_minutes:  int = 120,
     ) -> Optional[dict]:
         """Return cached listing if scraped within ttl_minutes; else None."""
+        product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             row = self._fetchone(conn, """
                 SELECT
@@ -722,6 +792,7 @@ class Database:
         self, product_name: str, platform: str
     ) -> Optional[float]:
         """How many minutes ago was this product last scraped? None if never."""
+        product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             row = self._fetchone(conn, """
                 SELECT EXTRACT(EPOCH FROM (NOW() - scraped_at)) / 60 AS age_minutes
@@ -740,6 +811,7 @@ class Database:
         platform:     str,
         ttl_minutes:  int = 1440,   # 24 hours
     ) -> Optional[dict]:
+        product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             row = self._fetchone(conn, """
                 SELECT product_feats, platform_feats, category, extracted_at
@@ -758,6 +830,7 @@ class Database:
         product_feats:  dict,
         platform_feats: dict,
     ) -> None:
+        product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             self._execute(conn, """
                 INSERT INTO product_features

@@ -34,3 +34,36 @@ thead .sticky-col { background: #F5F8FF; }
 .history-inner th { background: transparent !important; }
 
 tr.unread td { background: rgba(26,111,212,0.03); }
+
+/* Fixed-height scroll for paged tables.
+   550px fits ~11 product rows or ~12 alert rows comfortably on most screens.
+   Keeps both tables visible without scrolling the whole page. */
+.paged-scroll {
+  max-height: 550px;
+  overflow-y: auto;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  font-size: 13px;
+}
+
+.pagination-info {
+  color: var(--text-muted, #6b7280);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-indicator {
+  color: var(--text-muted, #6b7280);
+  min-width: 60px;
+  text-align: center;
+}

@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, catchError, throwError } from 'rxjs';
+import { Observable, catchError, tap, throwError } from 'rxjs';
 
 // ── Scout API base — runs separately from the main app backend ──────
 const SCOUT_API = 'http://localhost:8000';
@@ -134,6 +134,28 @@ export class ScoutService {
   monitoring  = signal(false);
 
   // ── Search ──────────────────────────────────────────────────────
+   
+  /** Re-fetch the websites list from the server and update the signal. */
+  refreshPlatforms(): Observable<{ data: Website[] }> {
+    const obs = this.http.get<{ data: Website[] }>(`${SCOUT_API}/websites/all`)
+      .pipe(catchError(this.handleError));
+    obs.subscribe({
+      next: res => this.websites.set(res.data || []),
+      // On error we leave the existing signal as-is. Components handle errors
+      // at the call site via the observable they subscribe to themselves.
+      error: () => {},
+    });
+    return obs;
+  }
+
+  /**
+   * Extract just the active platform names from the current websites signal.
+   * Used by Search and Monitor components for their platform toggle UIs.
+   */
+  activePlatformNames(): string[] {
+    return this.websites().filter(w => w.active).map(w => w.name);
+  }
+
 
   searchProducts(name: string, platforms: string[] = [], forceRefresh = false): Observable<SearchResponse> {
     return this.http.post<SearchResponse>(`${SCOUT_API}/search/products`, {
@@ -172,11 +194,19 @@ export class ScoutService {
     ).pipe(catchError(this.handleError));
   }
 
-  getAlerts(unreadOnly = false): Observable<{ unread_count: number; alerts: PriceAlert[] }> {
-    const q = unreadOnly ? '?unacknowledged_only=true' : '';
-    return this.http.get<{ unread_count: number; alerts: PriceAlert[] }>(`${SCOUT_API}/alerts${q}`)
-      .pipe(catchError(this.handleError));
+    getAlerts(
+      opts: { unreadOnly?: boolean; limit?: number; offset?: number } = {}
+    ): Observable<{ unread_count: number; total: number; alerts: PriceAlert[] }> {
+    const params: string[] = [];
+    if (opts.unreadOnly) params.push('unacknowledged_only=true');
+    if (opts.limit != null)  params.push(`limit=${opts.limit}`);
+    if (opts.offset != null) params.push(`offset=${opts.offset}`);
+    const q = params.length ? `?${params.join('&')}` : '';
+    return this.http.get<{ unread_count: number; total: number; alerts: PriceAlert[] }>(
+      `${SCOUT_API}/alerts${q}`
+    ).pipe(catchError(this.handleError));
   }
+
 
   // ── Monitor ─────────────────────────────────────────────────────
 
@@ -186,10 +216,13 @@ export class ScoutService {
   }
 
   // ── Websites / Platforms ────────────────────────────────────────
-
+  
+  /**
+ * @deprecated kept for any legacy caller; prefer refreshPlatforms() which
+ * returns the same data AND updates the shared signal.
+ */
   loadWebsites(): Observable<{ data: Website[] }> {
-    return this.http.get<{ data: Website[] }>(`${SCOUT_API}/websites/all`)
-      .pipe(catchError(this.handleError));
+    return this.refreshPlatforms();
   }
 
   getActivePlatforms(): Observable<{ platforms: string[] }> {
@@ -198,42 +231,60 @@ export class ScoutService {
   }
 
   addWebsite(name: string): Observable<{ data: Website }> {
-    return this.http.post<{ data: Website }>(`${SCOUT_API}/websites`, { name })
-      .pipe(catchError(this.handleError));
+    return this.http.post<{ data: Website }>(`${SCOUT_API}/websites`, { name }).pipe(
+      catchError(this.handleError),
+      // Refresh the shared signal on success so all components see the new
+      // platform appear immediately.
+      tap(() => this.refreshPlatforms()),
+    );
   }
 
   updateWebsite(payload: Partial<Website> & { name: string }): Observable<{ data: Website }> {
-    return this.http.put<{ data: Website }>(`${SCOUT_API}/websites`, payload)
-      .pipe(catchError(this.handleError));
+    return this.http.put<{ data: Website }>(`${SCOUT_API}/websites`, payload).pipe(
+      catchError(this.handleError),
+      tap(() => this.refreshPlatforms()),
+    );
   }
 
- deactivateWebsite(site: Website): Observable<any> {
-    // Soft-toggle via PUT /websites — must send current search_url + base_url
-    // because UpdateWebsiteRequest requires them.
+  deactivateWebsite(site: Website): Observable<any> {
     return this.http.put(`${SCOUT_API}/websites`, {
       name: site.name,
       search_url: site.search_url,
       base_url: site.base_url,
       active: false,
-    }).pipe(catchError(this.handleError));
+    }).pipe(
+      catchError(this.handleError),
+      tap(() => this.refreshPlatforms()),
+    );
   }
 
   reactivateWebsite(name: string): Observable<any> {
-    return this.http.post(`${SCOUT_API}/websites/${encodeURIComponent(name)}/reactivate`, {})
-      .pipe(catchError(this.handleError));
+    return this.http.post(`${SCOUT_API}/websites/${encodeURIComponent(name)}/reactivate`, {}).pipe(
+      catchError(this.handleError),
+      tap(() => this.refreshPlatforms()),
+    );
   }
 
   deleteWebsite(name: string): Observable<any> {
-    return this.http.delete(`${SCOUT_API}/websites/${encodeURIComponent(name)}`)
-      .pipe(catchError(this.handleError));
+    return this.http.delete(`${SCOUT_API}/websites/${encodeURIComponent(name)}`).pipe(
+      catchError(this.handleError),
+      tap(() => this.refreshPlatforms()),
+    );
   }
 
   // ── All Products ────────────────────────────────────────────────
 
-  getAllProducts(): Observable<{ data: any[]; platforms: string[] }> {
-    return this.http.get<{ data: any[]; platforms: string[] }>(`${SCOUT_API}/products`)
-      .pipe(catchError(this.handleError));
-  }
+  getAllProducts(
+    opts: { limit?: number; offset?: number } = {}
+    ): Observable<{ data: any[]; platforms: string[]; total: number }> {
+      const params: string[] = [];
+      if (opts.limit != null)  params.push(`limit=${opts.limit}`);
+      if (opts.offset != null) params.push(`offset=${opts.offset}`);
+      const q = params.length ? `?${params.join('&')}` : '';
+      return this.http.get<{ data: any[]; platforms: string[]; total: number }>(
+        `${SCOUT_API}/products${q}`
+      ).pipe(catchError(this.handleError));
+    }
 
   // ── Chat Agent ──────────────────────────────────────────────────
   //

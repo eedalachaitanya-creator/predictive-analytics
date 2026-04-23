@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 scout_router = APIRouter(tags=["scout"])
 
 CACHE_TTL_MINUTES = 120
-BULK_CONCURRENCY  = 5
+BULK_CONCURRENCY  = 5  
 
 
 # ── Pydantic models ───────────────────────────────────────────────────
@@ -349,9 +349,16 @@ async def search_single(payload: SearchRequest):
 
 
 @scout_router.get("/products")
-def get_all_products():
-    rows, platforms = db.get_all_products()
-    return {"data": rows, "platforms": platforms}
+def get_all_products(limit: int = 0, offset: int = 0):
+    """
+    List tracked products.
+
+    - limit=0 (default): return ALL products (backward compatible)
+    - limit>0: paginate; also returns `total` so UI can render
+      "Showing X-Y of N" and manage prev/next state.
+    """
+    rows, platforms, total = db.get_all_products(limit=limit, offset=offset)
+    return {"data": rows, "platforms": platforms, "total": total}
 
 
 @scout_router.post("/upload/file")
@@ -410,11 +417,22 @@ def get_price_history(product_name: str, platform: Optional[str] = None, limit: 
 
 
 @scout_router.get("/alerts")
-def get_alerts(unacknowledged_only: bool = False, limit: int = 50):
-    alerts       = db.get_alerts(unacknowledged_only, limit)
-    unread_count = db.get_unacknowledged_count()
+def get_alerts(
+    unacknowledged_only: bool = False,
+    limit:               int  = 50,
+    offset:              int  = 0,
+    ):
+    """
+    List price alerts, newest first.
+    Returns `total` so the UI can paginate: "Showing X-Y of N".
+    `unread_count` is separate — it always counts across the full table,
+    not just the current page.
+    """
+    alerts, total = db.get_alerts(unacknowledged_only, limit, offset)
+    unread_count  = db.get_unacknowledged_count()
     return {
         "unread_count": unread_count,
+        "total":        total,
         "alerts": [
             {
                 "id": a["id"], "product_name": a["product_name"],
@@ -441,7 +459,8 @@ def acknowledge_alert(alert_id: int):
 
 @scout_router.post("/price-monitor/run")
 async def run_price_monitor():
-    rows, _ = db.get_all_products()
+    # get_all_products() now returns (rows, platforms, total). We only need rows here.
+    rows, _, _ = db.get_all_products()
     if not rows:
         return {"status": "nothing_to_monitor", "products_checked": 0}
     platforms = [s["name"] for s in db.get_active_websites()]
@@ -451,7 +470,8 @@ async def run_price_monitor():
         if not product_name: continue
         await _search_across_sites(product_name, platforms, force_refresh=True)
         checked += 1
-    alerts = db.get_alerts(limit=checked * 10)
+    # get_alerts() now returns (alerts, total). We only need alerts here.
+    alerts, _ = db.get_alerts(limit=checked * 10)
     return {"status": "completed", "products_checked": checked,
             "alerts_generated": len(alerts), "alerts": alerts}
 

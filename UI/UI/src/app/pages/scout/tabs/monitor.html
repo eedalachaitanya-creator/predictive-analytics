@@ -15,12 +15,15 @@
 </div>
 
 <!-- Alerts Table -->
-@if (alerts().length) {
+<!-- Alerts Table -->
+@if (alertsTotal() > 0) {
   <div class="card mb-24">
     <div class="card-header">
       <div class="card-title">🔔 Recent Price Alerts</div>
     </div>
-    <div class="table-scroll">
+    <!-- Fixed-height scroll container so long lists don't push the Products
+         table off-screen. 50 rows fit comfortably in ~500px. -->
+    <div class="table-scroll paged-scroll">
       <table class="data-table">
         <thead>
           <tr>
@@ -48,6 +51,19 @@
         </tbody>
       </table>
     </div>
+
+    <div class="pagination-bar">
+      <span class="pagination-info">Showing {{ alertsRange() }}</span>
+      <div class="pagination-controls">
+        <button class="btn sm outline" (click)="prevAlertsPage()" [disabled]="alertsPage() <= 1">
+          ‹ Prev
+        </button>
+        <span class="page-indicator">Page {{ alertsPage() }}</span>
+        <button class="btn sm outline" (click)="nextAlertsPage()" [disabled]="!alertsHasNext()">
+          Next ›
+        </button>
+      </div>
+    </div>
   </div>
 }
 
@@ -60,13 +76,13 @@
 
   @if (loading()) {
     <div class="empty-state">Loading products…</div>
-  } @else if (!products().length) {
-    <div class="empty-state">
-      <div style="font-size:32px;margin-bottom:8px;opacity:.4">📦</div>
-      No products tracked yet — search for products in the Search tab
-    </div>
+  } @else if (!products().length && productsTotal() === 0) {
+  <div class="empty-state">
+    <div style="font-size:32px;margin-bottom:8px;opacity:.4">📦</div>
+    No products tracked yet — search for products in the Search tab
+  </div>
   } @else {
-    <div class="table-scroll">
+    <div class="table-scroll paged-scroll">
       <table class="data-table">
         <thead>
           <tr>
@@ -120,6 +136,19 @@
           }
         </tbody>
       </table>
-    </div>
+      </div>
+        <div class="pagination-bar">
+        <span class="pagination-info">Showing {{ productsRange() }}</span>
+        <div class="pagination-controls">
+          <button class="btn sm outline" (click)="prevProductsPage()" [disabled]="productsPage() <= 1">
+            ‹ Prev
+          </button>
+          <span class="page-indicator">Page {{ productsPage() }}</span>
+          <button class="btn sm outline" (click)="nextProductsPage()" [disabled]="!productsHasNext()">
+            Next ›
+          </button>
+        </div>
+      </div>
+
   }
 </div>

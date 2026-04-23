@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, effect, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ScoutService, Listing, SearchResult } from '../../../services/scout.service';
@@ -15,7 +15,11 @@ export class ScoutSearchTab implements OnInit {
 
   mode       = signal<'single' | 'bulk'>('single');
   query      = signal('');
-  platforms  = signal<string[]>([]);
+  // platforms is now a computed — derives from the shared websites signal.
+  // When Platforms tab adds/removes/toggles a website, this recomputes
+  // automatically and the chip list updates without a page refresh.
+  platforms  = computed(() => this.svc.activePlatformNames());
+
   selected   = signal<Set<string>>(new Set());
   searching  = signal(false);
   results    = signal<SearchResult[]>([]);
@@ -23,14 +27,39 @@ export class ScoutSearchTab implements OnInit {
   expandedRow = signal<number | null>(null);
   bulkFile     = signal<File | null>(null);
   bulkDragover = signal(false);
+  // One-time flag: initialize `selected` to "all active" the first time
+  // platforms resolves to a non-empty list. After that, user's chip toggles
+  // are preserved even when new platforms appear.
+  private initialized = false;
 
-  ngOnInit() {
-    this.svc.getActivePlatforms().subscribe({
-      next: (res: any) => {
-        this.platforms.set(res.platforms);
-        this.selected.set(new Set(res.platforms));
+  constructor() {
+    // Reactively keep the selection in sync with the active platform list:
+    // - remove selections for platforms that were deleted or disabled
+    // - on first non-empty list, auto-select everything (default behavior)
+    effect(() => {
+      const active = this.platforms();
+      if (!active.length) return;
+
+      if (!this.initialized) {
+        this.selected.set(new Set(active));
+        this.initialized = true;
+        return;
+      }
+
+      // Prune any selected platforms that no longer exist. Keep the rest.
+      const activeSet = new Set(active);
+      const pruned = new Set([...this.selected()].filter(p => activeSet.has(p)));
+      if (pruned.size !== this.selected().size) {
+        this.selected.set(pruned);
       }
     });
+  }
+
+  ngOnInit() {
+    // Ask the shared service to fetch platforms. The computed signal above
+    // will pick up the result. Safe to call even if another component already
+    // triggered a refresh — the signal just updates once.
+    this.svc.refreshPlatforms();
   }
 
   togglePlatform(name: string) {

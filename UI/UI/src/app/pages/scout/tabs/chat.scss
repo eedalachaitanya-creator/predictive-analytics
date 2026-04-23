@@ -8,7 +8,6 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 600px;
 }
 
 // ── Header row (title + new-chat button) ─────────────────────────────
@@ -44,15 +43,21 @@
 }
 
 // ── Main card containing messages + input ────────────────────────────
-.chat-card {
+chat-card {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 540px;
-  // Cap so long responses scroll internally instead of pushing the page
-  // to 5000px tall. 70vh gives it good vertical presence on laptops but
-  // keeps the input visible without scrolling the outer page.
-  max-height: 70vh;
+  // min-height dropped from 540px → 420px. The old value was sized for
+  // a conversation with several messages already present; it made the
+  // empty state (just the hero + suggestion chips) look stretched with
+  // huge whitespace above and below.
+  min-height: 420px;
+  // Cap at 60vh (down from 70vh). With the sidebar + header + pill tabs
+  // consuming roughly 200px at the top of the page, 70vh pushed the
+  // Send button to just below the fold on 900px-tall screens, requiring
+  // the user to scroll to see/use it. 60vh keeps the whole chat
+  // (including the Send button) inside the viewport.
+  max-height: 60vh;
   padding: 0;
   overflow: hidden;
 }

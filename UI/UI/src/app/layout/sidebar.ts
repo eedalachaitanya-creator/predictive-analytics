@@ -46,16 +46,18 @@ export class SidebarComponent {
     scoutGroup: NavGroup = {
     label: 'Scout Agent',
     icon:  '🔍',
-    pathPrefixes: [
-      '/app/scout', '/app/scout2', '/app/scout3', '/app/scout4',
-      '/app/scout5',
-    ],
+    // pathPrefixes determines when this accordion auto-expands — any URL
+    // starting with /app/scout will cause isInscoutGroup() to return true.
+    pathPrefixes: ['/app/scout'],
     children: [
-      { path: '/app/scout', label: 'Chat', icon: '📤' },
-      { path: '/app/scout2', label: ' Price Monitor ', icon: '✅' },
-      { path: '/app/scout3', label: ' Search ', icon: '⚙️' },
-      { path: '/app/scout4', label: ' Compare ', icon: '🚀' },
-      { path: '/app/scout5', label: ' Platforms ', icon: '📊' }, 
+      // Paths match the child routes we defined in app.routes.ts. The Scout
+      // component reads the last URL segment to decide which tab to show.
+      // Icons chosen to match the pill tabs inside the Scout page itself.
+      { path: '/app/scout/chat',      label: 'Chat',          icon: '💬' },
+      { path: '/app/scout/monitor',   label: 'Price Monitor', icon: '📈' },
+      { path: '/app/scout/search',    label: 'Search',        icon: '🔍' },
+      { path: '/app/scout/compare',   label: 'Compare',       icon: '⚖️' },
+      { path: '/app/scout/platforms', label: 'Platforms',     icon: '🌐' },
     ],
   };
 
@@ -190,9 +192,6 @@ export class SidebarComponent {
     { path: '/app/monitor',   label: 'Cost Monitoring', icon: '💰' },
     { path: '/app/analytics', label: 'Analytics',  icon: '📈' },
     { path: '/app/audit',     label: 'Audit',      icon: '🔒' },
-    { path: '/app/scout',      label: 'Scout Agent',      icon: '🔍' },
-    { path: '/app/strategist', label: 'Strategist Agent', icon: '🧠' },
-    { path: '/app/retention',  label: 'Retention Agent',  icon: '🎯' },
   ];
 
   logout() { this.auth.logout(); }

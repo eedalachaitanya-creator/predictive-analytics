@@ -8,12 +8,20 @@
   </div>
 
   <!-- Tab Navigation -->
+  <!-- Tab Navigation
+     Each pill is now a real router link. Clicking updates the URL
+     (e.g., /app/scout/search), which in turn flips the activeTab signal.
+     The sidebar accordion links work the same way — both the sidebar and
+     the pill tabs navigate via the same mechanism, so they stay in sync
+     automatically. -->
   <div class="pill-tabs scout-tabs">
     @for (tab of tabs; track tab.id) {
-      <div class="pt" [class.active]="activeTab() === tab.id" (click)="setTab(tab.id)">
+      <a class="pt"
+        [class.active]="activeTab() === tab.id"
+        [routerLink]="tab.path">
         <span class="tab-icon">{{ tab.icon }}</span>
         {{ tab.label }}
-      </div>
+      </a>
     }
   </div>
 

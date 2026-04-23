@@ -618,8 +618,9 @@ def main():
     # 6. Text report
     report_text = generate_evaluation_report(all_results, best_model)
     report_path = OUTPUT_DIR / "evaluation_report.txt"
-    with open(report_path, 'w') as f:
+    with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report_text)
+
     log.info("Saved report → %s", report_path)
 
     # 7. JSON summary

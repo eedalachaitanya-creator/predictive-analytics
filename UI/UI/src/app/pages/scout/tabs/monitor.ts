@@ -1,6 +1,11 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ScoutService } from '../../../services/scout.service';
+
+// Page sizes for the two tables. Defined as constants rather than magic
+// numbers so they're easy to change in one place.
+const ALERTS_PAGE_SIZE   = 50;
+const PRODUCTS_PAGE_SIZE = 20;
 
 @Component({
   selector: 'scout-monitor',
@@ -12,9 +17,18 @@ import { ScoutService } from '../../../services/scout.service';
 export class ScoutMonitorTab implements OnInit {
   private svc = inject(ScoutService);
 
-  alerts          = signal<any[]>([]);
-  products        = signal<any[]>([]);
-  platforms       = signal<string[]>([]);
+  // ── Tables (paged) ──────────────────────────────────────────────
+  alerts        = signal<any[]>([]);
+  alertsTotal   = signal(0);
+  alertsPage    = signal(1);              // 1-based page index
+
+  products      = signal<any[]>([]);
+  productsTotal = signal(0);
+  productsPage  = signal(1);
+
+  platforms     = signal<string[]>([]);
+
+  // ── Other state (unchanged) ─────────────────────────────────────
   loading         = signal(true);
   monitoring      = signal(false);
   monitorResult   = signal('');
@@ -22,33 +36,75 @@ export class ScoutMonitorTab implements OnInit {
   priceHistory    = signal<any[]>([]);
   historyLoading  = signal(false);
 
-  totalProducts  = signal(0);
-  totalPlatforms = signal(0);
-  alertCount     = signal(0);
-  avgChange      = signal(0);
+  // ── KPI tiles ───────────────────────────────────────────────────
+  // These now read from totals (not current page) so the tiles always
+  // show the true count even when paging.
+  totalProducts  = computed(() => this.productsTotal());
+  alertCount     = signal(0);        // unread_count from /alerts response
+  totalPlatforms = computed(() => this.svc.activePlatformNames().length);
 
-  ngOnInit() { this.loadData(); }
+  // Page sizes (exposed to template for "Showing X-Y of N")
+  readonly alertsPageSize   = ALERTS_PAGE_SIZE;
+  readonly productsPageSize = PRODUCTS_PAGE_SIZE;
+
+  // Ranges for the "Showing X-Y of N" label.
+  alertsRange = computed(() => this.rangeLabel(
+    this.alertsPage(), ALERTS_PAGE_SIZE, this.alertsTotal()
+  ));
+  productsRange = computed(() => this.rangeLabel(
+    this.productsPage(), PRODUCTS_PAGE_SIZE, this.productsTotal()
+  ));
+
+  alertsHasNext   = computed(() => this.alertsPage() * ALERTS_PAGE_SIZE < this.alertsTotal());
+  productsHasNext = computed(() => this.productsPage() * PRODUCTS_PAGE_SIZE < this.productsTotal());
+
+  ngOnInit() {
+    // Trigger shared platforms refresh so the computed totalPlatforms updates.
+    this.svc.refreshPlatforms();
+    this.loadData();
+  }
 
   loadData() {
-    this.loading.set(true);
+    this.loadProducts();
+    this.loadAlerts();
+  }
 
-    // Fetch the list of currently ACTIVE / configured platforms for the
-    // KPI tile. Previously this used res.platforms from getAllProducts(),
-    // which only contains platforms that already have scraped products —
-    // so the count read "0" until at least one product had been scraped,
-    // even though 7 platforms were configured in the Platforms tab.
-    this.svc.getActivePlatforms().subscribe({
+  // ── Alerts page loading ─────────────────────────────────────────
+
+  loadAlerts() {
+    const page = this.alertsPage();
+    const offset = (page - 1) * ALERTS_PAGE_SIZE;
+    this.svc.getAlerts({ limit: ALERTS_PAGE_SIZE, offset }).subscribe({
       next: (res: any) => {
-        this.totalPlatforms.set((res.platforms || []).length);
+        this.alerts.set(res.alerts || []);
+        this.alertsTotal.set(res.total ?? (res.alerts || []).length);
+        this.alertCount.set(res.unread_count ?? 0);
       }
     });
+  }
 
-    this.svc.getAllProducts().subscribe({
+  nextAlertsPage() {
+    if (!this.alertsHasNext()) return;
+    this.alertsPage.update(p => p + 1);
+    this.loadAlerts();
+  }
+
+  prevAlertsPage() {
+    if (this.alertsPage() <= 1) return;
+    this.alertsPage.update(p => p - 1);
+    this.loadAlerts();
+  }
+
+  // ── Products page loading ───────────────────────────────────────
+
+  loadProducts() {
+    this.loading.set(true);
+    const page = this.productsPage();
+    const offset = (page - 1) * PRODUCTS_PAGE_SIZE;
+    this.svc.getAllProducts({ limit: PRODUCTS_PAGE_SIZE, offset }).subscribe({
       next: (res: any) => {
         const rawProducts = res.data || [];
         const plats = res.platforms || [];
-        // Table columns still derived from platforms-with-products
-        // (per user's preference: "leave it as it is").
         this.platforms.set(plats);
 
         const rows = rawProducts.map((p: any) => {
@@ -63,23 +119,35 @@ export class ScoutMonitorTab implements OnInit {
           return row;
         });
         this.products.set(rows);
-        this.totalProducts.set(rows.length);
+        this.productsTotal.set(res.total ?? rows.length);
         this.loading.set(false);
       },
       error: () => this.loading.set(false)
     });
-
-    this.svc.getAlerts().subscribe({
-      next: (res: any) => {
-        this.alerts.set(res.alerts || []);
-        this.alertCount.set(res.unread_count ?? (res.alerts || []).length);
-        const changes = (res.alerts || [])
-          .filter((a: any) => a.change_percent != null)
-          .map((a: any) => Math.abs(a.change_percent));
-        this.avgChange.set(changes.length ? changes.reduce((a: number, b: number) => a + b, 0) / changes.length : 0);
-      }
-    });
   }
+
+  nextProductsPage() {
+    if (!this.productsHasNext()) return;
+    this.productsPage.update(p => p + 1);
+    this.loadProducts();
+  }
+
+  prevProductsPage() {
+    if (this.productsPage() <= 1) return;
+    this.productsPage.update(p => p - 1);
+    this.loadProducts();
+  }
+
+  // ── "Showing X-Y of N" helper ───────────────────────────────────
+  // Returns "0 of 0" when empty rather than crashing on NaN.
+  private rangeLabel(page: number, size: number, total: number): string {
+    if (total === 0) return '0 of 0';
+    const start = (page - 1) * size + 1;
+    const end   = Math.min(page * size, total);
+    return `${start}–${end} of ${total}`;
+  }
+
+  // ── Monitor action (unchanged flow, just uses new load methods) ──
 
   runMonitor() {
     this.monitoring.set(true);
@@ -88,11 +156,16 @@ export class ScoutMonitorTab implements OnInit {
       next: (res: any) => {
         this.monitorResult.set(`Checked ${res.products_checked} products, ${res.alerts_generated} alerts`);
         this.monitoring.set(false);
+        // Reset to page 1 after a monitor run so the newest alerts are visible.
+        this.alertsPage.set(1);
+        this.productsPage.set(1);
         this.loadData();
       },
       error: (err: any) => { this.monitorResult.set(err.message || 'Failed'); this.monitoring.set(false); }
     });
   }
+
+  // ── Unchanged below ─────────────────────────────────────────────
 
   loadHistory(name: string) {
     if (this.selectedProduct() === name) { this.selectedProduct.set(null); return; }
@@ -101,8 +174,6 @@ export class ScoutMonitorTab implements OnInit {
     this.priceHistory.set([]);
     this.svc.getPriceHistory(name).subscribe({
       next: (res: any) => {
-        // Backend returns { platforms: { "amazon": [points], "flipkart": [points] } }
-        // Flatten into a single array with platform added to each point
         const platforms = res.platforms || {};
         const flat: any[] = [];
         for (const [platform, points] of Object.entries(platforms)) {
@@ -110,7 +181,6 @@ export class ScoutMonitorTab implements OnInit {
             flat.push({ ...point, platform });
           }
         }
-        // Sort by date descending
         flat.sort((a, b) => new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime());
         this.priceHistory.set(flat);
         this.historyLoading.set(false);
@@ -130,11 +200,8 @@ export class ScoutMonitorTab implements OnInit {
 
   currencyFor(platform: string): string {
     const p = platform.toLowerCase();
-    // Indian platforms use INR
     if (p.endsWith('.in') || ['flipkart', 'myntra', 'nykaa', 'beato', 'fastandup.in', 'ikea'].includes(p)) return 'INR';
-    // US/global platforms use USD
     if (['amazon', 'walmart', 'target', 'ebay'].includes(p)) return 'USD';
-    // EU platforms
     if (p === 'fast and up') return 'EUR';
     return 'INR';
   }

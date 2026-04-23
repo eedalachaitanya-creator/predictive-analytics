@@ -1,5 +1,5 @@
 .scout-page {
-  padding: 28px 32px;
+   padding: 16px 32px 28px;
 }
 
 .scout-header {
@@ -28,6 +28,22 @@
   display: flex;
   align-items: center;
   gap: 6px;
+
+  // The pill tabs became <a> elements (switched from <div> to enable
+  // routerLink navigation). Browsers apply default blue color and an
+  // underline to anchors — override both, and cover every interaction
+  // state because :hover/:visited/:focus each re-apply defaults if not
+  // explicitly overridden.
+  text-decoration: none;
+  color: inherit;
+
+  &:hover,
+  &:focus,
+  &:visited,
+  &.active {
+    text-decoration: none;
+    color: inherit;
+  }
 }
 
 .tab-icon {

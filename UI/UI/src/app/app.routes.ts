@@ -30,7 +30,25 @@ export const routes: Routes = [
       { path: 'cost-tracking', loadComponent: () => import('./pages/cost-tracking').then(m => m.CostTrackingComponent), canActivate: [clientGuard] },
       { path: 'chat',       loadComponent: () => import('./pages/chat').then(m => m.ChatComponent),             canActivate: [clientGuard] },
       { path: 'messages',   loadComponent: () => import('./pages/messages').then(m => m.MessagesComponent),     canActivate: [clientGuard] },
-       { path: 'scout',      loadComponent: () => import('./pages/scout/scout').then(m => m.ScoutComponent) },
+       {
+        path: 'scout',
+        loadComponent: () => import('./pages/scout/scout').then(m => m.ScoutComponent),
+        children: [
+          // Default: hitting /app/scout lands on Chat
+          { path: '', redirectTo: 'chat', pathMatch: 'full' },
+          // These children don't load components — the Scout parent renders all
+          // 5 tab components always. The path segment is only used to set the
+          // active tab via the URL. Empty component refs would still work, but
+          // we use a sentinel component-less approach: the parent watches its
+          // own ActivatedRoute.firstChild to detect which tab should be active.
+          { path: 'chat',      children: [] },
+          { path: 'monitor',   children: [] },
+          { path: 'search',    children: [] },
+          { path: 'compare',   children: [] },
+          { path: 'platforms', children: [] },
+        ],
+      },
+
       { path: 'strategist', loadComponent: () => import('./pages/strategist/strategist').then(m => m.StrategistComponent) },
       { path: 'retention',  loadComponent: () => import('./pages/retention/retention').then(m => m.RetentionComponent) },
       // ── Admin Console (blocked for clients) ──────────────────

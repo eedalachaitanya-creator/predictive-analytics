@@ -67,7 +67,8 @@
             {{ uploadSvc.discarding() ? 'Removing…' : '✕ Start Over' }}
           </button>
           <button class="btn primary sm"
-                  [disabled]="uploadSvc.committing() || uploadSvc.discarding() || batch.files.length === 0"
+                  [disabled]="uploadSvc.committing() || uploadSvc.discarding() || batch.files.length === 0 || !uploadSvc.allRequiredUploaded()"
+                  [title]="!uploadSvc.allRequiredUploaded() ? 'Upload all required files to enable Save' : ''"
                   (click)="commitBatch()">
             {{ uploadSvc.committing() ? 'Saving…' : '✓ Save My Data' }}
           </button>
@@ -88,6 +89,22 @@
         @if (uploadSvc.lastCommitError(); as err) {
           <div class="batch-hint error">
             ❌ We couldn't save your data. {{ err }}
+          </div>
+        }
+        <!-- Missing-required-files warning.
+             Shown when the pending batch is non-empty but some required
+             masters are still missing. Before this existed, the Save
+             button was enabled the moment one file was uploaded, so a
+             client could commit a partial batch (e.g. just customers)
+             and wonder why churn was empty — or, worse, hit a cryptic
+             FK preflight error. This banner names the missing files
+             and the Save button's [disabled] binding blocks the commit
+             until all required masters are in. -->
+        @if (!uploadSvc.allRequiredUploaded()) {
+          <div class="batch-hint warn">
+            ⚠️ <strong>{{ requiredUploadedCount() }} of {{ requiredCount() }}</strong> required files uploaded.
+            Still missing: <strong>{{ missingRequiredLabels().join(', ') }}</strong>.
+            Save is disabled until all required files are in.
           </div>
         }
         <div class="batch-hint">

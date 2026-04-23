@@ -165,6 +165,42 @@ export class UploadComponent implements OnInit {
   isUploading(key: MasterType) { return this.uploadSvc.isUploading(key); }
   isUploaded(key: MasterType) { return this.uploadSvc.isUploaded(key); }
   uploadedCount() { return this.uploadSvc.uploadedCount(); }
+
+  /** Friendly labels of required masters that still haven't been uploaded.
+   *  Drives the "still missing: X, Y, Z" hint above the Save button so
+   *  clients see exactly what they need to upload — instead of the
+   *  backend silently committing a partial batch (old behavior) or
+   *  failing with a cryptic FK violation (the only signal we used to
+   *  give for missing parents). Walks the same `masters` config used
+   *  to render the tiles so labels stay in sync automatically. */
+  missingRequiredLabels(): string[] {
+    const missing: string[] = [];
+    for (const grp of this.masters) {
+      for (const item of grp.items) {
+        if (item.required && !this.uploadSvc.isUploaded(item.key)) {
+          missing.push(item.label.replace(/ Master$/, ''));
+        }
+      }
+    }
+    return missing;
+  }
+
+  /** Total count of required masters (the 2 feedback files are optional).
+   *  Kept as a method so the hint reads from a single source of truth
+   *  rather than a hardcoded number in the template. */
+  requiredCount(): number {
+    let n = 0;
+    for (const grp of this.masters) {
+      for (const item of grp.items) if (item.required) n++;
+    }
+    return n;
+  }
+
+  /** How many of the required masters are already uploaded. */
+  requiredUploadedCount(): number {
+    return this.requiredCount() - this.missingRequiredLabels().length;
+  }
+
   formatSize(bytes: number): string {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';

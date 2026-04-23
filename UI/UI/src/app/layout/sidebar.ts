@@ -62,29 +62,29 @@ export class SidebarComponent {
   };
 
     strategistGroup: NavGroup = {
-    label: 'Strategist Agent',
-    icon:  '🧠',
-    pathPrefixes: [
-      '/app/strategist', '/app/strategist2', '/app/strategist3',  
-    ],
-    children: [
-      { path: '/app/strategist', label: ' Pricing Engine ', icon: '📤' },
-      { path: '/app/strategist2', label: ' Market Trends ', icon: '✅' },
-      { path: '/app/strategist3', label: ' Pipeline Monitor ', icon: '⚙️' }, 
-    ],
-  };
+      label: 'Strategist Agent',
+      icon:  '🧠',
+      pathPrefixes: [
+        '/app/pricing-engine', '/app/market-trends', '/app/pipeline-monitor',
+      ],
+      children: [
+        { path: '/app/pricing-engine',    label: 'Pricing Engine',   icon: '🧠' },
+        { path: '/app/market-trends',     label: 'Market Trends',    icon: '📈' },
+        { path: '/app/pipeline-monitor',  label: 'Pipeline Monitor', icon: '📊' },
+      ],
+    };
 
    retentionGroup: NavGroup = {
     label: 'Retention Agent',
     icon:  '🎯',
     pathPrefixes: [
-      '/app/retention', '/app/retention2', '/app/retention3', '/app/retention4', 
+      '/app/run-pipeline', '/app/interventions', '/app/escalations', '/app/retention-summary',
     ],
     children: [
-      { path: '/app/retention', label: '  Run Pipeline ', icon: '📤' },
-      { path: '/app/retention2', label: ' Interventions', icon: '✅' },
-      { path: '/app/retention3', label: ' Escalations ', icon: '⚙️' }, 
-      { path: '/app/retention4', label: ' Summary ', icon: '📊' }, 
+      { path: '/app/run-pipeline',       label: 'Run Pipeline',  icon: '🚀' },
+      { path: '/app/interventions',      label: 'Interventions', icon: '📋' },
+      { path: '/app/escalations',        label: 'Escalations',   icon: '🔔' },
+      { path: '/app/retention-summary',  label: 'Summary',       icon: '📊' },
     ],
   };
 

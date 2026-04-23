@@ -49,8 +49,15 @@ export const routes: Routes = [
         ],
       },
 
-      { path: 'strategist', loadComponent: () => import('./pages/strategist/strategist').then(m => m.StrategistComponent) },
-      { path: 'retention',  loadComponent: () => import('./pages/retention/retention').then(m => m.RetentionComponent) },
+      { path: 'pricing-engine',    loadComponent: () => import('./pages/pricing-engine').then(m => m.PricingEngineComponent),       canActivate: [clientGuard] },
+      { path: 'market-trends',     loadComponent: () => import('./pages/market-trends').then(m => m.MarketTrendsComponent),         canActivate: [clientGuard] },
+      { path: 'pipeline-monitor',  loadComponent: () => import('./pages/pipeline-monitor').then(m => m.PipelineMonitorComponent),   canActivate: [clientGuard] },
+      { path: 'strategist', redirectTo: 'pricing-engine', pathMatch: 'full' },
+      { path: 'run-pipeline',       loadComponent: () => import('./pages/run-pipeline').then(m => m.RunPipelineComponent),             canActivate: [clientGuard] },
+      { path: 'interventions',      loadComponent: () => import('./pages/interventions').then(m => m.InterventionsComponent),         canActivate: [clientGuard] },
+      { path: 'escalations',        loadComponent: () => import('./pages/escalations').then(m => m.EscalationsComponent),             canActivate: [clientGuard] },
+      { path: 'retention-summary',  loadComponent: () => import('./pages/retention-summary').then(m => m.RetentionSummaryComponent),  canActivate: [clientGuard] },
+      { path: 'retention',          redirectTo: 'run-pipeline', pathMatch: 'full' },
       // ── Admin Console (blocked for clients) ──────────────────
       { path: 'clients',   loadComponent: () => import('./pages/clients').then(m => m.ClientsComponent),   canActivate: [adminGuard] },
       { path: 'users',     loadComponent: () => import('./pages/users').then(m => m.UsersComponent),       canActivate: [adminGuard] },

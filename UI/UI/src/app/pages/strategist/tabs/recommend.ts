@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, computed } from '@angular/core';
+import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StrategistService, StrategistRequest, PricingRecommendation, ScoutProduct } from '../../../services/strategist.service';
@@ -18,12 +18,13 @@ interface ProductRow {
   templateUrl: './recommend.html',
   styleUrls: ['./recommend.scss']
 })
-export class StrategistRecommendTab implements OnInit {
+export class StrategistRecommendTab {
   private svc  = inject(StrategistService);
   private auth = inject(AuthService);
   clientId     = this.auth.getClientId();
 
-  products      = signal<ProductRow[]>([]);
+  // products      = signal<ProductRow[]>([]);
+  products      = signal<ProductRow[]>([{ name: '', cost: '', listings: '', platforms: [] }]);
   savedCosts    = signal<Record<string, number>>({});
   useChurn      = signal(false);
   churnJson     = signal('');
@@ -32,12 +33,12 @@ export class StrategistRecommendTab implements OnInit {
   undercutPct   = signal(2);
 
   loading       = signal(false);
-  loadingSample = signal(true);
+  loadingSample = signal(false);
   error         = signal('');
   results       = signal<PricingRecommendation[]>([]);
   runMeta       = signal<{ run_id: string; elapsed: number; retention_count: number } | null>(null);
 
-  ngOnInit() { this.loadSample(); }
+  // ngOnInit() { this.loadSample(); }
 
   loadSample() {
     this.loadingSample.set(true);

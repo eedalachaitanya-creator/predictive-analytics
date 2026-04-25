@@ -1,9 +1,29 @@
 <div class="page-anim">
-  <div class="grid-4 mb-20">
-    <div class="stat-card"><div class="stat-value text-green">{{ clients().length }}</div><div class="stat-label">Total Clients</div></div>
-    <div class="stat-card"><div class="stat-value text-blue">{{ clients().length }}</div><div class="stat-label">Active</div></div>
-    <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">Suspended</div></div>
-    <div class="stat-card"><div class="stat-label" style="margin-top:4px">Data Source</div><div class="font-mono" style="font-size:13px;color:var(--accent-cyan);margin-top:6px">PostgreSQL</div></div>
+  <div class="grid-3 mb-20">
+    <!-- Three stat tiles double as filter tabs. The active one gets a blue
+         outline + pointer to signal it's pressed. Clicks flip the table
+         between All / Active-only / Inactive-only. -->
+    <button type="button"
+            class="stat-card stat-card-btn"
+            [class.is-selected]="statusFilter() === 'all'"
+            (click)="setStatusFilter('all')">
+      <div class="stat-value text-green">{{ clients().length }}</div>
+      <div class="stat-label">Total Clients</div>
+    </button>
+    <button type="button"
+            class="stat-card stat-card-btn"
+            [class.is-selected]="statusFilter() === 'active'"
+            (click)="setStatusFilter('active')">
+      <div class="stat-value text-blue">{{ activeClients().length }}</div>
+      <div class="stat-label">Active</div>
+    </button>
+    <button type="button"
+            class="stat-card stat-card-btn"
+            [class.is-selected]="statusFilter() === 'inactive'"
+            (click)="setStatusFilter('inactive')">
+      <div class="stat-value text-red">{{ inactiveClients().length }}</div>
+      <div class="stat-label">Inactive</div>
+    </button>
   </div>
 
   <div class="flex-row mb-20" style="gap:10px">
@@ -31,73 +51,136 @@
        one transaction, so the client can log in immediately.
        ════════════════════════════════════════════════════════════════════ -->
   @if (showAddForm()) {
-    <div class="card mb-24" style="padding:24px">
-      <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:16px">
-        <div class="section-heading" style="margin:0; border:none; padding:0">+ Add New Client</div>
-        <button class="btn outline sm" (click)="closeAddForm()">✕ Cancel</button>
+    <div class="add-client-card mb-24">
+      <!-- Accent strip + title row -->
+      <div class="add-client-head">
+        <div class="ach-left">
+          <div class="ach-icon" aria-hidden="true">✨</div>
+          <div>
+            <div class="ach-title">Add New Client</div>
+            <div class="ach-sub">Create a tenant workspace and its first user account in one step.</div>
+          </div>
+        </div>
+        <button class="btn outline sm" (click)="closeAddForm()" [disabled]="addSaving()">✕ Cancel</button>
       </div>
 
-      <!-- Company details -->
-      <div class="form-section-label">Company Details</div>
+      <div class="add-client-body">
 
-      <label class="form-label">Company Name <span class="required">*</span></label>
-      <input class="form-input mb-12"
-             type="text"
-             placeholder="e.g. Target Corporation"
-             [ngModel]="addForm().client_name"
-             (ngModelChange)="updateAddField('client_name', $event)"
-             [disabled]="addSaving()"
-             required />
+        <!-- ─────── Section 1 · Company ─────── -->
+        <section class="form-section">
+          <header class="form-section-head">
+            <span class="fs-icon" aria-hidden="true">🏢</span>
+            <div>
+              <h3 class="fs-title">Company Details</h3>
+              <p class="fs-hint">Basic identity for this tenant. The code becomes part of the client_id.</p>
+            </div>
+          </header>
 
-      <label class="form-label">Company Code <span class="required">*</span></label>
-      <input class="form-input mb-16"
-             type="text"
-             placeholder="e.g. TARGET (max 10 chars, will be uppercased)"
-             maxlength="10"
-             [ngModel]="addForm().client_code"
-             (ngModelChange)="updateAddField('client_code', $event)"
-             [disabled]="addSaving()"
-             required />
+          <div class="form-row two-col">
+            <div class="form-field">
+              <label class="form-label" for="ac-name">
+                Company Name <span class="required">*</span>
+              </label>
+              <input id="ac-name"
+                     class="form-input"
+                     type="text"
+                     placeholder="e.g. Target Corporation"
+                     autocomplete="organization"
+                     [ngModel]="addForm().client_name"
+                     (ngModelChange)="updateAddField('client_name', $event)"
+                     [disabled]="addSaving()"
+                     required />
+            </div>
 
-      <!-- First user — required because without a user nobody can log in -->
-      <div class="form-section-label">Initial Contact / Login</div>
+            <div class="form-field">
+              <label class="form-label" for="ac-code">
+                Company Code <span class="required">*</span>
+              </label>
+              <input id="ac-code"
+                     class="form-input font-mono"
+                     type="text"
+                     placeholder="e.g. TARGET"
+                     maxlength="10"
+                     autocomplete="off"
+                     [ngModel]="addForm().client_code"
+                     (ngModelChange)="updateAddField('client_code', $event)"
+                     [disabled]="addSaving()"
+                     required />
+              <div class="form-hint">Max 10 characters · auto-uppercased.</div>
+            </div>
+          </div>
+        </section>
 
-      <label class="form-label">Contact Name <span class="required">*</span></label>
-      <input class="form-input mb-12"
-             type="text"
-             placeholder="e.g. Jane Smith"
-             [ngModel]="addForm().contact_name"
-             (ngModelChange)="updateAddField('contact_name', $event)"
-             [disabled]="addSaving()"
-             required />
+        <!-- ─────── Section 2 · Initial user ─────── -->
+        <section class="form-section">
+          <header class="form-section-head">
+            <span class="fs-icon" aria-hidden="true">👤</span>
+            <div>
+              <h3 class="fs-title">Initial Contact &amp; Login</h3>
+              <p class="fs-hint">This person gets the first client-user account and can invite others later.</p>
+            </div>
+          </header>
 
-      <label class="form-label">Contact Email <span class="required">*</span></label>
-      <input class="form-input mb-12"
-             type="email"
-             placeholder="e.g. jane@target.com"
-             [ngModel]="addForm().contact_email"
-             (ngModelChange)="updateAddField('contact_email', $event)"
-             [disabled]="addSaving()"
-             required />
+          <div class="form-row two-col">
+            <div class="form-field">
+              <label class="form-label" for="ac-contact">
+                Contact Name <span class="required">*</span>
+              </label>
+              <input id="ac-contact"
+                     class="form-input"
+                     type="text"
+                     placeholder="e.g. Jane Smith"
+                     autocomplete="name"
+                     [ngModel]="addForm().contact_name"
+                     (ngModelChange)="updateAddField('contact_name', $event)"
+                     [disabled]="addSaving()"
+                     required />
+            </div>
 
-      <label class="form-label">Temporary Password <span class="required">*</span></label>
-      <input class="form-input mb-16"
-             type="text"
-             placeholder="Min 6 characters — share with the contact"
-             [ngModel]="addForm().password"
-             (ngModelChange)="updateAddField('password', $event)"
-             [disabled]="addSaving()"
-             required />
+            <div class="form-field">
+              <label class="form-label" for="ac-email">
+                Contact Email <span class="required">*</span>
+              </label>
+              <input id="ac-email"
+                     class="form-input"
+                     type="email"
+                     placeholder="jane@target.com"
+                     autocomplete="email"
+                     [ngModel]="addForm().contact_email"
+                     (ngModelChange)="updateAddField('contact_email', $event)"
+                     [disabled]="addSaving()"
+                     required />
+            </div>
+          </div>
 
-      @if (addError()) {
-        <div class="err-msg">⚠️ {{ addError() }}</div>
-      }
+          <div class="form-field">
+            <label class="form-label" for="ac-pw">
+              Temporary Password <span class="required">*</span>
+            </label>
+            <input id="ac-pw"
+                   class="form-input font-mono"
+                   type="text"
+                   placeholder="Min 6 characters"
+                   autocomplete="new-password"
+                   [ngModel]="addForm().password"
+                   (ngModelChange)="updateAddField('password', $event)"
+                   [disabled]="addSaving()"
+                   required />
+            <div class="form-hint">Share this with the contact out-of-band — they'll change it after first login.</div>
+          </div>
+        </section>
 
-      <div class="flex-row" style="justify-content:flex-end; gap:10px">
-        <button class="btn outline" (click)="closeAddForm()" [disabled]="addSaving()">Cancel</button>
-        <button class="btn walmart" (click)="saveNewClient()" [disabled]="addSaving()">
-          {{ addSaving() ? 'Creating…' : 'Create Client' }}
-        </button>
+        @if (addError()) {
+          <div class="err-msg mt-8">⚠️ {{ addError() }}</div>
+        }
+
+        <!-- Action bar -->
+        <div class="add-client-actions">
+          <button class="btn outline" (click)="closeAddForm()" [disabled]="addSaving()">Cancel</button>
+          <button class="btn walmart" (click)="saveNewClient()" [disabled]="addSaving()">
+            {{ addSaving() ? '⏳ Creating…' : '✓ Create Client' }}
+          </button>
+        </div>
       </div>
     </div>
   }
@@ -111,7 +194,15 @@
   }
 
   @if (!loading()) {
-    <div class="section-heading">📋 All Clients</div>
+    <div class="section-heading">
+      📋
+      @switch (statusFilter()) {
+        @case ('active')   { Active Clients }
+        @case ('inactive') { Inactive Clients }
+        @default           { All Clients }
+      }
+      <span class="sh-count">({{ visibleClients().length }})</span>
+    </div>
     <div class="card mb-24">
       <table class="data-table">
         <thead>
@@ -120,29 +211,48 @@
             <th>Client Name</th>
             <th>Code</th>
             <th>Registered</th>
+            <th>Status</th>
             <th>Action</th>
-            <!-- Only show the Delete column header to super admins so the
-                 table isn't pointlessly wider for viewer/client_user roles. -->
+            <!-- Only show the Delete column header to super admins. -->
             @if (isSuperAdmin()) { <th>Delete</th> }
           </tr>
         </thead>
         <tbody>
-          @for (c of clients(); track c.client_id) {
-            <tr [class.selected]="selected()?.client_id === c.client_id">
+          @for (c of visibleClients(); track c.client_id) {
+            <tr [class.selected]="selected()?.client_id === c.client_id"
+                [class.dim]="!c.is_active">
               <td class="font-mono">{{ c.client_id }}</td>
               <td>{{ c.client_name }}</td>
               <td class="font-mono">{{ c.client_code }}</td>
               <td style="font-size:12px">{{ formatDate(c.created_at) }}</td>
+
+              <!-- Status pill. Green for active, gray-red for inactive.
+                   Inactive rows also show when they were deactivated so
+                   the admin can audit the timeline at a glance. -->
+              <td>
+                @if (c.is_active) {
+                  <span class="status-pill status-active">● Active</span>
+                } @else {
+                  <span class="status-pill status-inactive"
+                        [title]="'Deactivated ' + formatDate(c.deactivated_at)">
+                    ● Inactive
+                  </span>
+                }
+              </td>
+
               <td><button class="btn outline sm" (click)="selectClient(c)">▶ View</button></td>
 
               <!-- ─ Delete cell (super_admin only) ─────────────────────────
-                   Two-click confirmation so a single misclick can't wipe a
-                   tenant. First click arms the row (sets deleteConfirmId);
-                   second click actually fires the DELETE. Any Cancel click
-                   clears the arm state. -->
+                   Active rows keep the two-click Delete flow. Inactive
+                   (already soft-deleted) rows show a muted "Deleted" tag
+                   in the same slot so the column stays aligned. -->
               @if (isSuperAdmin()) {
                 <td>
-                  @if (deleteConfirmId() === c.client_id) {
+                  @if (!c.is_active) {
+                    <span class="deleted-tag" [title]="'Deactivated ' + formatDate(c.deactivated_at)">
+                      ✗ Deleted
+                    </span>
+                  } @else if (deleteConfirmId() === c.client_id) {
                     <div class="flex-row" style="gap:6px; flex-wrap:nowrap">
                       <button class="btn danger sm"
                               [disabled]="deleting()"
@@ -158,12 +268,24 @@
                   } @else {
                     <button class="btn outline sm"
                             (click)="confirmDelete(c.client_id)"
-                            title="Delete this client and all their data">
+                            title="Delete this client">
                       🗑 Delete
                     </button>
                   }
                 </td>
               }
+            </tr>
+          }
+          @if (visibleClients().length === 0) {
+            <tr>
+              <td [attr.colspan]="isSuperAdmin() ? 7 : 6"
+                  style="text-align:center; padding:24px; color:var(--text-muted)">
+                @switch (statusFilter()) {
+                  @case ('active')   { No active clients. }
+                  @case ('inactive') { No inactive clients — nothing has been deleted yet. }
+                  @default           { No clients registered yet. }
+                }
+              </td>
             </tr>
           }
         </tbody>

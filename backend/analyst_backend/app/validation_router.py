@@ -108,6 +108,17 @@ VALIDATION_CONFIG = {
         "required_cols": ["sub_category_id", "sub_category_name", "category_id"],
         "date_cols": [],
     },
+    "sub_sub_category": {
+        "table": "sub_sub_categories",
+        "label": "🗂️ Sub-Sub-Category Master",
+        "group": "Hierarchy",
+        "pk": "sub_sub_category_id",
+        "has_client_id": True,
+        "required_cols": [
+            "sub_sub_category_id", "sub_sub_category_name", "sub_category_id",
+        ],
+        "date_cols": [],
+    },
     "brand": {
         "table": "brands",
         "label": "🏷️ Brand Master",
@@ -180,17 +191,34 @@ def get_validation(clientId: str = Query(default="CLT-001")):
             else:
                 row_count = _safe_query(conn, f"SELECT COUNT(*) FROM {table}")
 
-            # Skip tables with no data
-            if row_count == 0:
-                continue
-
-            # ── Column count ───────────────────────────────────────────
+            # ── Column count (computed even for empty tables so the row in
+            # the summary still shows how wide the schema is) ─────────
             col_count = _safe_query(
                 conn,
                 "SELECT COUNT(*) FROM information_schema.columns "
                 "WHERE table_name = :tbl AND table_schema = 'public'",
                 {"tbl": table},
             )
+
+            # ── Tables with zero rows are surfaced as a 'warn' row
+            # instead of silently disappearing — so the super admin can
+            # see at a glance which masters still need data uploaded.
+            if row_count == 0:
+                results.append({
+                    "n":              n,
+                    "masterType":     master_type,
+                    "name":           cfg["label"],
+                    "group":          cfg["group"],
+                    "rows":           0,
+                    "cols":           col_count,
+                    "missing":        0,
+                    "missingDetails": [],
+                    "dup":            0,
+                    "dateErrors":     0,
+                    "status":         "warn",
+                    "empty":          True,
+                })
+                continue
 
             # ── Missing values in required columns ─────────────────────
             missing = 0
@@ -272,7 +300,10 @@ def get_validation(clientId: str = Query(default="CLT-001")):
             })
 
     # ── Summary stats ──────────────────────────────────────────────────
-    uploaded = len(results)
+    # `uploaded` counts only masters that actually have rows — empty
+    # tables now appear as warn rows in `results` but shouldn't be
+    # counted as "Tables with Data".
+    uploaded = sum(1 for r in results if not r.get("empty"))
     passed = sum(1 for r in results if r["status"] == "ok")
     warnings = sum(1 for r in results if r["status"] == "warn")
     errors = sum(1 for r in results if r["status"] == "error")

@@ -4,7 +4,7 @@
     <div class="sb-logo-sub">{{ auth.getClientName() }} · {{ auth.getClientId() }}</div>
   </div>
 
-  @if (!auth.isAdmin()) {
+  @if (!auth.isSuperAdmin()) {
     <div class="sb-section">
       <div class="sb-section-label">Client Portal</div>
 
@@ -121,7 +121,7 @@
     </div>
   }
 
-  @if (auth.isAdmin()) {
+  @if (auth.isSuperAdmin()) {
     <div class="sb-section">
       <div class="sb-section-label">Admin Console</div>
       @for (item of adminNav; track item.path) {

@@ -23,7 +23,6 @@ export const routes: Routes = [
       { path: 'upload',     loadComponent: () => import('./pages/upload').then(m => m.UploadComponent),         canActivate: [clientGuard] },
       { path: 'validation', loadComponent: () => import('./pages/validation').then(m => m.ValidationComponent), canActivate: [clientGuard] },
       { path: 'settings',   loadComponent: () => import('./pages/settings').then(m => m.SettingsComponent),     canActivate: [clientGuard] },
-      { path: 'run',        loadComponent: () => import('./pages/run').then(m => m.RunComponent),               canActivate: [clientGuard] },
       { path: 'dashboard',  loadComponent: () => import('./pages/dashboard').then(m => m.DashboardComponent),   canActivate: [clientGuard] },
       { path: 'downloads',  loadComponent: () => import('./pages/downloads').then(m => m.DownloadsComponent),   canActivate: [clientGuard] },
       { path: 'churn-scores', loadComponent: () => import('./pages/churn-scores').then(m => m.ChurnScoresComponent), canActivate: [clientGuard] },

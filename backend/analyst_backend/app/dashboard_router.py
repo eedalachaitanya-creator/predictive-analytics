@@ -53,39 +53,106 @@ def get_dashboard(
         # ═══════════════════════════════════════════════════════════════
         # 1. KPIs — Key Performance Indicators
         # ═══════════════════════════════════════════════════════════════
-        # Derive is_repeat_customer (2+ orders) and is_high_value
-        # (Platinum/Gold tier) from raw columns.
+        # Read the live settings first so the counts below reflect the
+        # latest values the user saved on the Settings page — not whatever
+        # was current when the pipeline last refreshed the MV.
+        #   churn_window_days       → drives the Lapsed Customer count.
+        #   min_repeat_orders       → drives the Repeat Customer count.
+        #   high_value_percentile   → drives the High Value subtitle.
+        #   ref_date                → mirrors the MV's logic (fixed date if the
+        #                             client is configured that way, else NOW()).
+        cfg_row = conn.execute(text("""
+            SELECT
+                COALESCE(churn_window_days, 90)                   AS churn_window_days,
+                COALESCE(min_repeat_orders, 2)                    AS min_repeat_orders,
+                COALESCE(high_value_percentile, 75)               AS high_value_percentile,
+                CASE WHEN reference_date_mode = 'fixed'
+                      AND reference_date IS NOT NULL
+                     THEN reference_date::TIMESTAMPTZ
+                     ELSE NOW()
+                END                                               AS ref_date
+            FROM client_config
+            WHERE client_id = :cid
+        """), {"cid": clientId}).fetchone()
+
+        churn_window_days     = int(cfg_row[0]) if cfg_row else 90
+        min_repeat_orders     = int(cfg_row[1]) if cfg_row else 2
+        high_value_percentile = int(cfg_row[2]) if cfg_row else 75
+        ref_date              = cfg_row[3]     if cfg_row else None
+
+        # totalCustomers is the raw registered count — matches the Validation
+        # page. The ML-derived counts below (repeat / high-value / scored)
+        # come from mv_customer_features, which only contains customers with
+        # at least one non-Cancelled order. Customers registered but never
+        # ordered are surfaced as `unscoredCustomers`.
+        total_customers = conn.execute(text(
+            "SELECT COUNT(*) FROM customers WHERE client_id = :cid"
+        ), {"cid": clientId}).scalar() or 0
+
+        # Repeat threshold now reads from client_config (:min_repeat) — was
+        # hardcoded to 2, which made the Settings page's value inert.
         r = conn.execute(text("""
             SELECT
-                COUNT(*) AS total_customers,
-                COUNT(*) FILTER (WHERE total_orders >= 2) AS repeat_customers,
-                COUNT(*) FILTER (WHERE rfm_total_score >= 12) AS high_value,
-                COUNT(*) FILTER (WHERE churn_label = 1) AS churned,
-                ROUND(AVG(churn_label)::NUMERIC * 100, 1) AS churn_rate
+                COUNT(*)                                            AS scored_customers,
+                COUNT(*) FILTER (WHERE total_orders >= :min_repeat) AS repeat_customers,
+                COUNT(*) FILTER (WHERE is_high_value = 1)           AS high_value
             FROM mv_customer_features
             WHERE client_id = :cid
-        """), {"cid": clientId})
-        kpi_row = r.fetchone()
+        """), {"cid": clientId, "min_repeat": min_repeat_orders})
+        mv_row = r.fetchone()
 
-        total_customers = kpi_row[0] or 0
-        repeat_customers = kpi_row[1] or 0
-        high_value = kpi_row[2] or 0
-        churned = kpi_row[3] or 0
-        churn_rate = float(kpi_row[4]) if kpi_row[4] else 0.0
+        scored_customers = mv_row[0] or 0
+        repeat_customers = mv_row[1] or 0
+        high_value       = mv_row[2] or 0
 
-        r = conn.execute(text(
+        # Lapsed count: recomputed live from `orders` against the CURRENT
+        # churn_window_days setting, instead of reading the MV's stale
+        # churn_label (which was frozen when the pipeline last refreshed).
+        # Matches the MV's logic: customer has ≥1 non-Cancelled order AND
+        # their most recent one is older than churn_window_days from ref_date.
+        #
+        # We compute the cutoff in Python rather than inline-casting a bind
+        # inside the SQL — SQLAlchemy's text() parser treats `::` as a
+        # Postgres type-cast and refuses to substitute a bind immediately
+        # before it (e.g. `:ref_date::TIMESTAMPTZ` silently ends up in the
+        # rendered SQL unsubstituted, causing a 500). Binding a single
+        # datetime sidesteps the parser collision entirely.
+        from datetime import timedelta
+        cutoff = ref_date - timedelta(days=churn_window_days) if ref_date else None
+        if cutoff is not None:
+            churned = conn.execute(text("""
+                SELECT COUNT(*)
+                FROM (
+                    SELECT customer_id, MAX(order_date) AS last_order
+                    FROM orders
+                    WHERE client_id = :cid
+                      AND order_status NOT IN ('Cancelled')
+                    GROUP BY customer_id
+                ) x
+                WHERE x.last_order < :cutoff
+            """), {"cid": clientId, "cutoff": cutoff}).scalar() or 0
+        else:
+            churned = 0
+
+        churn_rate = round(churned * 100.0 / scored_customers, 1) if scored_customers else 0.0
+
+        total_orders = conn.execute(text(
             "SELECT COUNT(*) FROM orders WHERE client_id = :cid"
-        ), {"cid": clientId})
-        total_orders = r.scalar() or 0
+        ), {"cid": clientId}).scalar() or 0
 
         kpis = {
-            "totalCustomers": total_customers,
-            "totalOrders": total_orders,
-            "repeatCustomers": repeat_customers,
-            "highValue": high_value,
-            "churned": churned,
-            "churnRate": churn_rate,
-            "lastRunDate": "",
+            "totalCustomers":     total_customers,
+            "scoredCustomers":    scored_customers,
+            "unscoredCustomers":  max(total_customers - scored_customers, 0),
+            "totalOrders":        total_orders,
+            "repeatCustomers":    repeat_customers,
+            "highValue":          high_value,
+            "churned":            churned,
+            "churnRate":          churn_rate,
+            "churnWindowDays":     churn_window_days,
+            "highValuePercentile": high_value_percentile,
+            "minRepeatOrders":    min_repeat_orders,
+            "lastRunDate":        "",
         }
 
         # ═══════════════════════════════════════════════════════════════
@@ -167,26 +234,17 @@ def get_dashboard(
         # ═══════════════════════════════════════════════════════════════
         # 4. Tier Distribution (Platinum, Gold, Silver, Bronze)
         # ═══════════════════════════════════════════════════════════════
-        # Derived from rfm_total_score (3-15):
-        #   Platinum: 13-15 | Gold: 10-12 | Silver: 7-9 | Bronze: 3-6
+        # Read the tier that the ML pipeline already assigned per the
+        # client's configured tier_method (quartile or custom thresholds).
+        # Re-deriving from rfm_total_score here would ignore that setting.
         tier_rows = conn.execute(text("""
-            WITH tiers AS (
-                SELECT
-                    CASE
-                        WHEN rfm_total_score >= 13 THEN 'Platinum'
-                        WHEN rfm_total_score >= 10 THEN 'Gold'
-                        WHEN rfm_total_score >= 7  THEN 'Silver'
-                        ELSE 'Bronze'
-                    END AS tier
-                FROM mv_customer_features
-                WHERE client_id = :cid
-            )
             SELECT
-                tier AS label,
+                customer_tier AS label,
                 COUNT(*) AS count,
                 ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 1) AS pct
-            FROM tiers
-            GROUP BY tier
+            FROM mv_customer_features
+            WHERE client_id = :cid AND customer_tier IS NOT NULL
+            GROUP BY customer_tier
             ORDER BY count DESC
         """), {"cid": clientId})
 
@@ -212,11 +270,16 @@ def get_dashboard(
         # ═══════════════════════════════════════════════════════════════
         # 5. Repeat vs One-Time Buyers
         # ═══════════════════════════════════════════════════════════════
-        one_time = total_customers - repeat_customers
+        # Only customers with at least one order are "buyers" — unscored
+        # customers (no orders at all) are neither repeat nor one-time.
+        one_time = max(scored_customers - repeat_customers, 0)
         repeat_vs_one_time = {
-            "repeat": repeat_customers,
+            "repeat":  repeat_customers,
             "oneTime": one_time,
-            "total": total_customers,
+            # Denominator for the chart's percentages — must equal
+            # repeat + oneTime so the bars sum to 100%. Unscored
+            # customers are excluded because they aren't buyers.
+            "total":   scored_customers,
         }
 
         # ═══════════════════════════════════════════════════════════════
@@ -436,12 +499,7 @@ def get_dashboard_orders(
                         WHEN mv.rfm_recency_score <= 2 AND mv.rfm_frequency_score <= 2 THEN 'Hibernating'
                         ELSE 'Other'
                     END AS segment,
-                    CASE
-                        WHEN mv.rfm_total_score >= 13 THEN 'Platinum'
-                        WHEN mv.rfm_total_score >= 10 THEN 'Gold'
-                        WHEN mv.rfm_total_score >= 7  THEN 'Silver'
-                        ELSE 'Bronze'
-                    END AS tier,
+                    mv.customer_tier AS tier,
                     mv.total_orders,
                     mv.total_spend_usd,
                     mv.days_since_last_order,
@@ -472,10 +530,11 @@ def get_dashboard_orders(
 
         # ── High Value Tab ───────────────────────────────────────────
         elif tab == "High Value":
-            # High value = rfm_total_score >= 12
+            # High value = the is_high_value flag set by the ML pipeline,
+            # which honours the client's high_value_percentile setting.
             r = conn.execute(text("""
                 SELECT COUNT(*) FROM mv_customer_features
-                WHERE client_id = :cid AND rfm_total_score >= 12
+                WHERE client_id = :cid AND is_high_value = 1
             """), {"cid": clientId})
             total = r.scalar() or 0
             pages = math.ceil(total / page_size) if total > 0 else 0
@@ -489,19 +548,14 @@ def get_dashboard_orders(
                     mv.avg_order_value_usd,
                     mv.days_since_last_order,
                     mv.rfm_total_score,
-                    CASE
-                        WHEN mv.rfm_total_score >= 13 THEN 'Platinum'
-                        WHEN mv.rfm_total_score >= 10 THEN 'Gold'
-                        WHEN mv.rfm_total_score >= 7  THEN 'Silver'
-                        ELSE 'Bronze'
-                    END AS tier,
+                    mv.customer_tier AS tier,
                     mv.total_reviews,
                     mv.avg_rating,
                     mv.total_tickets,
                     mv.churn_label
                 FROM mv_customer_features mv
                 JOIN customers c ON mv.customer_id = c.customer_id AND mv.client_id = c.client_id
-                WHERE mv.client_id = :cid AND mv.rfm_total_score >= 12
+                WHERE mv.client_id = :cid AND mv.is_high_value = 1
                 ORDER BY mv.total_spend_usd DESC
                 LIMIT :limit OFFSET :offset
             """), {"cid": clientId, "limit": page_size, "offset": offset})

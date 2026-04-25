@@ -9,8 +9,8 @@
     }
 
     <div class="role-tabs">
-      <button class="role-tab" [class.active]="role()==='admin'"  (click)="selectRole('admin')">👤 Admin</button>
-      <button class="role-tab" [class.active]="role()==='client'" (click)="selectRole('client')">🏢 Client</button>
+      <button class="role-tab" [class.active]="role()==='super_admin'" (click)="selectRole('super_admin')">👤 Super Admin</button>
+      <button class="role-tab" [class.active]="role()==='client'"      (click)="selectRole('client')">🏢 Client</button>
     </div>
 
     <label class="form-label">Email Address <span class="required">*</span></label>

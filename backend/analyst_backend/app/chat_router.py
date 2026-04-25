@@ -19,16 +19,16 @@ import uuid
 import threading
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
+from app.auth_router import get_current_user
 
 log = logging.getLogger("crp_api.chat")
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DATABASE TABLE
@@ -168,11 +168,29 @@ def _get_langchain_history(client_id: str, conversation_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# TENANT ACCESS CHECK
+# ═══════════════════════════════════════════════════════════════════════════
+# super_admin carries clientAccess == ["*"] and can query any tenant; everyone
+# else must have the requested client_id in their clientAccess list. This is
+# the single choke-point that prevents a CLT-001 user from asking the agent
+# about CLT-002 by swapping the body field.
+
+def _require_client_access(user: dict, client_id: str) -> None:
+    if user.get("role") == "super_admin" or "*" in (user.get("clientAccess") or []):
+        return
+    if client_id not in (user.get("clientAccess") or []):
+        raise HTTPException(
+            status_code=403,
+            detail=f"You do not have access to client {client_id}",
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/ask", response_model=ChatResponse)
-def ask_agent_endpoint(req: ChatRequest):
+def ask_agent_endpoint(req: ChatRequest, user: dict = Depends(get_current_user)):
     """
     Send a question to the Analyst Agent and get a response.
 
@@ -184,6 +202,7 @@ def ask_agent_endpoint(req: ChatRequest):
       - get_feature_importance (churn drivers)
       - search_at_risk_customers (filter/search)
     """
+    _require_client_access(user, req.clientId)
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
@@ -238,7 +257,9 @@ def ask_agent_endpoint(req: ChatRequest):
 def get_chat_history(
     clientId: str = Query("CLT-001"),
     conversationId: str = Query(None),
+    user: dict = Depends(get_current_user),
 ):
+    _require_client_access(user, clientId)
     """
     Get chat history.
     - If conversationId is given, returns that conversation's messages.
@@ -291,7 +312,12 @@ def get_chat_history(
 
 
 @router.post("/clear")
-def clear_history(clientId: str = Query("CLT-001"), conversationId: str = Query(None)):
+def clear_history(
+    clientId: str = Query("CLT-001"),
+    conversationId: str = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    _require_client_access(user, clientId)
     """Clear chat history for a conversation or all conversations."""
     try:
         with engine.begin() as conn:

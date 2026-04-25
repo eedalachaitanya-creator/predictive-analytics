@@ -28,24 +28,41 @@
 
   <!-- Main content -->
   @if (summary(); as s) {
-    <!-- Stats row -->
+    <!-- Stats row — each tile is a filter tab for the summary table below.
+         "Tables with Data" shows everything, the other three narrow the
+         list to only passed / warning / error rows. -->
     <div class="grid-5 mb-24">
-      <div class="stat-card">
+      <button type="button"
+              class="stat-card stat-card-btn"
+              [class.is-selected]="statusFilter() === 'all'"
+              (click)="setStatusFilter('all')">
         <div class="stat-value">{{ s.uploaded }}<span style="font-size:16px;color:var(--text-muted)">/{{ s.totalMasters }}</span></div>
         <div class="stat-label">Tables with Data</div>
-      </div>
-      <div class="stat-card">
+      </button>
+      <button type="button"
+              class="stat-card stat-card-btn"
+              [class.is-selected]="statusFilter() === 'ok'"
+              (click)="setStatusFilter('ok')">
         <div class="stat-value text-green">{{ s.passed }}</div>
         <div class="stat-label">Passed</div>
-      </div>
-      <div class="stat-card">
+        <div class="stat-sub">No missing values, no duplicate IDs</div>
+      </button>
+      <button type="button"
+              class="stat-card stat-card-btn"
+              [class.is-selected]="statusFilter() === 'warn'"
+              (click)="setStatusFilter('warn')">
         <div class="stat-value text-yellow">{{ s.warnings }}</div>
         <div class="stat-label">Warnings</div>
-      </div>
-      <div class="stat-card">
+        <div class="stat-sub">Nulls in required or date columns</div>
+      </button>
+      <button type="button"
+              class="stat-card stat-card-btn"
+              [class.is-selected]="statusFilter() === 'error'"
+              (click)="setStatusFilter('error')">
         <div class="stat-value text-red">{{ s.errors }}</div>
         <div class="stat-label">Errors</div>
-      </div>
+        <div class="stat-sub">Duplicate primary keys</div>
+      </button>
       <div style="display:flex;align-items:center">
         <button class="btn outline" (click)="runValidation()">↻ Re-run Validation</button>
       </div>
@@ -55,7 +72,15 @@
     @if (files().length > 0) {
       <div class="card mb-24">
         <div class="card-header">
-          <div class="card-title">📋 Data Validation Summary — {{ files().length }} Tables
+          <div class="card-title">
+            📋
+            @switch (statusFilter()) {
+              @case ('ok')    { Passed Tables }
+              @case ('warn')  { Tables with Warnings }
+              @case ('error') { Tables with Errors }
+              @default        { Data Validation Summary }
+            }
+            — {{ visibleFiles().length }} {{ visibleFiles().length === 1 ? 'Table' : 'Tables' }}
             <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(Click a row for column details)</span>
           </div>
         </div>
@@ -67,7 +92,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (f of files(); track f.n) {
+            @for (f of visibleFiles(); track f.n) {
               <tr [class.warn-row]="f.status==='warn'"
                   [class.error-row]="f.status==='error'"
                   [style.cursor]="'pointer'"
@@ -82,9 +107,22 @@
                 <td>{{ f.dup }}</td>
                 <td>{{ f.dateErrors }}</td>
                 <td>
-                  @if (f.status === 'ok')    { <span class="badge green">✅ OK</span> }
-                  @if (f.status === 'warn')  { <span class="badge yellow">⚠️ Warn</span> }
-                  @if (f.status === 'error') { <span class="badge red">❌ Error</span> }
+                  @if (f.status === 'ok')                  { <span class="badge green">✅ OK</span> }
+                  @else if (f.empty)                       { <span class="badge gray">📭 Empty</span> }
+                  @else if (f.status === 'warn')           { <span class="badge yellow">⚠️ Warn</span> }
+                  @else if (f.status === 'error')          { <span class="badge red">❌ Error</span> }
+                </td>
+              </tr>
+            }
+            @if (visibleFiles().length === 0) {
+              <tr>
+                <td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">
+                  @switch (statusFilter()) {
+                    @case ('ok')    { No tables passed cleanly. }
+                    @case ('warn')  { No tables with warnings — nothing to investigate. }
+                    @case ('error') { No tables with errors — data is clean. }
+                    @default        { No tables uploaded yet. }
+                  }
                 </td>
               </tr>
             }

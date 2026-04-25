@@ -43,12 +43,23 @@ class UpdateUserRequest(BaseModel):
 
 # ── Auth helper ──────────────────────────────────────────────────────────────
 
-def _require_admin(authorization: Optional[str]) -> dict:
-    """Validate that the caller is a super_admin.
+_ALLOWED_ROLES = {"super_admin", "client_user"}
 
-    The legacy 'admin' user role was retired (its permissions duplicated
-    client_user). Only super_admin now has platform-level privileges like
-    managing other users.
+
+def _validate_role(role: Optional[str]) -> None:
+    """Reject role values outside the supported set at the API boundary so
+    the DB constraint from migration_retire_viewer_role.sql is a backstop,
+    not the first line of defence."""
+    if role is not None and role not in _ALLOWED_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{role}'. Must be one of: {sorted(_ALLOWED_ROLES)}",
+        )
+
+
+def _require_super_admin(authorization: Optional[str]) -> dict:
+    """Validate that the caller is a super_admin. Only super_admins can
+    manage other users; client_user is the only other role on the platform.
     """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
@@ -66,7 +77,7 @@ def _require_admin(authorization: Optional[str]) -> dict:
 @router.get("/users")
 def list_users(authorization: Optional[str] = Header(default=None)):
     """List all users (admin only)."""
-    _require_admin(authorization)
+    _require_super_admin(authorization)
 
     try:
         with engine.connect() as conn:
@@ -104,8 +115,9 @@ def create_user(
     req: CreateUserRequest,
     authorization: Optional[str] = Header(default=None),
 ):
-    """Create a new user (admin only)."""
-    _require_admin(authorization)
+    """Create a new user (super admin only)."""
+    _require_super_admin(authorization)
+    _validate_role(req.role)
 
     if not req.name.strip() or not req.email.strip() or not req.password.strip():
         raise HTTPException(status_code=400, detail="Name, email, and password are required")
@@ -164,8 +176,9 @@ def update_user(
     request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
-    """Update a user's details (admin only)."""
-    caller = _require_admin(authorization)
+    """Update a user's details (super admin only)."""
+    caller = _require_super_admin(authorization)
+    _validate_role(req.role)
 
     updates = []
     params = {"uid": user_id}
@@ -249,7 +262,7 @@ def delete_user(
     authorization: Optional[str] = Header(default=None),
 ):
     """Delete a user (admin only). Cannot delete yourself."""
-    caller = _require_admin(authorization)
+    caller = _require_super_admin(authorization)
 
     if caller["id"] == user_id:
         raise HTTPException(status_code=400, detail="You cannot delete your own account")

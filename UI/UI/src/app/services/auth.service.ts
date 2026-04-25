@@ -37,10 +37,8 @@ export class AuthService {
   private _user = signal<AuthUser | null>(this.loadUser());
   readonly user    = this._user.asReadonly();
   readonly isLoggedIn = computed(() => this._user() !== null);
-  // With the 'admin' user role retired, admin privileges belong exclusively
-  // to super_admin. isAdmin and isSuperAdmin are now equivalent — we keep
-  // both names so existing call-sites (guards, templates) still work.
-  readonly isAdmin    = computed(() => this._user()?.role === 'super_admin');
+  // Platform has exactly two roles. isSuperAdmin gates every admin-console
+  // route and the "+ Add Client" / delete controls; the rest is client_user.
   readonly isSuperAdmin = computed(() => this._user()?.role === 'super_admin');
 
   // ── Public API ─────────────────────────────────────────────────────

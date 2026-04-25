@@ -517,7 +517,7 @@ spend_percentiles AS (
 tier_assignment AS (
     SELECT sp.client_id, sp.customer_id,
         CASE WHEN cr.tier_method = 'quartile' THEN
-            CASE WHEN sp.spend_pct_rank >= cr.high_value_percentile THEN 'Platinum'
+            CASE WHEN sp.spend_pct_rank >= 75 THEN 'Platinum'
                  WHEN sp.spend_pct_rank >= 50 THEN 'Gold'
                  WHEN sp.spend_pct_rank >= 25 THEN 'Silver'
                  ELSE 'Bronze' END

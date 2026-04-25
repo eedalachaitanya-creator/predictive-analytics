@@ -43,31 +43,6 @@ export class DashboardComponent implements OnInit {
   private tierLabels = inject(TierLabelService);
   private clientId = this.auth.getClientId();
 
-  activeTab   = signal('Clean Orders');
-  currentPage = signal(1);
-
-  detailTabs = ['Clean Orders','Repeat Analysis','RFM','High Value',
-                'Product Affinity','ML Features','Vendor Analysis','Audit Log','Quarantine'];
-
-  // ── Tab-specific data signals ──────────────────────────────────
-  tabRows       = signal<any[]>([]);
-  tabTotalPages = signal(1);
-  tabLoading    = signal(false);
-
-  readonly TAB_HEADERS: Record<string, string[]> = {
-    'Clean Orders':     ['Order ID','Customer','Date','Items','Gross','Discount','Net','Status'],
-    'RFM':              ['Customer ID','Name','RFM Scores','Total Score','Spend','Days Since','Orders','Segment'],
-    'High Value':       ['Customer ID','Name','Orders','RFM Score','Spend','Avg Order','Days Since','Tier'],
-    'Repeat Analysis':  ['Customer ID','Name','Orders','Products','Spend','Avg Order','Avg Between','Status'],
-    'Product Affinity': ['Product ID','Product','Category','Qty Sold','Revenue','Avg Price','Orders','Brand'],
-    'ML Features':      ['Customer ID','Name','Account Age','Orders','Spend','Discount %','Return %','Status'],
-    'Vendor Analysis':  ['Vendor ID','Vendor','Products','Qty Sold','Revenue','Avg Price','Orders','Reach'],
-    'Audit Log':        ['ID','Customer','Date','—','Churn Prob','Discount %','—','Risk Tier'],
-    'Quarantine':       ['ID','Customer','Scored At','—','Churn Prob','—','—','Risk Tier'],
-  };
-
-  activeHeaders = computed(() => this.TAB_HEADERS[this.activeTab()] ?? this.TAB_HEADERS['Clean Orders']);
-
   // Derived from service signal — add display colors
   segments = computed(() =>
     (this.svc.data()?.segments ?? []).map(s => ({
@@ -96,48 +71,13 @@ export class DashboardComponent implements OnInit {
   segmentTotal        = signal(0);
 
   kpis     = computed(() => this.svc.data()?.kpis);
-  orders   = computed(() => this.svc.data()?.recentOrders ?? []);
   repeatVsOne = computed(() => this.svc.data()?.repeatVsOneTime);
-  totalPages  = computed(() => this.svc.data()?.totalOrderPages ?? 1);
 
   ngOnInit() {
     // Pull the client's latest tier labels so {{ x | tierLabel }} renders custom names.
     this.tierLabels.refresh();
 
-    this.svc.load(this.clientId).subscribe({
-      next: () => {
-        this.tabRows.set(this.svc.data()?.recentOrders ?? []);
-        this.tabTotalPages.set(this.svc.data()?.totalOrderPages ?? 1);
-      },
-      error: () => {}
-    });
-  }
-
-  switchTab(tab: string) {
-    this.activeTab.set(tab);
-    this.currentPage.set(1);
-    this.tabLoading.set(true);
-    this.tabRows.set([]);
-    this.svc.loadOrders(this.clientId, 1, tab).subscribe({
-      next: (res) => {
-        this.tabRows.set(res.orders);
-        this.tabTotalPages.set(res.pages);
-        this.tabLoading.set(false);
-      },
-      error: () => { this.tabLoading.set(false); }
-    });
-  }
-
-  loadPage(p: number) {
-    if (p < 1 || p > this.tabTotalPages()) return;
-    this.currentPage.set(p);
-    this.svc.loadOrders(this.clientId, p, this.activeTab()).subscribe({
-      next: (res) => {
-        this.tabRows.set(res.orders);
-        this.tabTotalPages.set(res.pages);
-      },
-      error: () => {}
-    });
+    this.svc.load(this.clientId).subscribe({ error: () => {} });
   }
 
   toggleSegment(segmentLabel: string) {
@@ -190,26 +130,7 @@ export class DashboardComponent implements OnInit {
     this.svc.refresh(this.clientId).subscribe({ error: () => {} });
   }
 
-  orderStatusClass(s: string): string {
-    if (s === 'completed') return 'green';
-    if (s === 'returned')  return 'yellow';
-    if (s === 'cancelled') return 'red';
-    return 'gray';
-  }
-
-  orderStatusLabel(s: string): string {
-    const map: Record<string,string> = { completed:'✅ Completed', returned:'🔄 Returned', cancelled:'❌ Cancelled', pending:'🕐 Pending' };
-    return map[s] ?? s;
-  }
-
   formatCurrency(n: number): string {
     return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  formatNumber(n: any): string {
-    if (n == null) return '—';
-    if (typeof n === 'string') return n;
-    if (Number.isInteger(n)) return n.toLocaleString('en-US');
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 }

@@ -67,3 +67,7 @@ Thumbs.db
 
 # ── Temporary commit-message scratchpads ──
 .commit_msg_*.txt
+
+# ── Claude Code local docs (never commit) ──
+CLAUDE.md
+.claude/

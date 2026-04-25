@@ -10,17 +10,13 @@ HOW IT WORKS:
 - /logout: removes token from active sessions
 - /refresh: swaps old token for new one
 
-Accepts an optional 'loginRole' field in the login request.
-  - loginRole='admin'  → user must have role super_admin
-                         ('admin' user role was retired — only super_admin
-                          now gets platform-level privileges).
-  - loginRole='client' → user must have role client_user or viewer.
-This prevents super_admins from accidentally logging into the client
-portal and vice versa.
-
-Note: loginRole='admin' is about which PORTAL the user is signing into
-(the admin console), not about a user-role named 'admin'. Keeping the
-parameter name avoids touching the UI login tab.
+Accepts an optional 'loginRole' field in the login request identifying
+which portal the user picked on the login page:
+  - loginRole='super_admin' → user must have role super_admin
+  - loginRole='client'      → user must have role client_user
+Platform only recognises those two roles; older 'admin' / 'viewer' rows
+are collapsed into client_user by db/migration_retire_admin_role.sql and
+db/migration_retire_viewer_role.sql.
 """
 
 import hashlib
@@ -184,9 +180,7 @@ def _get_user_by_email(email: str) -> Optional[dict]:
 class LoginRequest(BaseModel):
     email: str
     password: str
-    # 'admin' or 'client' — identifies which LOGIN TAB / PORTAL the user
-    # picked. Note this is a portal label, not a user-role name — the
-    # 'admin' user role was retired in favor of super_admin.
+    # Which portal the user picked: 'super_admin' or 'client'.
     loginRole: Optional[str] = None
 
 
@@ -199,11 +193,10 @@ def login(req: LoginRequest, request: Request):
     Reads from the 'users' table in PostgreSQL.
 
     If loginRole is provided:
-    - 'admin'  → user must have role super_admin
-                 (The legacy 'admin' user role was retired; only
-                  super_admin can log into the admin portal now.)
-    - 'client' → user must have role client_user or viewer
-    This ensures super_admins use the Admin tab and clients use the Client tab.
+    - 'super_admin' → user must have role super_admin
+    - 'client'      → user must have role client_user
+    This ensures super_admins use the Super Admin tab and clients use the
+    Client tab.
     """
     from app.audit_logger import log_audit_event  # local import to avoid circular
 
@@ -232,24 +225,28 @@ def login(req: LoginRequest, request: Request):
         raise HTTPException(status_code=403, detail="Your account has been deactivated. Contact support.")
 
     # ── Role validation based on which tab they used ──────────────
-    # 'admin' user role has been retired — only super_admin can pass the
-    # admin-portal check now. Client-portal check mirrors that by only
-    # blocking super_admins (client_user and viewer both pass).
-    if req.loginRole == "admin":
+    # Only two roles exist: super_admin and client_user. We accept the
+    # legacy 'admin' wire value as an alias for 'super_admin' so old
+    # frontends don't break mid-rollout.
+    portal = req.loginRole
+    if portal == "admin":
+        portal = "super_admin"
+
+    if portal == "super_admin":
         if user["role"] != "super_admin":
             log_audit_event(
                 request,
                 action_type="login",
-                details="Wrong portal — used Admin tab but role is not super_admin",
+                details="Wrong portal — used Super Admin tab but role is not super_admin",
                 user_id=user["id"],
                 user_email=user["email"],
                 outcome="warning",
             )
             raise HTTPException(
                 status_code=403,
-                detail="This is the Admin login. Please use the Client tab to sign in.",
+                detail="This is the Super Admin login. Please use the Client tab to sign in.",
             )
-    elif req.loginRole == "client":
+    elif portal == "client":
         if user["role"] == "super_admin":
             log_audit_event(
                 request,
@@ -261,7 +258,47 @@ def login(req: LoginRequest, request: Request):
             )
             raise HTTPException(
                 status_code=403,
-                detail="This is the Client login. Please use the Admin tab to sign in.",
+                detail="This is the Client login. Please use the Super Admin tab to sign in.",
+            )
+
+    # ── Client users cannot log in once every client they have access to
+    # ── has been soft-deleted (client_config.is_active = FALSE). Super
+    # ── admins are exempt — they need to stay able to reactivate clients.
+    if user["role"] != "super_admin" and "*" not in (user["clientAccess"] or []):
+        access = user["clientAccess"] or []
+        if not access:
+            raise HTTPException(
+                status_code=403,
+                detail="Your account is not linked to any client. Contact your administrator.",
+            )
+        try:
+            with engine.connect() as conn:
+                placeholders = ", ".join([f":c{i}" for i in range(len(access))])
+                params = {f"c{i}": cid for i, cid in enumerate(access)}
+                active_count = conn.execute(
+                    text(
+                        f"SELECT COUNT(*) FROM client_config "
+                        f"WHERE is_active = TRUE AND client_id IN ({placeholders})"
+                    ),
+                    params,
+                ).scalar() or 0
+        except Exception:
+            # If the column is missing (migration not yet applied) fall open
+            # rather than lock every user out. The client_router's module-load
+            # _ensure_soft_delete_columns should have added it already.
+            active_count = len(access)
+        if active_count == 0:
+            log_audit_event(
+                request,
+                action_type="login",
+                details="Login blocked — all linked clients are deactivated",
+                user_id=user["id"],
+                user_email=user["email"],
+                outcome="failure",
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Your client account has been deactivated. Contact support.",
             )
 
     # ── Generate tokens (stored in database, survive restarts) ──

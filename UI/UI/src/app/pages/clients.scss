@@ -1,5 +1,278 @@
 :host { display: block; }
 
+/* ═════════════════════════════════════════════════════════════════════════
+   Stat cards that act as filter tabs
+   ──────────────────────────────────────────────────────────────────────────
+   Three tiles at the top of the page (Total / Active / Inactive) are now
+   buttons that filter the table below. We keep the base `.stat-card` look
+   and layer an `.stat-card-btn` variant that adds hover lift + a selected
+   outline. The "is-selected" class paints the accent colour matching the
+   value's text colour (blue for Active, red for Inactive, green for Total).
+   ═════════════════════════════════════════════════════════════════════════ */
+.stat-card-btn {
+  all: unset;                    /* strip default button chrome */
+  display: block;
+  cursor: pointer;
+  text-align: left;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  transition: transform .12s, box-shadow .15s, border-color .15s;
+  position: relative;
+}
+
+.stat-card-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(15,23,42,.10);
+  border-color: rgba(26,111,212,.45);
+}
+
+.stat-card-btn:focus-visible {
+  outline: 3px solid rgba(26,111,212,.35);
+  outline-offset: 2px;
+}
+
+.stat-card-btn.is-selected {
+  border-color: var(--accent-blue, #1a6fd4);
+  box-shadow: 0 0 0 3px rgba(26,111,212,.12), 0 4px 14px rgba(15,23,42,.08);
+}
+
+/* A tiny corner ticker on the selected tile so it reads as pressed even
+   outside of the coloured outline. */
+.stat-card-btn.is-selected::after {
+  content: '';
+  position: absolute;
+  top: 10px; right: 10px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent-blue, #1a6fd4);
+}
+
+/* Section heading gets a subtle count suffix when used with the new filter. */
+.section-heading .sh-count {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* ── Status pill inside the clients table ──────────────────────────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  letter-spacing: .01em;
+  line-height: 1.4;
+}
+
+.status-pill.status-active {
+  color: #15803d;
+  background: rgba(22,163,74,.12);
+  border: 1px solid rgba(22,163,74,.25);
+}
+
+.status-pill.status-inactive {
+  color: #b91c1c;
+  background: rgba(220,38,38,.10);
+  border: 1px solid rgba(220,38,38,.22);
+}
+
+/* "Deleted" tag replaces the Delete button for already-inactive rows. */
+.deleted-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: rgba(100,116,139,.10);
+  border: 1px dashed rgba(100,116,139,.35);
+  cursor: default;
+  user-select: none;
+}
+
+/* Dim deleted rows a touch so they read as secondary content. Pills and
+   tags already set their own colors, so this only affects plain text
+   cells (ID, name, code, registered date). */
+.data-table tr.dim td { color: var(--text-muted); }
+
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Add-Client form — scoped redesign
+   ──────────────────────────────────────────────────────────────────────────
+   Styled as a guided two-section card with a blue accent header, icon-led
+   section heads, two-column field rows on wide screens, and a sticky-feel
+   action bar. Stays inside the app's design tokens (accent-blue, border,
+   bg-card, radius, shadow) so it doesn't look grafted in.
+   ═════════════════════════════════════════════════════════════════════════ */
+.add-client-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+}
+
+.add-client-card::before {
+  /* Accent stripe along the top — visual echo of the primary "Add" button. */
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-blue, #1a6fd4), var(--accent-cyan, #0ea5e9));
+}
+
+.add-client-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(26,111,212,.035), transparent);
+}
+
+.add-client-head .ach-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.add-client-head .ach-icon {
+  font-size: 26px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(26,111,212,.10);
+  flex-shrink: 0;
+}
+
+.add-client-head .ach-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -.01em;
+}
+
+.add-client-head .ach-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  max-width: 56ch;
+}
+
+.add-client-body {
+  padding: 20px 24px 22px;
+}
+
+/* ── Form sections ─────────────────────────────────────────────────────── */
+.form-section {
+  padding: 14px 0 8px;
+  & + .form-section {
+    margin-top: 14px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--border);
+  }
+}
+
+.form-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.form-section-head .fs-icon {
+  font-size: 18px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--bg-hover, #ebf1fb);
+  flex-shrink: 0;
+}
+
+.form-section-head .fs-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -.005em;
+}
+
+.form-section-head .fs-hint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* ── Rows & fields ─────────────────────────────────────────────────────── */
+.form-row.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .form-row.two-col { grid-template-columns: 1fr; }
+}
+
+.form-field { margin-bottom: 12px; }
+.form-row .form-field { margin-bottom: 0; }
+
+.form-field .form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+.form-field .form-input {
+  /* Slightly more generous padding so fields feel tappable on the larger
+     card, and a subtle lift on focus that matches the app's accent glow. */
+  padding: 11px 14px;
+  font-size: 13px;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+
+.form-field .form-input:hover:not(:disabled) {
+  border-color: rgba(26,111,212,.45);
+}
+
+.form-field .form-input:focus {
+  box-shadow: 0 0 0 4px rgba(26,111,212,.12);
+}
+
+.form-field .required { color: var(--accent-red, #dc2626); }
+
+/* ── Action bar ────────────────────────────────────────────────────────── */
+.add-client-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.mt-8 { margin-top: 8px; }
+
 .detail-row {
   display: flex;
   justify-content: space-between;

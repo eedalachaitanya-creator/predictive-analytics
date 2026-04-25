@@ -15,11 +15,12 @@
 // ── Platform / Auth (app-level, no DB table) ─────────────────
 // These are managed by the backend auth system, not in the seed schema.
 
-// 'admin' is intentionally absent. The legacy 'admin' role was retired
-// because its permission set duplicated 'client_user'. Any admin rows
-// in an older DB are converted to 'client_user' by
-// backend/db/migration_retire_admin_role.sql.
-export type UserRole = 'super_admin' | 'client_user' | 'viewer';
+// The platform only has two user types:
+//   super_admin  — operator of the platform (admin console access)
+//   client_user  — a tenant-side user (client portal access)
+// Older 'admin' / 'viewer' rows are collapsed into 'client_user' by
+// backend/db/migration_retire_admin_role.sql and migration_retire_viewer_role.sql.
+export type UserRole = 'super_admin' | 'client_user';
 
 export interface AuthUser {
   id: string;
@@ -397,11 +398,22 @@ export interface PipelineSummary {
 // ── Dashboard (aggregated / computed — no direct DB table) ────
 export interface DashboardKpis {
   totalCustomers: number;
+  // Customers present in mv_customer_features — i.e. those with at least one
+  // non-Cancelled order, so the ML pipeline has features / churn scores for
+  // them. Always <= totalCustomers; the diff is unscoredCustomers.
+  scoredCustomers?: number;
+  unscoredCustomers?: number;
   totalOrders: number;
   repeatCustomers: number;
   highValue: number;
   churned: number;
   churnRate: number;
+  // Current values from the client's Settings page — dashboard labels
+  // interpolate these so "inactive ≥ X days" and "X+ orders" match what
+  // the user actually configured.
+  churnWindowDays?: number;
+  minRepeatOrders?: number;
+  highValuePercentile?: number;
   lastRunDate: string;
 }
 

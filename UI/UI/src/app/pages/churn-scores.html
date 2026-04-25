@@ -1,26 +1,46 @@
 <div class="page-anim">
 
-  <!-- Summary Cards -->
+  <!-- Summary Cards — all ML-prediction-based (distinct from the Dashboard
+       page's recency-based 'Lapsed' count). Tooltips spell out each metric
+       so the distinction is obvious at a glance. -->
   <div class="score-summary">
-    <div class="summary-card" [class.active]="riskFilter()===''" (click)="filterByRisk('')">
+    <div class="summary-card"
+         [class.active]="riskFilter()===''"
+         (click)="filterByRisk('')"
+         title="All customers the ML model produced a churn probability for.">
       <div class="summary-value">{{ summary().total_scored }}</div>
       <div class="summary-label">Total Scored</div>
+      <div class="summary-sub">ML predictions</div>
     </div>
-    <div class="summary-card high" [class.active]="riskFilter()==='HIGH'" (click)="filterByRisk('HIGH')">
+    <div class="summary-card high"
+         [class.active]="riskFilter()==='HIGH'"
+         (click)="filterByRisk('HIGH')"
+         title="ML-predicted churn probability ≥ 0.65. These are the customers the model thinks are most likely to churn next — not the same as the Dashboard's 'Lapsed Customers', which is purely based on order recency.">
       <div class="summary-value">{{ summary().high_risk }}</div>
       <div class="summary-label">High Risk</div>
+      <div class="summary-sub">probability ≥ 0.65</div>
     </div>
-    <div class="summary-card medium" [class.active]="riskFilter()==='MEDIUM'" (click)="filterByRisk('MEDIUM')">
+    <div class="summary-card medium"
+         [class.active]="riskFilter()==='MEDIUM'"
+         (click)="filterByRisk('MEDIUM')"
+         title="ML-predicted churn probability between 0.35 and 0.65.">
       <div class="summary-value">{{ summary().medium_risk }}</div>
       <div class="summary-label">Medium Risk</div>
+      <div class="summary-sub">0.35 ≤ prob &lt; 0.65</div>
     </div>
-    <div class="summary-card low" [class.active]="riskFilter()==='LOW'" (click)="filterByRisk('LOW')">
+    <div class="summary-card low"
+         [class.active]="riskFilter()==='LOW'"
+         (click)="filterByRisk('LOW')"
+         title="ML-predicted churn probability below 0.35.">
       <div class="summary-value">{{ summary().low_risk }}</div>
       <div class="summary-label">Low Risk</div>
+      <div class="summary-sub">probability &lt; 0.35</div>
     </div>
-    <div class="summary-card avg">
+    <div class="summary-card avg"
+         title="Arithmetic mean of every customer's predicted churn probability. This is NOT the % of customers flagged High Risk — that would be high_risk / total_scored (e.g. 109 / 199 = 54.77%). The mean can differ because HIGH customers often score well above 0.65 and pull the average up.">
       <div class="summary-value">{{ probPercent(summary().avg_probability) }}</div>
-      <div class="summary-label">Avg Churn Prob</div>
+      <div class="summary-label">Avg Predicted Probability</div>
+      <div class="summary-sub">mean — not % HIGH</div>
     </div>
   </div>
 

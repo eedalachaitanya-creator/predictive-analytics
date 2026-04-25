@@ -8,8 +8,7 @@ import { filter, map, startWith } from 'rxjs/operators';
 const META: Record<string, { title: string; meta: string }> = {
   upload:     { title: '📤 Upload Data',           meta: 'Upload all 11 master files' },
   validation: { title: '✅ Validation Preview',     meta: 'Quality checks run after each upload' },
-  settings:   { title: '⚙️ Settings & Parameters',  meta: 'Configure pipeline rules before processing' },
-  run:        { title: '🚀 Run Processing',          meta: 'Start the analytics pipeline' },
+  settings:   { title: '⚙️ Configure & Run',       meta: 'Configure pipeline rules and start processing' },
   dashboard:  { title: '📊 Output Dashboard',        meta: 'Pipeline results' },
   downloads:  { title: '📥 Downloads',               meta: 'Export your results' },
   chat:       { title: '🤖 Agent Chat',              meta: 'Ask questions about your data' },

@@ -36,6 +36,27 @@ router = APIRouter(prefix="/api/v1", tags=["clients"])
 log = logging.getLogger("clients")
 
 
+# ── Schema safety net for soft-delete columns ───────────────────────────────
+# Mirrors migration_client_soft_delete.sql. Runs once at import so dev DBs
+# that haven't had the migration applied still get the columns before the
+# delete/list endpoints try to use them.
+def _ensure_soft_delete_columns() -> None:
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE client_config "
+                "ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"
+            ))
+            conn.execute(text(
+                "ALTER TABLE client_config "
+                "ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ"
+            ))
+    except Exception as exc:
+        log.warning("Could not ensure client_config soft-delete columns: %s", exc)
+
+_ensure_soft_delete_columns()
+
+
 # ── Request / Response models ────────────────────────────────────────────────
 
 class ClientRegisterRequest(BaseModel):
@@ -210,10 +231,16 @@ def register_client(
 
 
 @router.get("/clients")
-def list_clients(authorization: Optional[str] = Header(default=None)):
+def list_clients(
+    includeInactive: bool = Query(default=False),
+    authorization: Optional[str] = Header(default=None),
+):
     """
-    List all registered clients.
-    Returns client_id, name, code, and created_at for each.
+    List registered clients.
+
+    By default returns only active (not soft-deleted) clients. Super admins
+    can pass `?includeInactive=true` to also receive deactivated rows — used
+    by the Admin Clients page to populate Total/Active/Inactive counters.
     """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
@@ -223,31 +250,49 @@ def list_clients(authorization: Optional[str] = Header(default=None)):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+    # Only super_admin may see inactive rows — keep client_users on the
+    # active-only path regardless of the flag they send.
+    show_inactive = includeInactive and user["role"] == "super_admin"
+    active_clause = "" if show_inactive else "WHERE is_active = TRUE"
+
     try:
         with engine.connect() as conn:
-            # If super_admin or admin with wildcard, show all clients
             if user["role"] == "super_admin" or "*" in user.get("clientAccess", []):
                 rows = conn.execute(
-                    text("SELECT client_id, client_name, client_code, created_at FROM client_config ORDER BY client_id")
+                    text(
+                        f"SELECT client_id, client_name, client_code, created_at, "
+                        f"       is_active, deactivated_at "
+                        f"FROM client_config "
+                        f"{active_clause} "
+                        f"ORDER BY client_id"
+                    )
                 ).fetchall()
             else:
-                # Regular users only see their allowed clients
+                # Regular users always see active-only, restricted to their access list.
                 client_list = user.get("clientAccess", [])
                 if not client_list:
                     return []
                 placeholders = ", ".join([f":c{i}" for i in range(len(client_list))])
                 params = {f"c{i}": cid for i, cid in enumerate(client_list)}
                 rows = conn.execute(
-                    text(f"SELECT client_id, client_name, client_code, created_at FROM client_config WHERE client_id IN ({placeholders}) ORDER BY client_id"),
+                    text(
+                        f"SELECT client_id, client_name, client_code, created_at, "
+                        f"       is_active, deactivated_at "
+                        f"FROM client_config "
+                        f"WHERE is_active = TRUE AND client_id IN ({placeholders}) "
+                        f"ORDER BY client_id"
+                    ),
                     params,
                 ).fetchall()
 
         return [
             {
-                "client_id": r[0],
-                "client_name": r[1],
-                "client_code": r[2],
-                "created_at": r[3].isoformat() if r[3] else None,
+                "client_id":      r[0],
+                "client_name":    r[1],
+                "client_code":    r[2],
+                "created_at":     r[3].isoformat() if r[3] else None,
+                "is_active":      bool(r[4]),
+                "deactivated_at": r[5].isoformat() if r[5] else None,
             }
             for r in rows
         ]
@@ -862,33 +907,12 @@ def admin_create_client(
     }
 
 
-# ── Admin: delete a client + all their data ─────────────────────────────────
+# ── Admin: soft-delete (deactivate) a client ─────────────────────────────────
 #
-# This is DESTRUCTIVE. Deleting a client cascades through every client_id-
-# scoped table. We do it manually inside a transaction so a partial failure
-# rolls back cleanly (the DB schema does NOT use ON DELETE CASCADE, so we
-# can't rely on the FKs alone).
-#
-# ORDER OF DELETES matters because of FKs:
-#   leaf tables first (outreach_messages, retention_interventions, churn_scores,
-#   customer_purchase_cycles, customer_rfm_features, customer_reviews,
-#   support_tickets, line_items) → parent tables next (orders, customers) →
-#   finally client_config.
-
-# Tables that have a client_id column and need their rows wiped when deleting
-# a tenant. Order is leaf-to-root so FK constraints don't block us.
-_CLIENT_CASCADE_TABLES = [
-    "outreach_messages",
-    "retention_interventions",
-    "churn_scores",
-    "customer_purchase_cycles",
-    "customer_rfm_features",
-    "customer_reviews",
-    "support_tickets",
-    "line_items",
-    "orders",
-    "customers",
-]
+# Hard deletion previously cascaded through every client_id-scoped table,
+# leaving no record the client ever existed. We now flip is_active=FALSE and
+# stamp deactivated_at instead — all tenant data stays in the DB for audit
+# and potential reactivation, but the client disappears from the admin list.
 
 
 @router.delete("/clients/{client_id}")
@@ -898,10 +922,9 @@ def delete_client(
     authorization: Optional[str] = Header(default=None),
 ):
     """
-    Super-admin-only: delete a client and wipe every row scoped to their
-    client_id, including any user accounts whose ONLY access was this client.
-    Users with access to other clients have this client_id stripped from
-    their access array but are otherwise kept intact.
+    Super-admin-only: soft-delete a client. The client_config row is flagged
+    is_active=FALSE and hidden from the admin UI, but no tenant data is wiped.
+    A follow-up reactivate endpoint can restore the client without data loss.
     """
     # ── Auth: super_admin only ────────────────────────────────────────
     if not authorization:
@@ -913,74 +936,43 @@ def delete_client(
     if caller["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Only super admins can delete clients")
 
-    # ── Confirm client exists before we start deleting ────────────────
+    # ── Confirm client exists and is currently active ─────────────────
     with engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM client_config WHERE client_id = :cid"),
+        row = conn.execute(
+            text("SELECT is_active FROM client_config WHERE client_id = :cid"),
             {"cid": client_id},
         ).fetchone()
-        if not exists:
+        if not row:
             raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+        if row[0] is False:
+            # Idempotent — already deactivated.
+            return {
+                "client_id": client_id,
+                "deleted": {},
+                "message": f"Client {client_id} was already deactivated.",
+            }
 
-    # ── Cascade delete in a single transaction ────────────────────────
-    deleted_counts: dict[str, int] = {}
+    # ── Flip the flag ─────────────────────────────────────────────────
     try:
         with engine.begin() as conn:
-            for tbl in _CLIENT_CASCADE_TABLES:
-                try:
-                    result = conn.execute(
-                        text(f"DELETE FROM {tbl} WHERE client_id = :cid"),
-                        {"cid": client_id},
-                    )
-                    deleted_counts[tbl] = result.rowcount or 0
-                except Exception as e:
-                    # A missing table (schema drift) shouldn't block deletion
-                    # of the overall client. Log and continue; the transaction
-                    # will rollback if a FK constraint prevents progress.
-                    log.warning("delete_client: %s failed for %s: %s", tbl, client_id, e)
-                    deleted_counts[tbl] = -1
-
-            # Users: strip this client from their access array. Any user whose
-            # resulting access is empty gets deleted entirely (they can't log
-            # into anything). Users with remaining access are kept.
             conn.execute(
-                text("""
-                    UPDATE users
-                       SET client_access = array_remove(client_access, :cid)
-                     WHERE :cid = ANY(client_access)
-                """),
+                text(
+                    "UPDATE client_config "
+                    "SET is_active = FALSE, deactivated_at = NOW() "
+                    "WHERE client_id = :cid"
+                ),
                 {"cid": client_id},
             )
-            deleted_users = conn.execute(
-                text("""
-                    DELETE FROM users
-                     WHERE (client_access IS NULL OR array_length(client_access, 1) IS NULL)
-                       AND role = 'client_user'
-                """)
-            )
-            deleted_counts["users_removed"] = deleted_users.rowcount or 0
-
-            # Finally drop the config row itself.
-            conn.execute(
-                text("DELETE FROM client_config WHERE client_id = :cid"),
-                {"cid": client_id},
-            )
-            deleted_counts["client_config"] = 1
     except Exception as e:
         log.error("delete_client failed for %s: %s", client_id, e)
-        raise HTTPException(status_code=500, detail=f"Could not delete client: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not deactivate client: {e}")
 
-    log.info("Deleted client %s. Removed rows: %s", client_id, deleted_counts)
+    log.info("Deactivated client %s (soft-delete).", client_id)
 
-    # Audit: summarise the cascade so the audit reader can see how much data
-    # was wiped. We filter out zero counts to keep the details string readable
-    # and skip the sentinel -1 values (tables that didn't exist).
-    nonzero = {t: n for t, n in deleted_counts.items() if n and n > 0}
-    summary = " · ".join(f"{t}={n}" for t, n in nonzero.items()) or "no rows removed"
     log_audit_event(
         request,
-        action_type="client_deleted",
-        details=f"Deleted client {client_id} · {summary}",
+        action_type="client_deactivated",
+        details=f"Soft-deleted client {client_id} (is_active=FALSE; tenant data retained)",
         client_id=client_id,
         user_id=caller["id"],
         user_email=caller["email"],
@@ -989,6 +981,6 @@ def delete_client(
 
     return {
         "client_id": client_id,
-        "deleted":   deleted_counts,
-        "message":   f"Client {client_id} and all scoped data have been deleted.",
+        "deleted": {},
+        "message": f"Client {client_id} has been deactivated.",
     }

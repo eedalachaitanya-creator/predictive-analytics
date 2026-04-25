@@ -13,7 +13,7 @@ import { environment } from '../../environments/environment';
   styleUrls: ['./login.scss']
 })
 export class LoginComponent {
-  role     = signal<'admin' | 'client'>('admin');
+  role     = signal<'super_admin' | 'client'>('super_admin');
   email    = signal('');
   password = signal(environment.useMocks ? 'demo1234' : '');
   loading  = signal(false);
@@ -36,7 +36,7 @@ export class LoginComponent {
 
   constructor(private auth: AuthService, private router: Router) {}
 
-  selectRole(r: 'admin' | 'client') {
+  selectRole(r: 'super_admin' | 'client') {
     this.role.set(r);
     // Clear fields so user types their own credentials
     this.email.set('');
@@ -59,8 +59,8 @@ export class LoginComponent {
     this.auth.login({ email: this.email(), password: this.password(), loginRole: this.role() }).subscribe({
       next: () => {
         this.loading.set(false);
-        // Admins go to admin console, clients go to upload page
-        if (this.auth.isAdmin()) {
+        // Super admins land in the admin console; client users land on Upload.
+        if (this.auth.isSuperAdmin()) {
           this.router.navigate(['/app/clients']);
         } else {
           this.router.navigate(['/app/upload']);

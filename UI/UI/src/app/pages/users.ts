@@ -46,7 +46,6 @@ export class UsersComponent implements OnInit {
 
   roleColor(r: string) {
     if (r === 'super_admin') return 'purple';
-    if (r === 'viewer')      return 'cyan';
     return 'gray';
   }
 
@@ -62,7 +61,7 @@ export class UsersComponent implements OnInit {
   }
 
   roleLabel(r: UserRole): string {
-    const map: Record<string,string> = { super_admin:'Super Admin', client_user:'Client User', viewer:'Viewer' };
+    const map: Record<string,string> = { super_admin:'Super Admin', client_user:'Client User' };
     return map[r] ?? r;
   }
 }

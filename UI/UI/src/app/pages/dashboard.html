@@ -45,7 +45,17 @@
       <div class="stat-card">
         <div class="stat-value">{{ kpis()?.totalCustomers | number }}</div>
         <div class="stat-label">Total Customers</div>
-        <div class="stat-sub">All registered</div>
+        @if ((kpis()?.unscoredCustomers ?? 0) > 0) {
+          <!-- Only surface the scored/unscored split when it actually
+               differs, so the common case stays clean. -->
+          <div class="stat-sub"
+               [title]="'Unscored = registered customers with no non-Cancelled orders. The ML pipeline can\'t produce a churn score for them yet.'">
+            {{ kpis()?.scoredCustomers | number }} scored ·
+            {{ kpis()?.unscoredCustomers | number }} unscored
+          </div>
+        } @else {
+          <div class="stat-sub">All registered</div>
+        }
       </div>
       <div class="stat-card">
         <div class="stat-value">{{ kpis()?.totalOrders | number }}</div>
@@ -55,17 +65,18 @@
       <div class="stat-card">
         <div class="stat-value">{{ kpis()?.repeatCustomers | number }}</div>
         <div class="stat-label">Repeat Customers</div>
-        <div class="stat-sub">2+ completed orders</div>
+        <div class="stat-sub">{{ kpis()?.minRepeatOrders ?? 2 }}+ completed orders</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">{{ kpis()?.highValue | number }}</div>
         <div class="stat-label">High Value</div>
-        <div class="stat-sub">Top 25% by spend</div>
+        <div class="stat-sub">Top {{ 100 - (kpis()?.highValuePercentile ?? 75) }}% by spend</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card"
+           [title]="'Customers with no non-cancelled order in the past ' + (kpis()?.churnWindowDays ?? 90) + ' days (from the Settings page). Based on order recency only — the ML-predicted churn risk lives on the Churn Scores page and may not match this number.'">
         <div class="stat-value text-red">{{ kpis()?.churned | number }}</div>
-        <div class="stat-label">At-Risk / Churned</div>
-        <div class="stat-sub">{{ kpis()?.churnRate | number:'1.1-1' }}% churn rate</div>
+        <div class="stat-label">Lapsed Customers</div>
+        <div class="stat-sub">{{ kpis()?.churnRate | number:'1.1-1' }}% · inactive ≥ {{ kpis()?.churnWindowDays ?? 90 }} days</div>
       </div>
     </div>
 
@@ -161,8 +172,12 @@
           }
         </div>
       </div>
-      <div class="card">
-        <div class="card-header"><div class="card-title">🔴 Churn Risk Breakdown</div></div>
+      <div class="card"
+           [title]="'Recency-based split: Lapsed = last non-cancelled order is at least ' + (kpis()?.churnWindowDays ?? 90) + ' days old; Recently Active = newer than that. This is different from the ML churn prediction on the Churn Scores page.'">
+        <div class="card-header">
+          <div class="card-title">🔴 Order Activity (past {{ kpis()?.churnWindowDays ?? 90 }} days)</div>
+          <div class="card-subtitle">Recency-based · not the ML prediction</div>
+        </div>
         <div style="padding:18px">
           @for (c of churnBreakdown(); track c.label) {
             <div class="seg-bar-row">
@@ -197,14 +212,17 @@
         <div style="padding:18px">
           @if (repeatVsOne(); as r) {
             <div class="seg-bar-row">
-              <span class="seg-label">Repeat (2+ orders)</span>
+              <span class="seg-label">Repeat ({{ kpis()?.minRepeatOrders ?? 2 }}+ orders)</span>
               <div class="seg-track">
                 <div class="seg-fill" [style.width]="((r.repeat/r.total)*100)+'%'" style="background:linear-gradient(90deg,#10B981,#059669)">{{ r.repeat }}</div>
               </div>
               <span class="seg-pct">{{ (r.repeat/r.total*100) | number:'1.1-1' }}%</span>
             </div>
             <div class="seg-bar-row">
-              <span class="seg-label">One-time buyers</span>
+              <!-- Was "One-time buyers", which is wrong when the threshold > 2
+                   (customers with 2 or 3 orders are neither one-time nor repeat).
+                   Generalised to match the Repeat label. -->
+              <span class="seg-label">Fewer than {{ kpis()?.minRepeatOrders ?? 2 }} orders</span>
               <div class="seg-track">
                 <div class="seg-fill" [style.width]="((r.oneTime/r.total)*100)+'%'" style="background:linear-gradient(90deg,#64748B,#475569)">{{ r.oneTime }}</div>
               </div>
@@ -215,66 +233,5 @@
       </div>
     </div>
 
-    <!-- C. Detail Tabs -->
-    <div class="section-heading">C. Detail Data Tabs</div>
-    <div class="pill-tabs">
-      @for (t of detailTabs; track t) {
-        <div class="pt" [class.active]="activeTab()===t" (click)="switchTab(t)">{{ t }}</div>
-      }
-    </div>
-
-    @if (tabLoading()) {
-      <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
-        ⏳ Loading {{ activeTab() }} data…
-      </div>
-    } @else if (tabRows().length === 0) {
-      <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
-        <div style="font-size:28px;margin-bottom:10px">📊</div>
-        <div style="font-size:13px">No {{ activeTab() }} data available. Run the ML pipeline first.</div>
-      </div>
-    } @else {
-      <div class="card">
-        <!-- Horizontal scroll wrapper: the detail tab tables have 8 columns
-             and get clipped on narrow viewports. Wrapping the table (but
-             NOT the pagination footer below) lets it scroll sideways while
-             keeping the footer pinned. -->
-        <div class="detail-tabs-scroll">
-        <table class="data-table detail-table">
-          <thead>
-            <tr>
-              @for (h of activeHeaders(); track h) {
-                <th>{{ h }}</th>
-              }
-            </tr>
-          </thead>
-          <tbody>
-            @for (o of tabRows(); track o.orderId) {
-              <tr>
-                <td>{{ o.orderId }}</td>
-                <td>{{ o.customer }}</td>
-                <td class="font-mono" style="font-size:11px">{{ o.date }}</td>
-                <td>{{ o.items }}</td>
-                <td>{{ activeTab() === 'Clean Orders' ? formatCurrency(o.gross) : formatNumber(o.gross) }}</td>
-                <td>{{ activeTab() === 'Clean Orders' ? formatCurrency(o.discount) : formatNumber(o.discount) }}</td>
-                <td>{{ activeTab() === 'Clean Orders' ? formatCurrency(o.net) : formatNumber(o.net) }}</td>
-                <td>
-                  @if (activeTab() === 'Clean Orders') {
-                    <span class="badge" [class]="orderStatusClass(o.status)">{{ orderStatusLabel(o.status) }}</span>
-                  } @else {
-                    {{ o.status }}
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-        </div>
-        <div style="padding:12px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:12px">
-          <span>Page {{ currentPage() }} of {{ tabTotalPages() }}</span>
-          <button class="btn ghost sm" [disabled]="currentPage()===1" (click)="loadPage(currentPage()-1)">◀ Prev</button>
-          <button class="btn ghost sm" [disabled]="currentPage()===tabTotalPages()" (click)="loadPage(currentPage()+1)">Next ▶</button>
-        </div>
-      </div>
-    }
   }
 </div>

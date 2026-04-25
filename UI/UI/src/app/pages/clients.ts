@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, computed, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../services/api.service';
@@ -9,6 +9,8 @@ interface ClientRow {
   client_name: string;
   client_code: string;
   created_at: string | null;
+  is_active: boolean;
+  deactivated_at: string | null;
 }
 
 // Shape returned by GET /clients/{id}/data-overview — one row per table.
@@ -55,6 +57,36 @@ export class ClientsComponent implements OnInit {
   clients = signal<ClientRow[]>([]);
   loading = signal(true);
   selected = signal<ClientRow | null>(null);
+
+  // Split the list so the stat cards can show Active vs Inactive counts.
+  activeClients   = computed(() => this.clients().filter(c => c.is_active));
+  inactiveClients = computed(() => this.clients().filter(c => !c.is_active));
+
+  // Which bucket the table is showing. The three stat cards (Total / Active /
+  // Inactive) act as filter tabs; clicking one flips this and the table
+  // re-renders via visibleClients(). Defaults to 'active' so the page keeps
+  // its existing behaviour of hiding deleted clients until the admin asks.
+  statusFilter = signal<'all' | 'active' | 'inactive'>('active');
+
+  visibleClients = computed<ClientRow[]>(() => {
+    switch (this.statusFilter()) {
+      case 'active':   return this.activeClients();
+      case 'inactive': return this.inactiveClients();
+      default:         return this.clients();
+    }
+  });
+
+  setStatusFilter(f: 'all' | 'active' | 'inactive') {
+    this.statusFilter.set(f);
+    // If the currently-selected detail panel is no longer in the visible
+    // list, clear it so the detail panel doesn't mismatch the table.
+    const sel = this.selected();
+    if (sel && !this.visibleClients().some(c => c.client_id === sel.client_id)) {
+      const fallback = this.visibleClients()[0] ?? null;
+      if (fallback) this.selectClient(fallback);
+      else { this.selected.set(null); this.overview.set(null); }
+    }
+  }
 
   // Only super admins can create or delete clients. Everyone else sees the
   // page read-only (View buttons still work — they'll just not see the
@@ -113,14 +145,18 @@ export class ClientsComponent implements OnInit {
 
   loadClients() {
     this.loading.set(true);
-    this.api.get<ClientRow[]>('/clients').subscribe({
+    // Super admins need the deactivated rows too so the Inactive counter
+    // and Total card reflect reality. Other roles always get active-only
+    // (the backend ignores includeInactive for non-admins).
+    const qs = this.isSuperAdmin() ? '?includeInactive=true' : '';
+    this.api.get<ClientRow[]>(`/clients${qs}`).subscribe({
       next: (data) => {
         this.clients.set(data);
         this.loading.set(false);
-        // Auto-select first client for detail view, and fetch their overview
-        // so the panel isn't empty on first paint.
-        if (data.length > 0) {
-          this.selectClient(data[0]);
+        // Auto-select first active client for detail view.
+        const firstActive = data.find(c => c.is_active) ?? null;
+        if (firstActive) {
+          this.selectClient(firstActive);
         }
       },
       error: () => {

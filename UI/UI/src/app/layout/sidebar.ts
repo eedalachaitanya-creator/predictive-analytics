@@ -25,15 +25,14 @@ export class SidebarComponent {
     label: 'Analyst Agent',
     icon:  '🔮',
     pathPrefixes: [
-      '/app/upload', '/app/validation', '/app/settings', '/app/run',
+      '/app/upload', '/app/validation', '/app/settings',
       '/app/dashboard', '/app/churn-scores', '/app/downloads',
       '/app/messages', '/app/chat', '/app/cost-tracking',
     ],
     children: [
       { path: '/app/upload',        label: 'Upload Data',   icon: '📤' },
       { path: '/app/validation',    label: 'Validation',    icon: '✅' },
-      { path: '/app/settings',      label: 'Settings',      icon: '⚙️' },
-      { path: '/app/run',           label: 'Run',           icon: '🚀' },
+      { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' },
       { path: '/app/dashboard',     label: 'Dashboard',     icon: '📊' },
       { path: '/app/churn-scores',  label: 'Churn Scores',  icon: '📈' },
       { path: '/app/downloads',     label: 'Downloads',     icon: '📥' },

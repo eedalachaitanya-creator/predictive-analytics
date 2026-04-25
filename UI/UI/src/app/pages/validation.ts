@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, computed, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
@@ -15,6 +15,7 @@ interface ValidationFile {
   dup: number;
   dateErrors: number;
   status: string;
+  empty?: boolean;   // true when the master has zero rows (no upload yet)
 }
 
 interface ValidationSummary {
@@ -71,6 +72,34 @@ export class ValidationComponent implements OnInit {
 
   // ── Warnings list (computed from files with issues) ─────────────
   warnings = signal<string[]>([]);
+
+  // ── Status filter — drives which rows the summary table shows ───
+  // The four stat tiles at the top act as filter tabs: clicking them
+  // narrows the Data Validation Summary to tables in that state.
+  //   'all'   → every uploaded table
+  //   'ok'    → only tables that passed cleanly
+  //   'warn'  → only tables with warnings (nulls in required cols)
+  //   'error' → only tables with errors (duplicate primary keys)
+  statusFilter = signal<'all' | 'ok' | 'warn' | 'error'>('all');
+
+  visibleFiles = computed<ValidationFile[]>(() => {
+    const f = this.statusFilter();
+    const all = this.files();
+    return f === 'all' ? all : all.filter(x => x.status === f);
+  });
+
+  setStatusFilter(f: 'all' | 'ok' | 'warn' | 'error') {
+    this.statusFilter.set(f);
+    // Keep the column-detail panel in sync with the filter: if the
+    // currently-selected file is no longer visible, slide to the first
+    // file in the new view (or clear if the view is empty).
+    const sel = this.selectedFile();
+    const visible = this.visibleFiles();
+    if (sel && !visible.some(v => v.masterType === sel.masterType)) {
+      if (visible.length > 0) this.selectFile(visible[0]);
+      else this.selectedFile.set(null);
+    }
+  }
 
   ngOnInit() {
     this.runValidation();

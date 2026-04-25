@@ -195,6 +195,31 @@ def enrich_with_churn_scores(df: pd.DataFrame) -> pd.DataFrame:
 # 4. DETERMINE URGENCY AND DISCOUNT
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _fetch_max_discount_per_client(client_ids: list[str]) -> dict[str, float]:
+    """Return {client_id: max_discount_pct} for the given clients, sourced
+    from client_config. Any client not found (or NULL config) falls back to
+    30 — the legacy hardcoded cap — so new tenants without a saved Settings
+    page still behave the same way they did before.
+    """
+    if not client_ids:
+        return {}
+    unique = sorted({cid for cid in client_ids if cid})
+    if not unique:
+        return {}
+    try:
+        placeholders = ", ".join([f":c{i}" for i in range(len(unique))])
+        params = {f"c{i}": cid for i, cid in enumerate(unique)}
+        rows = _run_query(
+            f"SELECT client_id, COALESCE(max_discount_pct, 30) AS max_discount_pct "
+            f"FROM client_config WHERE client_id IN ({placeholders})",
+            params,
+        )
+        return {str(r["client_id"]): float(r["max_discount_pct"]) for _, r in rows.iterrows()}
+    except Exception as exc:  # pragma: no cover — best-effort
+        log.warning("Could not fetch max_discount_pct from client_config: %s", exc)
+        return {}
+
+
 def assign_urgency_and_discount(df: pd.DataFrame) -> pd.DataFrame:
     """
     Assign urgency level and recommended discount based on
@@ -216,6 +241,15 @@ def assign_urgency_and_discount(df: pd.DataFrame) -> pd.DataFrame:
             return "MEDIUM"
         return "LOW"
 
+    # Look up each client's max_discount_pct from client_config so the cap
+    # honours what the user saved on the Settings page. Previously this
+    # function capped at a hardcoded 30% and completely ignored the
+    # per-client setting — which is why every tenant saw discounts up to
+    # 25% even when they had max_discount_pct=15%.
+    client_ids_in_batch = df["client_id"].dropna().unique().tolist() \
+        if "client_id" in df.columns else []
+    max_discount_map = _fetch_max_discount_per_client(client_ids_in_batch)
+
     def _discount(row):
         urgency = row.get("urgency", "LOW")
         tier = str(row.get("customer_tier", "")).lower()
@@ -227,7 +261,12 @@ def assign_urgency_and_discount(df: pd.DataFrame) -> pd.DataFrame:
         if tier in ("platinum", "gold"):
             discount += 5
 
-        return min(discount, 30)  # cap at 30%
+        # Cap at the client's configured max_discount_pct (falls back to 30
+        # if the client isn't in client_config or the column is NULL, so new
+        # tenants still get the legacy behaviour).
+        cid = row.get("client_id")
+        client_cap = max_discount_map.get(str(cid), 30.0) if cid else 30.0
+        return min(discount, client_cap)
 
     df["urgency"] = df.apply(_urgency, axis=1)
     df["discount_offered"] = df.apply(_discount, axis=1)

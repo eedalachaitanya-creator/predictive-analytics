@@ -37,6 +37,17 @@
   letter-spacing: 0.04em;
 }
 
+// Small muted line under the label clarifying what each metric actually
+// is (e.g. "probability ≥ 0.65", "mean — not % HIGH"). Hover tooltips on
+// the card give the longer explanation.
+.summary-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  opacity: .85;
+  letter-spacing: .01em;
+}
+
 // ── Filter Bar ──────────────────────────────────────────
 .filter-bar {
   display: flex;

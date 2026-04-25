@@ -91,6 +91,10 @@ LEAKY_COLS = [
     'discount_rate_last_90d_pct',
     'spend_velocity_ratio',
     'order_gap_inflation_pct',
+    # Login-aware churn leaks (Phase 2 migration, 2026-04-24) — both are
+    # part of the new two-condition churn label definition, so they leak.
+    'last_login_date',
+    'days_since_last_login',
 ]
 
 # Must match train_model.py — review-derived features are excluded

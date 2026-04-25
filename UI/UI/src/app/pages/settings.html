@@ -9,6 +9,10 @@
         <div class="num-pair"><input type="number" [ngModel]="churnWindow()" (ngModelChange)="churnWindow.set($event)"><span class="unit">days</span></div>
       </div>
       <div class="param-row">
+        <div><div class="param-label">LOGIN INACTIVITY WINDOW</div><div class="param-desc">Customers must ALSO have no login in this many days to be flagged as churned (works alongside Churn Window — both thresholds must be exceeded)</div></div>
+        <div class="num-pair"><input type="number" [ngModel]="loginWindow()" (ngModelChange)="loginWindow.set($event)"><span class="unit">days</span></div>
+      </div>
+      <div class="param-row">
         <div><div class="param-label">REPEAT CUSTOMER THRESHOLD</div><div class="param-desc">Minimum completed orders needed to be classified as a repeat customer</div></div>
         <div class="num-pair"><input type="number" [ngModel]="repeatThreshold()" (ngModelChange)="repeatThreshold.set($event)"><span class="unit">or more orders</span></div>
       </div>
@@ -117,4 +121,26 @@
     <button class="btn outline">↩ Reset to Defaults</button>
     @if (saved()) { <span class="badge green" style="font-size:13px;padding:8px 14px">✅ Settings saved!</span> }
   </div>
+
+  <!-- Run Pipeline (moved from the former Run page) -->
+  <div style="text-align:center;margin:32px 0 12px">
+    <button class="btn walmart lg" style="font-size:16px;padding:16px 44px;border-radius:10px"
+      [disabled]="running" (click)="runPipeline()">
+      {{ running ? '⏳ Pipeline Running…' : '⚡ PROCESS DATA' }}
+    </button>
+    @if (running) {
+      <div style="display:flex;align-items:center;gap:10px;max-width:320px;margin:12px auto 0">
+        <div style="flex:1"><div class="progress-bar"><div class="fill" [style.width]="progress + '%'"></div></div></div>
+        <div style="font-size:12px;color:var(--text-secondary);white-space:nowrap">{{ progress }}%</div>
+      </div>
+    }
+    <div style="font-size:12px;color:var(--text-muted);margin-top:10px">
+      @if (running) { Do not close this tab while the pipeline is running }
+      @else { Typically 5–15 seconds · requires all 11 master files uploaded }
+    </div>
+  </div>
+
+  @if (runError()) {
+    <div class="notice warning mb-20">❌ {{ runError() }}</div>
+  }
 </div>

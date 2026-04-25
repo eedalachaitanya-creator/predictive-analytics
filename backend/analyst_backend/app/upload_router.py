@@ -67,10 +67,14 @@ except OSError:
 MASTER_TYPE_TO_TABLE = {
     "customer": (
         "customers",
+        # 16 columns — `last_login_date` was added 2026-04-24 for the
+        # login-aware churn rule (migration 2026_04_24_last_login_date.sql).
+        # Optional in the uploaded file; missing values land NULL.
         ["client_id", "customer_id", "customer_email", "customer_name",
          "customer_phone", "account_created_date", "registration_channel",
          "country_code", "state", "city", "zip_code", "shipping_address",
-         "preferred_device", "email_opt_in", "sms_opt_in"],
+         "preferred_device", "email_opt_in", "sms_opt_in",
+         "last_login_date"],
     ),
     "order": (
         "orders",
@@ -133,6 +137,68 @@ MASTER_TYPE_TO_TABLE = {
          "status", "channel", "opened_date", "resolved_date", "resolution_time_hrs"],
     ),
 }
+
+# ── Required-column rules per master type ────────────────────────────────────
+# Columns that MUST carry at least one populated value in the uploaded file.
+# `client_id` is intentionally omitted because the upload pipeline injects it
+# at staging time — it's never present in the customer's Excel/CSV.
+#
+# This is the source of truth for the "file has rows but every required
+# field is blank" guard. Keeping it here (not importing validation_router's
+# VALIDATION_CONFIG) avoids a cross-module cycle and lets the two checkers
+# evolve independently.
+REQUIRED_COLS_PER_MASTER = {
+    "customer":         ["customer_id", "customer_email", "customer_name", "account_created_date"],
+    "order":            ["order_id", "customer_id", "order_date", "order_value_usd"],
+    "line_items":       ["line_item_id", "order_id", "customer_id", "product_id", "quantity", "unit_price_usd"],
+    "product":          ["product_id", "product_name", "category_id"],
+    "price":            ["price_id", "product_id", "unit_price_usd"],
+    "vendor_map":       ["pv_id", "product_id", "vendor_id"],
+    "category":         ["category_id", "category_name"],
+    "sub_category":     ["sub_category_id", "sub_category_name", "category_id"],
+    "sub_sub_category": ["sub_sub_category_id", "sub_sub_category_name", "sub_category_id"],
+    "brand":            ["brand_id", "brand_name"],
+    "vendor":           ["vendor_id", "vendor_name"],
+    "customer_reviews": ["review_id", "customer_id", "product_id", "rating"],
+    "support_tickets":  ["ticket_id", "customer_id", "ticket_type"],
+}
+
+
+def _assert_file_has_real_data(df: pd.DataFrame, master_type: str, filename: str) -> None:
+    """Reject files that have rows but every required column is 100% blank.
+
+    `df.empty` already covers the "zero rows" case upstream; this catches the
+    second-degree empty file — e.g. a template Excel where every data row is
+    just placeholders or whitespace. Treats NaN AND empty / whitespace-only
+    strings as blank.
+    """
+    required = REQUIRED_COLS_PER_MASTER.get(master_type, [])
+    if not required:
+        return  # master type has no required cols; nothing to assert
+
+    # Build the list of required columns that are actually present in the
+    # uploaded file. Columns that aren't present at all are a schema error
+    # caught later in _load_df_to_staging — not our concern here.
+    present = [c for c in required if c in df.columns]
+    if not present:
+        return  # schema mismatch is a different error class
+
+    for col in present:
+        series = df[col]
+        # .notna() catches NaN / NaT; the string cast + strip filter catches
+        # literal "" and whitespace-only cells that pandas parsed as strings.
+        has_value = series.notna() & (series.astype(str).str.strip() != "")
+        if has_value.any():
+            return  # at least one real value found — file is fine
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"{filename} has rows but every required column is blank "
+            f"({', '.join(present)}). Please upload a file with actual data."
+        ),
+    )
+
 
 # Tables that affect the materialized view — refresh after commit if these were loaded
 MV_TRIGGER_TABLES = {"customers", "orders", "line_items", "products",
@@ -736,6 +802,10 @@ async def upload_file(
 
     if df.empty:
         raise HTTPException(status_code=400, detail="File is empty — no rows found")
+
+    # Guard against files that have rows but every required column is blank
+    # (e.g. template Excel where every cell is a placeholder). Raises 400 if so.
+    _assert_file_has_real_data(df, master_type, filename)
 
     row_count = len(df)
     columns = list(df.columns)

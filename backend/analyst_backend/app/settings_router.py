@@ -30,6 +30,11 @@ log = logging.getLogger("settings")
 
 class SettingsUpdate(BaseModel):
     churn_window_days: Optional[int] = None
+    # Login-aware churn rule (added 2026-04-24): customer is flagged churned
+    # only if BOTH `days_since_last_order > churn_window_days` AND
+    # `days_since_last_login > login_window_days`. Default is 30; adjustable
+    # per tenant from the Settings page.
+    login_window_days: Optional[int] = None
     min_repeat_orders: Optional[int] = None
     high_value_percentile: Optional[int] = None
     recent_order_gap_window: Optional[int] = None
@@ -73,7 +78,8 @@ def get_settings(
                            high_ltv_threshold, mid_ltv_threshold, max_discount_pct,
                            reference_date_mode, reference_date, fiscal_year_start,
                            tier_label_platinum, tier_label_gold,
-                           tier_label_silver, tier_label_bronze
+                           tier_label_silver, tier_label_bronze,
+                           login_window_days
                     FROM client_config
                     WHERE client_id = :cid
                 """),
@@ -109,6 +115,7 @@ def get_settings(
             "tier_label_gold":     row[22] or '🥇 Gold',
             "tier_label_silver":   row[23] or '🥈 Silver',
             "tier_label_bronze":   row[24] or '🥉 Bronze',
+            "login_window_days":   row[25] if row[25] is not None else 30,
         }
 
     except HTTPException:
@@ -137,6 +144,7 @@ def update_settings(
 
     field_map = {
         "churn_window_days": req.churn_window_days,
+        "login_window_days": req.login_window_days,
         "min_repeat_orders": req.min_repeat_orders,
         "high_value_percentile": req.high_value_percentile,
         "recent_order_gap_window": req.recent_order_gap_window,

@@ -521,6 +521,38 @@ def apply_tier_weighting(
     return adjusted
 
 
+def _unwrap_calibrated(model: Any) -> Any:
+    """
+    Return the underlying base estimator when `model` is a
+    CalibratedClassifierCV wrapper, otherwise return the model unchanged.
+
+    Why: after audit fix #7 (2026-04-24) models are wrapped with
+    CalibratedClassifierCV(method='isotonic', cv=5) at train time so
+    predict_proba returns well-calibrated probabilities. The wrapper
+    does NOT expose `feature_importances_` or satisfy
+    `isinstance(m, xgb.XGBClassifier)`, which breaks SHAP driver
+    computation below. This helper hands back the first internal base
+    classifier so SHAP can read tree importances like it always has.
+
+    All 5 internal base classifiers (one per calibration fold) share the
+    same hyperparameters and have near-identical feature importance
+    rankings; picking [0] is a faithful representative.
+    """
+    try:
+        from sklearn.calibration import CalibratedClassifierCV
+        if isinstance(model, CalibratedClassifierCV):
+            # Each entry is a _CalibratedClassifier with `.estimator`
+            # (sklearn ≥ 1.1). Older sklearns used `.base_estimator`.
+            inner = model.calibrated_classifiers_[0]
+            return getattr(inner, 'estimator', None) or getattr(inner, 'base_estimator', model)
+    except Exception:
+        # Any failure (wrong sklearn version, corrupted pickle, etc.)
+        # degrades gracefully — fall through to the original model and
+        # let the caller's own fallback logic take over.
+        pass
+    return model
+
+
 def compute_churn_drivers(
     model: Any,
     X_score: pd.DataFrame,
@@ -566,6 +598,11 @@ def compute_churn_drivers(
     n_customers = len(X_score)
 
     # ── 1. Compute signed SHAP contributions (positive → pushes toward churn) ──
+    # Unwrap CalibratedClassifierCV (added by audit fix #7) to get the base
+    # tree model. SHAP needs raw tree-importances or an XGBClassifier
+    # instance, neither of which the calibration wrapper exposes.
+    shap_model = _unwrap_calibrated(model)
+
     shap_values = None
     try:
         # Prefer XGBoost's built-in TreeSHAP — no extra dependency required.
@@ -574,8 +611,8 @@ def compute_churn_drivers(
         except ImportError:
             xgb = None
 
-        if xgb is not None and isinstance(model, xgb.XGBClassifier):
-            booster = model.get_booster()
+        if xgb is not None and isinstance(shap_model, xgb.XGBClassifier):
+            booster = shap_model.get_booster()
             dmatrix = xgb.DMatrix(X_score.values, feature_names=feature_names)
             # pred_contribs shape: (n_rows, n_features + 1); last column is bias
             contribs = booster.predict(dmatrix, pred_contribs=True)
@@ -584,10 +621,10 @@ def compute_churn_drivers(
             # Fallback for RandomForest (or any other tree/linear model a
             # future developer plugs in): use the `shap` package.
             import shap as _shap
-            if hasattr(model, 'feature_importances_'):
-                explainer = _shap.TreeExplainer(model)
-            elif hasattr(model, 'coef_'):
-                explainer = _shap.LinearExplainer(model, X_score)
+            if hasattr(shap_model, 'feature_importances_'):
+                explainer = _shap.TreeExplainer(shap_model)
+            elif hasattr(shap_model, 'coef_'):
+                explainer = _shap.LinearExplainer(shap_model, X_score)
             else:
                 raise RuntimeError(
                     "Unsupported model type for SHAP — needs tree_importances_ or coef_"
@@ -626,12 +663,14 @@ def compute_churn_drivers(
         )
         try:
             X_arr = X_score.values.astype(float)
-            if hasattr(model, 'feature_importances_'):
-                weights = np.asarray(model.feature_importances_, dtype=float)
-            elif hasattr(model, 'coef_'):
+            # Use the unwrapped base model here for the same reason as
+            # above — CalibratedClassifierCV has no feature_importances_.
+            if hasattr(shap_model, 'feature_importances_'):
+                weights = np.asarray(shap_model.feature_importances_, dtype=float)
+            elif hasattr(shap_model, 'coef_'):
                 # Defensive branch — kept in case a future linear model is
                 # added back. Binary linear coef_ is (1, n_features); squeeze.
-                weights = np.asarray(model.coef_, dtype=float).reshape(-1)
+                weights = np.asarray(shap_model.coef_, dtype=float).reshape(-1)
             else:
                 raise RuntimeError("model has neither feature_importances_ nor coef_")
 

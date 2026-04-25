@@ -1,9 +1,12 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { TierLabelService } from '../services/tier-label.service';
+import { PipelineService } from '../services/pipeline.service';
+import { PipelineRunRequest } from '../models';
 
 @Component({
   selector: 'app-settings',
@@ -12,14 +15,19 @@ import { TierLabelService } from '../services/tier-label.service';
   templateUrl: './settings.html',
   styleUrls: ['./settings.scss']
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private auth = inject(AuthService);
   private tierLabels = inject(TierLabelService);
+  pipelineSvc = inject(PipelineService);
   private clientId = this.auth.getClientId();
 
   // Pipeline rules (loaded from database)
   churnWindow = signal(90);
+  // Login-aware churn (added 2026-04-24): customer must ALSO have no login
+  // in this many days to be flagged churned. Works alongside churnWindow —
+  // both thresholds must be exceeded.
+  loginWindow = signal(30);
   repeatThreshold = signal(2);
   highValuePct = signal(75);
   recentGapWindow = signal(3);
@@ -63,8 +71,34 @@ export class SettingsComponent implements OnInit {
   // Vendor config (loaded from database)
   vendorCfg = signal<{param: string; val: string; type: string; desc: string}[]>([]);
 
+  // Pipeline run state (button + error only; progress panel removed)
+  private readonly predMode = 'full' as const;
+  runError = signal<string | null>(null);
+  private sub?: Subscription;
+
+  get running() { return this.pipelineSvc.isRunning(); }
+  get progress() { return this.pipelineSvc.currentJob()?.progress ?? 0; }
+
   ngOnInit() {
     this.loadSettings();
+  }
+
+  ngOnDestroy() { this.sub?.unsubscribe(); }
+
+  runPipeline() {
+    this.runError.set(null);
+    const req: PipelineRunRequest = { clientId: this.clientId, mode: this.predMode };
+    this.pipelineSvc.run(req).subscribe({
+      next: job => {
+        // Polling keeps pipelineSvc.isRunning() accurate so the button
+        // re-enables when the backend finishes, even though we no longer
+        // render the progress panel.
+        this.sub = this.pipelineSvc.pollJob(job.jobId).subscribe({
+          error: e => this.runError.set(e.message),
+        });
+      },
+      error: e => this.runError.set(e.message ?? 'Failed to start pipeline.'),
+    });
   }
 
   loadSettings() {
@@ -72,6 +106,7 @@ export class SettingsComponent implements OnInit {
     this.api.get<any>(`/settings?clientId=${this.clientId}`).subscribe({
       next: (cfg) => {
         this.churnWindow.set(cfg.churn_window_days ?? 90);
+        this.loginWindow.set(cfg.login_window_days ?? 30);
         this.repeatThreshold.set(cfg.min_repeat_orders ?? 2);
         this.highValuePct.set(cfg.high_value_percentile ?? 75);
         this.recentGapWindow.set(cfg.recent_order_gap_window ?? 3);
@@ -91,6 +126,7 @@ export class SettingsComponent implements OnInit {
           { param: 'client_name',       val: cfg.client_name,                    type: 'string',  desc: 'Full legal name of the retail client' },
           { param: 'client_id',         val: cfg.client_id,                      type: 'string',  desc: 'Unique client identifier' },
           { param: 'churn_window_days', val: String(cfg.churn_window_days),      type: 'integer', desc: 'Days since last order before flagging as churned' },
+          { param: 'login_window_days', val: String(cfg.login_window_days ?? 30), type: 'integer', desc: 'Days since last login required (alongside churn window) before flagging as churned' },
           { param: 'min_repeat_orders', val: String(cfg.min_repeat_orders),      type: 'integer', desc: 'Min completed orders to qualify as repeat customer' },
           { param: 'high_value_pct',    val: String(cfg.high_value_percentile),  type: 'integer', desc: 'Percentile cutoff for High Value flag' },
           { param: 'currency',          val: cfg.currency,                       type: 'string',  desc: 'Transaction currency for all monetary columns' },
@@ -112,6 +148,7 @@ export class SettingsComponent implements OnInit {
 
     const body = {
       churn_window_days: this.churnWindow(),
+      login_window_days: this.loginWindow(),
       min_repeat_orders: this.repeatThreshold(),
       high_value_percentile: this.highValuePct(),
       recent_order_gap_window: this.recentGapWindow(),

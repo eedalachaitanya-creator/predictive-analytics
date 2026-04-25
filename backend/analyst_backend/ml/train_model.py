@@ -179,6 +179,18 @@ LEAKY_COLS = [
     'discount_rate_last_90d_pct',     # = 0 when spend_last_90d = 0
     'spend_velocity_ratio',           # = 0 when spend_last_90d = 0
     'order_gap_inflation_pct',        # collapses for no-recent-order customers
+    # ── Login-aware churn leaks (Phase 2 migration, 2026-04-24) ─────────
+    # The churn label is now a TWO-condition rule:
+    #   churn_label = 1
+    #     WHEN days_since_last_order >= churn_window_days
+    #      AND days_since_last_login   >  login_window_days
+    # That makes both `last_login_date` and `days_since_last_login` part of
+    # the label definition itself, not predictors. Including them in the
+    # feature matrix would trivially leak the target. The MV still exposes
+    # them so the dashboard / agent can show "logged in N days ago" — they
+    # just don't reach the model.
+    'last_login_date',                # raw date used to derive label
+    'days_since_last_login',          # = ref_date − last_login_date
 ]
 
 # ── REVIEW FEATURES (excluded from model) ───────────────────────────────────
@@ -1594,6 +1606,14 @@ Examples:
     parser.add_argument('--gray-zone-upper', type=int, default=GRAY_ZONE_UPPER,
                         help=f'Upper DSLO bound of gray zone '
                              f'(default: {GRAY_ZONE_UPPER})')
+    # Probability calibration (audit 2026-04-24 issue #7): wrap the base
+    # tree model with CalibratedClassifierCV(method='isotonic', cv=5) so
+    # predict_proba returns well-calibrated probabilities instead of the
+    # 0/1-saturated output that tree ensembles produce by default.
+    parser.add_argument('--skip-calibration', action='store_true',
+                        help='Skip probability calibration (deploy raw '
+                             'tree-model predict_proba — less accurate risk '
+                             'scores but faster training)')
     return parser.parse_args()
 
 
@@ -1623,31 +1643,80 @@ def run_pipeline_for_model(
     log.info("  TRAINING: %s", model_type.upper())
     log.info("=" * 75)
 
-    # ─ Hyperparameter tuning or default build
+    # ─ Hyperparameter tuning or default build (builds BASE model)
+    # `base_model` is the uncalibrated tree model. It's what CV scores, what
+    # feature importances are extracted from, and what gets wrapped with
+    # isotonic calibration below to form the final deployed model.
     if args.tune:
-        model, best_params = tune_hyperparameters(
+        base_model, best_params = tune_hyperparameters(
             model_type, X_train, y_train,
             n_iter=args.tune_iter
         )
         log.info("  Best params: %s", best_params)
     else:
-        model = build_model(model_type)
-        model = train_single_model(model, X_train, y_train, model_type)
+        base_model = build_model(model_type)
+        base_model = train_single_model(base_model, X_train, y_train, model_type)
 
-    # ─ Cross-validation (on full data with fresh model)
+    # ─ Cross-validation (same hyperparameters as the deployed model)
     # XGBoost + RandomForest are both scale-invariant trees, so no inner
     # scaler pipeline is required — the same features that went into the
     # held-out fit work unchanged inside each CV fold.
+    #
+    # Previously `cv_model = build_model(model_type)` spun up a fresh
+    # DEFAULT model, so when --tune was on, the CV scores in the report
+    # described an untuned model while the test-set scores described the
+    # tuned one — two different configurations being compared side-by-side.
+    # `clone()` returns an unfit copy of the actual model with identical
+    # hyperparameters, so CV now measures the real deployed model.
+    # (Audit 2026-04-24 issue #3.)
+    #
+    # CV is deliberately run on the UNCALIBRATED base model so the numbers
+    # remain comparable to earlier runs and describe the raw learner's
+    # discrimination. Calibration is a monotonic transform of predict_proba
+    # and does not change ROC/AUC — the CV AUC is identical either way.
+    from sklearn.base import clone
     cv_results = None
     if not args.no_cv:
-        cv_model = build_model(model_type)
+        cv_model = clone(base_model)
         cv_results = cross_validate_model(cv_model, X_full, y_full)
 
-    # ─ Evaluate on held-out test set
+    # ─ Probability calibration (audit 2026-04-24 issue #7)
+    # Tree ensembles saturate predict_proba near 0 and 1, which is why the
+    # dashboard showed almost no customers in the MEDIUM risk band (the
+    # 0.35–0.65 cutoffs never triggered). Isotonic regression calibration
+    # with cv=5 reshapes the probability distribution so predict_proba
+    # values are meaningful — the risk score "0.52" now corresponds to a
+    # roughly 52% chance of churn, not a 0/1 artifact of tree voting.
+    #
+    # Mechanics: CalibratedClassifierCV with cv=5 refits the base estimator
+    # on 5 internal folds of X_train/y_train, then learns a monotonic
+    # isotonic mapping from each base model's raw output to the observed
+    # class frequencies. At predict time it averages the 5 calibrated
+    # probabilities. The resulting estimator exposes predict_proba /
+    # predict exactly like the base, so no changes are needed in predict.py
+    # for the probability path. SHAP in predict.py does need to unwrap the
+    # calibrated wrapper — that's handled separately there.
+    if not args.skip_calibration:
+        from sklearn.calibration import CalibratedClassifierCV
+        log.info("Calibrating probabilities (isotonic, cv=5)...")
+        model = CalibratedClassifierCV(
+            clone(base_model),   # unfit clone; CalibratedClassifierCV refits
+            method='isotonic',
+            cv=5,
+        )
+        model.fit(X_train, y_train)
+        log.info("  Calibration complete — predict_proba now calibrated")
+    else:
+        log.info("Probability calibration disabled via --skip-calibration")
+        model = base_model
+
+    # ─ Evaluate on held-out test set (uses CALIBRATED model)
     metrics = evaluate_model(model, X_test, y_test)
 
-    # ─ Feature importance
-    importance_df = get_feature_importances(model, feature_names, model_type)
+    # ─ Feature importance (uses UNCALIBRATED base — CalibratedClassifierCV
+    # has no feature_importances_ attribute; the importances from the base
+    # model are a faithful summary of what the calibrated ensemble uses)
+    importance_df = get_feature_importances(base_model, feature_names, model_type)
 
     # ─ Save model FIRST (before plots/reports — so model is persisted even if plots crash)
     metadata = {
@@ -1659,6 +1728,9 @@ def run_pipeline_for_model(
         'feature_names': feature_names,
         'cleaning_log': cleaning_log,
         'tuned': args.tune,
+        'calibrated': not args.skip_calibration,
+        'calibration_method': 'isotonic' if not args.skip_calibration else None,
+        'calibration_cv': 5 if not args.skip_calibration else None,
         'metrics': {
             'accuracy': float(metrics['accuracy']),
             'precision': float(metrics['precision']),
@@ -1722,18 +1794,31 @@ def main():
     if not args.skip_cleaning:
         X, cleaning_log = clean_features(X)
 
-    # ── Step 4: Feature selection ──────────────────────────────────────────
-    selected = select_features_by_importance(X, y, method=args.feature_selection,
-                                             top_n=args.top_features)
-    X = X[selected]
-    feature_names = list(X.columns)
-
-    # Keep full data for cross-validation
-    X_full = X.copy()
-    y_full = y.copy()
-
-    # ── Step 5: Train/test split ───────────────────────────────────────────
+    # ── Step 4: Train/test split ───────────────────────────────────────────
+    # Split FIRST, BEFORE feature selection. Previously feature importance
+    # was computed on the full X/y, which meant test-set labels influenced
+    # which features ended up in the model and silently inflated held-out
+    # AUC. Splitting first keeps the test set out of every downstream
+    # decision. (Audit 2026-04-24 issue #1.)
     X_train, X_test, y_train, y_test = split_data(X, y)
+
+    # ── Step 5: Feature selection (training data only) ─────────────────────
+    # Feature importance is computed on X_train/y_train only. The same
+    # selected column list is then applied to X_test so both sides of the
+    # split see identical columns in the same order.
+    selected = select_features_by_importance(X_train, y_train,
+                                             method=args.feature_selection,
+                                             top_n=args.top_features)
+    X_train = X_train[selected]
+    X_test  = X_test[selected]
+    feature_names = list(X_train.columns)
+
+    # Snapshot of training data for cross-validation — pre-gray-zone,
+    # pre-SMOTE, pre-scaling. CV now uses TRAINING data only; the held-out
+    # test set is reserved for final unbiased evaluation and never appears
+    # in CV folds.
+    X_full = X_train.copy()
+    y_full = y_train.copy()
 
     # ── Step 5b: Gray-zone exclusion (training only) ───────────────────────
     # Customers with DSLO near the 90-day churn cutoff have ambiguous labels.
@@ -1756,8 +1841,10 @@ def main():
     # ── Step 7: Scale features ─────────────────────────────────────────────
     X_train, X_test, scaler = scale_features(X_train, X_test, method=args.scale_method)
 
-    # Also scale full data for CV (fit fresh scaler inside CV, so just pass unscaled)
-    # CV uses X_full/y_full which are unscaled — sklearn CV handles this internally
+    # CV uses X_full/y_full (a snapshot of X_train/y_train taken above,
+    # pre-gray-zone, pre-SMOTE, pre-scaling). Tree models are scale-invariant
+    # so this works today — when LogReg or any L1/L2 model comes back, wrap
+    # scaler+model in a sklearn.Pipeline and pass that to cross_validate.
 
     # ── Step 8: Train model(s) ─────────────────────────────────────────────
     # Supported models: XGBoost + RandomForest. LogisticRegression was

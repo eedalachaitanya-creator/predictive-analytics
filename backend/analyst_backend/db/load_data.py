@@ -333,14 +333,19 @@ def load_product_vendor_mapping(ws):
 def load_customers(ws):
     rows = list(ws.iter_rows(values_only=True))
     hi, _ = find_header_row(rows, "client_id")
+    # 16 columns — added `last_login_date` (col P) for the login-aware churn
+    # rule (migration 2026_04_24_last_login_date.sql). It's optional in the
+    # uploaded file; rows that don't supply it land NULL in the DB and the
+    # MV's churn label falls back to the legacy single-condition behaviour.
     cols = ["client_id", "customer_id", "customer_email", "customer_name", "customer_phone",
             "account_created_date", "registration_channel", "country_code", "state", "city",
-            "zip_code", "shipping_address", "preferred_device", "email_opt_in", "sms_opt_in"]
-    raw = get_data_rows(rows, hi, 15)
+            "zip_code", "shipping_address", "preferred_device", "email_opt_in", "sms_opt_in",
+            "last_login_date"]
+    raw = get_data_rows(rows, hi, 16)
     cleaned = []
     for r in raw:
         row = list(r)
-        # account_created_date
+        # account_created_date — datetime → date
         if isinstance(row[5], datetime):
             row[5] = row[5].date()
         # email_opt_in, sms_opt_in → boolean
@@ -351,6 +356,9 @@ def load_customers(ws):
                     row[idx] = v.upper() in ("TRUE", "YES", "1")
                 elif isinstance(v, (int, float)):
                     row[idx] = bool(v)
+        # last_login_date — datetime → date (mirror account_created_date logic)
+        if len(row) > 15 and isinstance(row[15], datetime):
+            row[15] = row[15].date()
         cleaned.append(tuple(row))
     return cols, cleaned, {"client_id": not_null, "customer_id": not_null}
 

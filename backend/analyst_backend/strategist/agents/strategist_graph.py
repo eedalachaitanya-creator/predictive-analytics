@@ -102,6 +102,7 @@ from strategist.agents.tools import (
     MarketTrendTool,
     PersistRecommendationTool,
     ScoutPriceFetchTool,
+    ValuePropFetchTool,
 )
 from strategist.models.schemas import (
     ChurnBatch,
@@ -135,6 +136,7 @@ class StrategistState(TypedDict, total=False):
     # ── Intermediate: context fetched from DB ──────────────────────────────
     market_trends:  dict[str, str]              # {product_name: "rising"|"falling"|"stable"}
     client_config:  Optional[Any]               # ClientConfig or None if DB unavailable
+    value_props:    list                        # [ValueProposition] — discount rules from DB
 
     # ── Intermediate: churn data ───────────────────────────────────────────
     churn_lookup:   dict[str, ChurnScore]       # {customer_id: ChurnScore}
@@ -258,11 +260,39 @@ async def load_market_context(state: StrategistState) -> StrategistState:
             len(request.our_costs),
         )
 
+    # ── Tool 4: ValuePropFetchTool — load discount rules from DB ───────────
+    vp_tool     = ValuePropFetchTool()
+    value_props = await vp_tool.ainvoke({})
+    logger.info(
+        "load_market_context: ValuePropFetchTool → %d discount rules loaded",
+        len(value_props),
+    )
+
+    # ── Resolve effective currency (request override OR client default) ────
+    # Request-level currency wins (UI dropdown override). If omitted, fall
+    # back to the client's configured currency. Final fallback: INR.
+    effective_currency = (
+        request.currency
+        or (client_config.currency if client_config else None)
+        or "INR"
+    ).upper()
+    # Stash back on the request so downstream nodes (run_pricing_engine)
+    # have it without needing to re-derive
+    request.currency = effective_currency
+    logger.info(
+        "load_market_context: effective currency = %s "
+        "(request=%s, client_config=%s)",
+        effective_currency,
+        request.currency,
+        getattr(client_config, "currency", None),
+    )
+
     return {
         **state,
         "request":       request,
         "client_config": client_config,
         "market_trends": market_trends,
+        "value_props":   value_props,
     }
 
 
@@ -355,36 +385,72 @@ async def run_pricing_engine(state: StrategistState) -> StrategistState:
     request       = state["request"]
     market_trends = state.get("market_trends", {})
 
-    # ── ScoutPriceFetchTool — only when caller omitted scout data ──────────
-    if not request.scout_output.products:
-        logger.info(
-            "run_pricing_engine: scout_output is empty — "
-            "fetching via ScoutPriceFetchTool"
-        )
-        scout_tool = ScoutPriceFetchTool()
-        # Use COGS keys as product names — they're what we need prices for
-        product_names = list(request.our_costs.keys()) if request.our_costs else []
+    # ── ScoutPriceFetchTool — fire when any product has no listings ─────────
+    # Covers both "scout_output empty" and "products provided but listings empty"
+    # (e.g. UI sends product name only, expects backend to fetch competitor data).
+    products_missing_listings = [
+        p for p in request.scout_output.products if not p.listings
+    ]
+    should_fetch = (not request.scout_output.products) or bool(products_missing_listings)
 
-        if product_names:
-            fetched = await scout_tool.ainvoke({
-                "product_names": product_names,
-                "client_id":     request.client_id,
-            })
-            request.scout_output = fetched
+    if should_fetch:
+        # Build the set of product names we need competitor data for:
+        #   (products with empty listings)  ∪  (keys of our_costs)
+        names_to_fetch = {p.name for p in products_missing_listings}
+        if not request.scout_output.products and request.our_costs:
+            names_to_fetch.update(request.our_costs.keys())
+
+        if names_to_fetch:
             logger.info(
-                "run_pricing_engine: ScoutPriceFetchTool returned %d products",
+                "run_pricing_engine: fetching competitor data for %d products "
+                "in currency=%s via ScoutPriceFetchTool",
+                len(names_to_fetch),
+                request.currency,
+            )
+            scout_tool = ScoutPriceFetchTool()
+            # Resolve currency: per-request override wins; else client_config default; else INR
+            effective_currency = (
+                request.currency
+                or (state.get("client_config").currency if state.get("client_config") else None)
+                or "INR"
+            ).upper()
+
+            fetched = await scout_tool.ainvoke({
+                "product_names": list(names_to_fetch),
+                "client_id":     request.client_id,
+                "currency":      effective_currency,
+            })
+            # Merge fetched listings back into the request:
+            # - products that existed in request with empty listings → fill from fetch
+            # - new products → append
+            fetched_by_name = {p.name: p for p in fetched.products}
+            for p in request.scout_output.products:
+                if not p.listings and p.name in fetched_by_name:
+                    p.listings = fetched_by_name[p.name].listings
+
+            # If the request had no products at all, replace scout_output entirely
+            if not request.scout_output.products:
+                request.scout_output = fetched
+
+            logger.info(
+                "run_pricing_engine: ScoutPriceFetchTool returned %d products "
+                "(listings merged into request)",
                 len(fetched.products),
             )
         else:
             logger.warning(
-                "run_pricing_engine: our_costs is empty — "
-                "cannot determine product names for Scout fetch"
+                "run_pricing_engine: no product names available for Scout fetch "
+                "(scout_output empty AND our_costs empty)"
             )
 
     # ── 5-layer pricing engine ─────────────────────────────────────────────
     try:
         agent = StrategistAgent()
-        recommendations, run_id = agent.run(request, market_trends=market_trends)
+        recommendations, run_id = agent.run(
+            request,
+            market_trends=market_trends,
+            value_props=state.get("value_props", []),
+        )
         logger.info(
             "run_pricing_engine: %d recommendations produced (run_id=%s)",
             len(recommendations), run_id,
@@ -712,6 +778,7 @@ async def run_strategist_graph(
         "churn_lookup":   {},
         "highest_risk":   None,
         "client_config":  None,
+        "value_props":    [],
         "response":       None,
         "error_message":  None,
     }

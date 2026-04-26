@@ -40,6 +40,8 @@ from scout_agent.routes import router as agent_router
 # price_history tables and write to pricing_recommendations +
 # customer_price_context (both already exist in Scout DB).
 from strategist.routers.strategist_router import router as strategist_router
+from strategist.routers.retention_router  import router as retention_router
+from strategist.routers.db_router         import router as db_router
 from strategist.db.connection import (
     create_pools as strategist_create_pools,
     close_pools as strategist_close_pools,
@@ -114,6 +116,8 @@ app.include_router(audit_router)
 app.include_router(scout_router)
 app.include_router(agent_router, prefix="/agent", tags=["agent"])
 app.include_router(strategist_router)  # /api/strategist/* — prefix built into router
+app.include_router(retention_router)   # /api/retention/*  — prefix built into router
+app.include_router(db_router)          # /api/db/*         — prefix built into router
 # ── LangFuse Cost Tracking ────────────────────────────────────────────────────
 
 from fastapi import Query as _Query

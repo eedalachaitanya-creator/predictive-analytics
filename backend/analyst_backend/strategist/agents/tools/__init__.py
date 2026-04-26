@@ -12,6 +12,7 @@ Tool registry — import from here in graph nodes:
         MarketTrendTool,
         ClientConfigTool,
         CostFetchTool,
+        ValuePropFetchTool,
         PersistRecommendationTool,
     )
 
@@ -21,6 +22,7 @@ Tool → Node mapping:
   MarketTrendTool           → load_market_context   (DB: price trend per product)
   ClientConfigTool          → load_market_context   (DB: guardrail thresholds)
   CostFetchTool             → load_market_context   (DB: COGS from product_prices.cost_price_usd)
+  ValuePropFetchTool        → load_market_context   (DB: retention discount rules)
   PersistRecommendationTool → persist_results       (DB: write recommendations)
 """
 
@@ -29,6 +31,7 @@ from strategist.agents.tools.churn_tool import ChurnScoreFetchTool, ChurnFetchIn
 from strategist.agents.tools.market_trend_tool import MarketTrendTool, MarketTrendInput
 from strategist.agents.tools.client_config_tool import ClientConfigTool, ClientConfigInput
 from strategist.agents.tools.cost_fetch_tool import CostFetchTool, CostFetchInput
+from strategist.agents.tools.value_prop_fetch_tool import ValuePropFetchTool, ValuePropFetchInput
 from strategist.agents.tools.persist_tool import PersistRecommendationTool, PersistResult
 
 __all__ = [
@@ -37,11 +40,13 @@ __all__ = [
     "MarketTrendTool",
     "ClientConfigTool",
     "CostFetchTool",
+    "ValuePropFetchTool",
     "PersistRecommendationTool",
     "ScoutFetchInput",
     "ChurnFetchInput",
     "MarketTrendInput",
     "ClientConfigInput",
     "CostFetchInput",
+    "ValuePropFetchInput",
     "PersistResult",
 ]

@@ -80,7 +80,9 @@ _VP_DISCOUNTS: dict[tuple[str, str], float] = {
     ("Bronze",   "MEDIUM"):  0.0,   # Bronze + MEDIUM → re-engagement only
 }
 
-# Channel routing: best delivery channel per tier
+# Channel routing — hardcoded fallback. Used ONLY when a (tier, risk) row in
+# value_propositions has no `channel` column value. Otherwise the DB wins.
+# Change the DB, not this dict, to customize channels per client.
 _CHANNEL_ROUTING: dict[str, str] = {
     "Platinum": "email",
     "Gold":     "email",
@@ -157,8 +159,9 @@ class RetentionAgent:
         self.config.high_ltv_threshold = client_config.high_ltv_threshold
         self.config.mid_ltv_threshold  = client_config.mid_ltv_threshold
 
-        # Build discount lookup table (DB rows beat hardcoded table)
+        # Build lookup tables (DB rows beat hardcoded fallbacks)
         discount_lookup = self._build_discount_lookup(value_props)
+        channel_lookup  = self._build_channel_lookup(value_props)
 
         price_contexts = price_contexts or {}
 
@@ -180,6 +183,7 @@ class RetentionAgent:
             intervention = self._process_customer(
                 score           = score,
                 discount_lookup = discount_lookup,
+                channel_lookup  = channel_lookup,
                 price_ctx       = price_contexts.get(score.customer_id),
                 trace           = trace,
             )
@@ -205,6 +209,7 @@ class RetentionAgent:
         self,
         score:           ChurnScore,
         discount_lookup: dict[tuple[str, str], float],
+        channel_lookup:  dict[tuple[str, str], str],
         price_ctx:       CustomerPriceContext | None,
         trace,
     ) -> RetentionIntervention:
@@ -244,7 +249,9 @@ class RetentionAgent:
             offer_type       = self._offer_type(tier, risk, discount_pct)
 
         # ── Channel routing ─────────────────────────────────────────────────
-        channel = _CHANNEL_ROUTING.get(tier, "email")   # default to email for unknown tiers
+        # DB-first: if value_propositions specifies a channel for this (tier, risk),
+        # use it. Otherwise fall back to the hardcoded tier-based routing.
+        channel = channel_lookup.get((tier, risk)) or _CHANNEL_ROUTING.get(tier, "email")
 
         # ── LTV and high-value flag ─────────────────────────────────────────
         ltv_usd       = score.total_spend_usd
@@ -262,6 +269,7 @@ class RetentionAgent:
             score                      = score,
             discount_pct               = discount_pct,
             offer_type                 = offer_type,
+            channel                    = channel,
             strategist_already_handled = strategist_already_discounted,
             price_ctx                  = price_ctx,
         )
@@ -294,6 +302,7 @@ class RetentionAgent:
         score:                      ChurnScore,
         discount_pct:               float,
         offer_type:                 str,
+        channel:                    str,
         strategist_already_handled: bool,
         price_ctx:                  CustomerPriceContext | None,
     ) -> str:
@@ -310,7 +319,22 @@ class RetentionAgent:
         tier = score.customer_tier
         risk = score.risk_level
         days = score.days_since_last_order
-        name = score.customer_id   # Replace with actual customer name when available
+        # Customer name is not in ChurnScore schema — use a friendly fallback.
+        # TODO: join against customer_master to get real name.
+        name = f"valued {tier} member"
+
+        # ── SMS branch — keep under 160 chars so carriers don't truncate ──
+        # SMS users skim; no long narratives, no tier flattery.
+        if channel == "sms":
+            if strategist_already_handled:
+                return f"Hi {tier} member — your personal price is waiting. Open to view."
+            if offer_type == "re_engagement":
+                return f"Hi {tier} member — new arrivals this week. We saved picks for you."
+            if risk == "HIGH":
+                return (f"{int(discount_pct)}% off just for you, {tier} member. "
+                        f"Code active 7 days. Shop now.")
+            # MEDIUM + discount
+            return f"{int(discount_pct)}% off for {tier} members. Come back and save."
 
         # Case 1: Strategist already applied a retention price
         # → reference that special price, don't mention our own discount
@@ -382,15 +406,37 @@ class RetentionAgent:
     ) -> dict[tuple[str, str], float]:
         """
         Build {(tier_name, risk_level): discount_pct} lookup.
-        DB rows (value_propositions) take precedence over the hardcoded fallback.
+
+        Merge semantics — DB rows override hardcoded defaults for matching keys,
+        but any (tier, risk) combo that doesn't appear in the DB falls back to
+        the hardcoded table. This matters because the Analyst DB's
+        value_propositions table today only covers (At-Risk/Reactivated/New),
+        which map to (HIGH/LOW/LOW) — there are no MEDIUM rows. Without this
+        merge, MEDIUM-risk customers would silently get 0% discount.
         """
+        merged = dict(_VP_DISCOUNTS)   # start with hardcoded safety net
         if value_props:
-            return {
-                (vp.tier_name, vp.risk_level): vp.discount_pct
-                for vp in value_props
-                if vp.discount_pct is not None
-            }
-        return dict(_VP_DISCOUNTS)   # copy to avoid mutating module-level constant
+            for vp in value_props:
+                if vp.discount_pct is not None:
+                    merged[(vp.tier_name, vp.risk_level)] = vp.discount_pct
+        return merged
+
+    @staticmethod
+    def _build_channel_lookup(
+        value_props: list[ValueProposition] | None,
+    ) -> dict[tuple[str, str], str]:
+        """
+        Build {(tier_name, risk_level): channel} lookup.
+        DB rows (value_propositions.channel) take precedence. Rows with null channel
+        are skipped — the caller falls back to the tier-based _CHANNEL_ROUTING dict.
+        """
+        if not value_props:
+            return {}
+        return {
+            (vp.tier_name, vp.risk_level): vp.channel
+            for vp in value_props
+            if vp.channel is not None and vp.channel.strip()
+        }
 
     @staticmethod
     def _summarise(interventions: list[RetentionIntervention]) -> dict:

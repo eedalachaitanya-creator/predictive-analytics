@@ -179,11 +179,24 @@ class StrategistRequest(BaseModel):
     client_priority:  Optional[Literal["volume", "margin", "brand"]] = None
     customer_segment: Optional[Literal["budget", "mid", "premium"]]  = None
 
+    # Market currency — filters competitor listings to this currency only.
+    # If None, falls back to client_config.currency. Lets the UI override the
+    # client's default per-request (e.g. switch between INR and USD market views).
+    currency: Optional[str] = Field(default=None,
+        description="3-letter ISO code (INR/USD/EUR). None = use client_config default.")
+
     # Guardrails from Analyst DB.client_config (overridden at runtime)
     max_discount_pct:   float = Field(default=30.0, ge=0, le=100,
         description="Absolute max churn discount % (from client_config)")
     high_ltv_threshold: float = Field(default=500.0,
         description="USD spend above which customer is 'high LTV'")
+
+    # Market currency selector — determines which competitor listings are
+    # considered. If omitted, falls back to client_config.currency.
+    # Listings in other currencies are filtered out (no cross-currency math).
+    currency: Optional[str] = Field(default=None,
+        description="ISO currency code. Only listings in this currency are used. "
+                    "If None, uses client_config.currency.")
 
     @model_validator(mode="after")
     def min_lte_target(self) -> "StrategistRequest":

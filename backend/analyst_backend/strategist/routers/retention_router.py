@@ -272,12 +272,30 @@ async def retention_summary(
     x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
 ) -> dict:
     cid = x_client_id or client_id
-    summary = await get_retention_summary(cid)
+
+    # Belt-and-suspenders: never raise a 5xx to the UI. Empty summary or
+    # "table doesn't exist" both mean the same thing to the user: no data yet.
+    try:
+        summary = await get_retention_summary(cid)
+    except Exception as exc:
+        logger.warning("retention_summary: get_retention_summary failed: %s", exc)
+        summary = {}
 
     if not summary:
         return {
             "client_id": cid,
-            "message":   "No retention interventions found for this client.",
+            "message":   "No retention interventions found for this client. "
+                         "Run the pipeline in save-mode to populate.",
+            "total_interventions": 0,
+            "high_risk_count":     0,
+            "medium_risk_count":   0,
+            "escalated_count":     0,
+            "accepted_count":      0,
+            "declined_count":      0,
+            "no_response_count":   0,
+            "conversion_rate_pct": 0.0,
+            "total_revenue_recovered": 0.0,
+            "avg_discount_pct":    0.0,
         }
 
     # Compute conversion rate (accepted / total with a known outcome)

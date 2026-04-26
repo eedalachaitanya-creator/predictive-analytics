@@ -62,8 +62,12 @@ class ScoutFetchInput(BaseModel):
         description="List of product names to fetch competitor prices for."
     )
     client_id: str = Field(
-        default="CLT-001",
-        description="Client identifier forwarded to Scout Agent (HTTP mode only).",
+        ...,
+        description="Client identifier forwarded to Scout Agent (HTTP mode only). Required.",
+    )
+    currency: str = Field(
+        default="INR",
+        description="Filter competitor listings to this currency only (INR/USD/EUR).",
     )
 
 
@@ -101,6 +105,7 @@ class ScoutPriceFetchTool(BaseTool):
         self,
         product_names: list[str],
         client_id: str,
+        currency: str = "INR",
         **kwargs: Any,
     ) -> ScoutBulkResponse:
 
@@ -115,7 +120,7 @@ class ScoutPriceFetchTool(BaseTool):
             logger.info("ScoutPriceFetchTool: API unavailable — falling back to DB")
 
         # ── Source 2: entity_listings DB (always available) ─────────────────
-        return await self._fetch_from_db(product_names)
+        return await self._fetch_from_db(product_names, currency=currency)
 
     # ── HTTP source ───────────────────────────────────────────────────────────
 
@@ -164,25 +169,37 @@ class ScoutPriceFetchTool(BaseTool):
 
     # ── DB source (entity_listings) ───────────────────────────────────────────
 
-    async def _fetch_from_db(self, product_names: list[str]) -> ScoutBulkResponse:
+    # async def _fetch_from_db(self, product_names: list[str]) -> ScoutBulkResponse:
+    async def _fetch_from_db(
+        self,
+        product_names: list[str],
+        currency: str = "INR",
+    ) -> ScoutBulkResponse:
         """
         Query entity_listings directly from Scout DB.
 
-        Groups rows by product_name and builds a ScoutBulkResponse identical
-        in shape to what the Scout Agent HTTP API would return.
+        Matching strategy (user-friendly names supported):
+          1. Exact match on entities.canonical_name  (e.g. "Dolo-650 - Strip of 15 Tablets")
+          2. OR case-insensitive match on entities.query  (e.g. "dolo 650")
 
-        Fetches the 10 most-recent in-stock listings per product so we always
-        have multiple competitor data points for the pricing engine.
+        Scout's entities table stores both the full scraped title (canonical_name)
+        AND the original user-facing search term (query). By matching either,
+        users can type the clean short name OR the messy full title — both resolve
+        to the same product's listings.
         """
         try:
             from strategist.db.connection import get_scout_pool
+
+            # Lowercase variants for case-insensitive query-column match
+            lowered = [n.lower() for n in product_names]
 
             pool = await get_scout_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
                     SELECT
-                        e.canonical_name   AS product_name,
+                        e.canonical_name   AS canonical_name,
+                        e.query            AS orig_query,
                         el.platform,
                         el.price,
                         el.currency,
@@ -191,21 +208,42 @@ class ScoutPriceFetchTool(BaseTool):
                         el.last_seen       AS scraped_at
                     FROM entity_listings el
                     JOIN entities e ON e.id = el.entity_id
-                    WHERE e.canonical_name = ANY($1::text[])
+                    WHERE (
+                        e.canonical_name = ANY($1::text[])
+                        OR LOWER(e.query) = ANY($2::text[])
+                    )
                       AND el.availability = 'in_stock'
                       AND el.price > 0
+                      AND el.currency = $3
                     ORDER BY e.canonical_name, el.last_seen DESC
                     """,
                     product_names,
+                    lowered,
+                    currency,
                 )
 
-            # ── Group rows by product_name ─────────────────────────────────
+            # Map each returned row back to whichever input key it matched.
+            # The pricing engine expects results keyed by the USER's input,
+            # not by canonical_name. Build a reverse lookup so "dolo 650"
+            # (input) gets the Dolo-650 listings attached to it.
+            input_set_exact = set(product_names)
+            input_set_lower = {n.lower(): n for n in product_names}
+
             products: dict[str, list[ScoutListing]] = {n: [] for n in product_names}
 
             for row in rows:
-                name = row["product_name"]
-                if name not in products:
-                    products[name] = []
+                canonical = row["canonical_name"]
+                orig_q    = row["orig_query"]
+
+                # Figure out which input name this row belongs to
+                matched_key = None
+                if canonical in input_set_exact:
+                    matched_key = canonical
+                elif orig_q and orig_q.lower() in input_set_lower:
+                    matched_key = input_set_lower[orig_q.lower()]
+
+                if matched_key is None:
+                    continue
 
                 listing = ScoutListing(
                     platform     = row["platform"],
@@ -220,9 +258,8 @@ class ScoutPriceFetchTool(BaseTool):
                         confidence = 0.9,
                     ),
                 )
-                # Keep max 10 listings per product (most recent due to ORDER BY)
-                if len(products[name]) < 10:
-                    products[name].append(listing)
+                if len(products[matched_key]) < 10:
+                    products[matched_key].append(listing)
 
             scout_products = [
                 ScoutProduct(name=name, listings=listings)
@@ -232,11 +269,22 @@ class ScoutPriceFetchTool(BaseTool):
             found = sum(1 for p in scout_products if p.listings)
             logger.info(
                 "ScoutPriceFetchTool [DB]: %d/%d products have listings "
-                "(total %d rows from entity_listings)",
+                "(total %d rows; matched via canonical_name or query column)",
                 found, len(product_names), len(rows),
             )
 
             return ScoutBulkResponse(status="ok", products=scout_products)
+
+        except Exception as exc:
+            logger.error(
+                "ScoutPriceFetchTool [DB]: query failed: %s — "
+                "returning empty response; products will get no_price_data flag.",
+                exc,
+            )
+            return ScoutBulkResponse(
+                status   = "error",
+                products = [ScoutProduct(name=n, listings=[]) for n in product_names],
+            )
 
         except Exception as exc:
             logger.error(

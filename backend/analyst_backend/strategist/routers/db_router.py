@@ -186,6 +186,16 @@ async def interventions(
             "interventions": [dict(r) for r in rows],
         }
     except Exception as exc:
+        msg = str(exc)
+        # "Table doesn't exist yet" means nothing has run — treat as empty, not error.
+        # The pipeline hasn't run in save-mode; the UI should show "no data" not "failed".
+        if "does not exist" in msg.lower() or "relation" in msg.lower():
+            return {
+                "client_id": cid,
+                "count": 0,
+                "interventions": [],
+                "message": "No retention interventions yet. Run the pipeline to generate.",
+            }
         raise HTTPException(status_code=503, detail=f"DB error: {exc}")
 
 
@@ -314,3 +324,78 @@ async def get_product_costs(client_id: str = Query(default="CLT-001")) -> dict:
                 "costs": [{"product_name": r["product_name"], "cost_usd": float(r["cost_usd"])} for r in rows]}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"DB error: {exc}")
+    
+    # ---------------------------------------------------------------------------
+# GET /products — list scraped products for UI autocomplete
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/products",
+    summary="List products with in-stock listings (for UI autocomplete)",
+)
+async def products(
+    q:     str = Query(default="", description="Optional search filter — matches substring of canonical_name"),
+    limit: int = Query(default=20, le=100),
+) -> dict:
+    """
+    Return product names that have at least one in-stock listing in Scout DB.
+    Used by the Pricing Engine's product-name autocomplete dropdown so users
+    don't need to know the exact scraped canonical_name.
+
+    With `q` empty, returns the 20 most-stocked products.
+    With `q` set, returns up to `limit` products whose canonical_name contains
+    the query string (case-insensitive).
+    """
+    try:
+        pool = await get_scout_pool()
+        async with pool.acquire() as conn:
+            if q.strip():
+                # Search both canonical_name (full scraped title) AND query
+                # (what the user originally searched). Lets autocomplete find
+                # "Dolo-650..." when the user types "dolo 650".
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        e.canonical_name AS name,
+                        COUNT(el.id)     AS listing_count
+                    FROM entities e
+                    JOIN entity_listings el ON el.entity_id = e.id
+                    WHERE el.availability = 'in_stock'
+                      AND (
+                        e.canonical_name ILIKE '%' || $1 || '%'
+                        OR e.query ILIKE '%' || $1 || '%'
+                      )
+                    GROUP BY e.canonical_name
+                    ORDER BY listing_count DESC, e.canonical_name
+                    LIMIT $2
+                    """,
+                    q.strip(),
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        e.canonical_name AS name,
+                        COUNT(el.id)     AS listing_count
+                    FROM entities e
+                    JOIN entity_listings el ON el.entity_id = e.id
+                    WHERE el.availability = 'in_stock'
+                    GROUP BY e.canonical_name
+                    ORDER BY listing_count DESC, e.canonical_name
+                    LIMIT $1
+                    """,
+                    limit,
+                )
+        return {
+            "count": len(rows),
+            "products": [
+                {"name": r["name"], "listing_count": r["listing_count"]}
+                for r in rows
+            ],
+        }
+    except Exception as exc:
+        logger.warning("products endpoint failed: %s", exc)
+        # Graceful degradation: return empty list so the UI shows "no suggestions"
+        # instead of an error banner on every keystroke.
+        return {"count": 0, "products": []}

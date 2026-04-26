@@ -118,6 +118,7 @@ class StrategistAgent:
         self,
         request: StrategistRequest,
         market_trends: dict[str, str] | None = None,
+        value_props: list | None = None,
     ) -> tuple[list[PricingRecommendation], str]:
         """
         Process all products in the Scout output and generate price recommendations.
@@ -127,6 +128,11 @@ class StrategistAgent:
             market_trends: {product_name: "rising"|"falling"|"stable"} from price_history.
                            Computed by persistence.py before calling run().
                            If None, all products default to "stable".
+            value_props:   [ValueProposition] — discount rules loaded by the graph from
+                           value_propositions DB table. If None or empty, the agent
+                           falls back to hardcoded _VP_DISCOUNTS.
+                           Shared with Retention Agent so both agents apply the same
+                           (tier, risk) → discount_pct rules.
 
         Returns:
             (recommendations list, run_id UUID string)
@@ -142,6 +148,9 @@ class StrategistAgent:
         self.config.min_confidence      = request.min_confidence
         self.config.max_discount_pct    = request.max_discount_pct
         self.config.high_ltv_threshold  = request.high_ltv_threshold
+
+        # Build discount lookup — DB rows beat hardcoded fallback
+        discount_lookup = _build_discount_lookup(value_props)
 
         # Build churn lookup for O(1) access inside the product loop
         churn_lookup: dict[str, ChurnScore] = {}
@@ -165,6 +174,7 @@ class StrategistAgent:
                 customer_segment = request.customer_segment,
                 market_trend     = trend,
                 churn_lookup     = churn_lookup,
+                discount_lookup  = discount_lookup,
                 trace            = trace,
             )
             recommendations.append(rec)
@@ -186,6 +196,7 @@ class StrategistAgent:
         customer_segment: str | None,
         market_trend:     str,
         churn_lookup:     dict[str, ChurnScore],
+        discount_lookup:  dict[tuple[str, str], float],
         trace,
     ) -> PricingRecommendation:
 
@@ -223,12 +234,26 @@ class StrategistAgent:
             )
 
         # ── Guard: no COGS ──────────────────────────────────────────────────
+        # ── Guard: no COGS or suspiciously low COGS ─────────────────────────
         raw_cogs = our_costs.get(product.name)
         if raw_cogs is None or raw_cogs <= 0:
             self._lf_end_span(span, {"skipped": "no_cost_data"})
             return self._no_data(
                 product.name, platform_breakdown, "no_cost_data",
                 f"COGS not provided for '{product.name}'. Add to our_costs.",
+                comp_min    = round(min(prices), 2),
+                comp_avg    = round(statistics.mean(prices), 2),
+                comp_max    = round(max(prices), 2),
+                comp_median = round(statistics.median(prices), 2),
+            )
+        # COGS must be at least ₹1 — anything less produces absurd margins
+        # (₹0.50 cost + ₹100 price = 19,900% margin). Almost certainly a data-entry error.
+        if raw_cogs < 1.0:
+            self._lf_end_span(span, {"skipped": "cogs_too_low"})
+            return self._no_data(
+                product.name, platform_breakdown, "invalid_cost_data",
+                f"COGS for '{product.name}' is suspiciously low (₹{raw_cogs}). "
+                "Minimum ₹1 required. Check your data.",
                 comp_min    = round(min(prices), 2),
                 comp_avg    = round(statistics.mean(prices), 2),
                 comp_max    = round(max(prices), 2),
@@ -328,8 +353,10 @@ class StrategistAgent:
         pre_retention_price = 0.0   # 0.0 = no churn discount applied
 
         if churn_score and churn_score.risk_level == "HIGH":
-            # Look up the appropriate discount for this tier + risk combination
-            raw_discount = _VP_DISCOUNTS.get(
+            # Look up the appropriate discount for this tier + risk combination.
+            # discount_lookup comes from value_propositions DB (via graph) with
+            # hardcoded _VP_DISCOUNTS as the fallback. Shared with Retention Agent.
+            raw_discount = discount_lookup.get(
                 (churn_score.customer_tier, churn_score.risk_level), 0.0
             )
             # Cap at client's configured maximum (from client_config)
@@ -363,23 +390,23 @@ class StrategistAgent:
                 f"({churn_score.churn_probability:.0%}) — consider re-engagement campaign."
             )
 
+        
         # ── Layer 5 (post): Charm pricing ──────────────────────────────────
-        # Only apply to the final customer price — NOT to floor_price (that's a hard cost boundary)
-        # if strategy != "floor_only":
-        #     suggested = _charm_price(suggested)
-        #     suggested = max(suggested, floor_price)   # charm never goes below floor
-        # ── Layer 5 (post): Charm pricing ──────────────────────────────────
-        # Only apply to the final customer price — NOT to floor_price (that's a hard cost boundary)
-        if strategy != "floor_only":
+        # Applied AFTER all margin/churn logic. The final floor guardrail runs
+        # LAST (below) so charm can never push the price below the cost floor.
+        if strategy not in ("floor_only", "no_data"):
             charmed = _charm_price(suggested)
-            # Guard: charm must not push price UP to or above comp_min on undercut OR match strategy
+            # Guard: charm must not push price UP to or above comp_min on undercut/match
             # e.g. match at ₹130 → charm ₹139 = above market floor → defeats the match
             # e.g. undercut at ₹293 → charm ₹299 = same as Amazon → defeats the undercut
             if strategy in ("undercut", "match") and charmed > comp_min:
                 pass   # skip charm, keep raw price
             else:
                 suggested = charmed
-            suggested = max(suggested, floor_price)   # charm never goes below floor
+
+        # Final floor guardrail — runs LAST so nothing (charm, retention, trend)
+        # can ever leave the final price below cost floor.
+        suggested = max(suggested, floor_price)
 
         # ── Calculate final margin ──────────────────────────────────────────
         margin_pct = _margin(suggested, true_cost)
@@ -391,8 +418,9 @@ class StrategistAgent:
             at_comp_min  = _margin(comp_min,     true_cost),
         )
 
-        # Confidence: high if multiple competitors + good confidence scores
-        confidence = "high" if len(valid) >= 3 else ("medium" if len(valid) >= 1 else "low")
+        # Confidence: high = 3+ competitors, medium = 1-2.
+        # (Zero competitors is guarded upstream at line ~218, so "low" is unreachable here.)
+        confidence = "high" if len(valid) >= 3 else "medium"
 
         # ── Build final recommendation ──────────────────────────────────────
         rec = PricingRecommendation(
@@ -616,12 +644,15 @@ class StrategistAgent:
     def _lf_close(self, trace, recommendations: list, latency_ms: float):
         try:
             if not trace: return
-            viable = sum(1 for r in recommendations if r.margin_percent >= self.config.min_margin_pct)
-            trace.score(
-                name="margin_health",
-                value=viable / max(len(recommendations), 1),
-                comment=f"{viable}/{len(recommendations)} above min margin",
-            )
+            # Skip margin_health score for empty runs — a score of 0.0 would
+            # falsely conflate "no data" with "nothing healthy."
+            if recommendations:
+                viable = sum(1 for r in recommendations if r.margin_percent >= self.config.min_margin_pct)
+                trace.score(
+                    name="margin_health",
+                    value=viable / len(recommendations),
+                    comment=f"{viable}/{len(recommendations)} above min margin",
+                )
             trace.update(output={
                 "count":      len(recommendations),
                 "flagged":    sum(1 for r in recommendations if r.flag),
@@ -648,22 +679,31 @@ def _charm_price(price: float) -> float:
     Psychological pricing — proven 1-3% conversion lift in e-commerce.
 
     Rules:
-      Prices >= ₹1000: round to nearest ×100 - 1   (₹1823 → ₹1799)
-      Prices  < ₹1000: round to nearest ×10  + 9   (₹247  → ₹249)
-      Prices  < ₹50:   no adjustment (small amounts look odd as ₹49)
+      Prices >= ₹1000: snap to nearest ₹xx99  (₹1823 → ₹1799, not ₹1899)
+      Prices  < ₹1000: snap to nearest ₹x9    (₹250  → ₹249,  not ₹259)
+      Prices  < ₹50:   no adjustment          (charm looks odd on small amounts)
+
+    Always picks the NEAREST charm number — never silently rounds up and
+    inflates the price past the uncharmed value.
     """
     if price < 50:
         return price
 
     if price >= 1000:
-        # Largest 100-multiple below price, minus 1: ₹1823 → base=1800 → ₹1799
+        # Two candidates: (hundreds_floor - 1) and (hundreds_floor + 99)
         base = int(price / 100) * 100
-        candidate = base - 1
-        return float(candidate) if abs(candidate - price) < abs(base + 99 - price) else float(base + 99)
+        low  = base - 1        # e.g. 1799 for 1823
+        high = base + 99       # e.g. 1899 for 1823
+        return float(low) if abs(low - price) <= abs(high - price) else float(high)
     else:
-        # Nearest 10-multiple + 9: ₹247 → base=240 → ₹249
+        # Two candidates: (tens_floor - 1) and (tens_floor + 9)
         base = int(price / 10) * 10
-        return float(base + 9)
+        low  = base - 1        # e.g. 249 for 250
+        high = base + 9        # e.g. 259 for 250
+        # Don't go below 39 — charm below this looks odd
+        if low < 39:
+            return float(high)
+        return float(low) if abs(low - price) <= abs(high - price) else float(high)
 
 
 def _worst_churn(churn_lookup: dict[str, ChurnScore]) -> ChurnScore | None:
@@ -675,3 +715,21 @@ def _worst_churn(churn_lookup: dict[str, ChurnScore]) -> ChurnScore | None:
     if not churn_lookup:
         return None
     return max(churn_lookup.values(), key=lambda s: s.churn_probability)
+
+def _build_discount_lookup(
+    value_props: list | None,
+) -> dict[tuple[str, str], float]:
+    """
+    Build {(tier_name, risk_level): discount_pct} lookup.
+
+    Merge semantics — DB rows override hardcoded defaults for matching keys,
+    but missing keys (e.g. no MEDIUM rows in the DB today) fall back to the
+    hardcoded table. Mirrors RetentionAgent._build_discount_lookup so both
+    agents use the same precedence logic.
+    """
+    merged = dict(_VP_DISCOUNTS)   # start with hardcoded safety net
+    if value_props:
+        for vp in value_props:
+            if vp.discount_pct is not None:
+                merged[(vp.tier_name, vp.risk_level)] = vp.discount_pct
+    return merged

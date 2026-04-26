@@ -55,7 +55,19 @@
         <div class="summary-grid">
           @for (key of summaryKeys(result()!.summary); track key) {
             <div class="summary-item">
-              <div class="s-val">{{ result()!.summary[key] }}</div>
+              @if (isObject(result()!.summary[key])) {
+                <!-- by_channel and similar: render as a small list, not [object Object] -->
+                <div class="s-val s-val-list">
+                  @for (sub of objectEntries(result()!.summary[key]); track sub[0]) {
+                    <div class="sub-row">
+                      <span class="sub-label">{{ sub[0] }}</span>
+                      <span class="sub-val">{{ sub[1] }}</span>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="s-val">{{ result()!.summary[key] }}</div>
+              }
               <div class="s-key">{{ key.replace(/_/g, ' ') }}</div>
             </div>
           }
@@ -101,6 +113,10 @@
           <div class="offer-right">
             @if (item.discount_pct > 0) {
               <span class="discount-pill">{{ fmtPct(item.discount_pct) }} discount</span>
+            } @else {
+              <span class="discount-pill discount-pill-zero" title="No discount — message-only re-engagement attempt">
+                Re-engagement
+              </span>
             }
             <span class="churn-prob">{{ fmtProb(item.churn_probability) }} churn risk</span>
             <span class="expand-arrow">{{ expanded() === i ? '▲' : '▼' }}</span>

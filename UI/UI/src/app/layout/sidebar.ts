@@ -66,12 +66,11 @@ export class SidebarComponent {
       label: 'Strategist Agent',
       icon:  '🧠',
       pathPrefixes: [
-        '/app/pricing-engine', '/app/market-trends', '/app/pipeline-monitor',
+        '/app/pricing-engine', '/app/market-trends',
       ],
       children: [
         { path: '/app/pricing-engine',    label: 'Pricing Engine',   icon: '🧠' },
         { path: '/app/market-trends',     label: 'Market Trends',    icon: '📈' },
-        { path: '/app/pipeline-monitor',  label: 'Pipeline Monitor', icon: '📊' },
       ],
     };
 
@@ -82,7 +81,7 @@ export class SidebarComponent {
       '/app/run-pipeline', '/app/interventions', '/app/escalations', '/app/retention-summary',
     ],
     children: [
-      { path: '/app/run-pipeline',       label: 'Run Pipeline',  icon: '🚀' },
+      { path: '/app/run-pipeline',       label: 'Generate Offers',  icon: '🚀' },
       { path: '/app/interventions',      label: 'Interventions', icon: '📋' },
       { path: '/app/escalations',        label: 'Escalations',   icon: '🔔' },
       { path: '/app/retention-summary',  label: 'Summary',       icon: '📊' },

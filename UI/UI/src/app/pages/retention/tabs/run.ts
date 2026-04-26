@@ -46,4 +46,15 @@ export class RetentionRunTab {
   fmtProb(n: number)      { return (n * 100).toFixed(1) + '%'; }
 
   summaryKeys(s: any): string[] { return s ? Object.keys(s) : []; }
+
+  /** True if value is a plain object (not array/null/primitive) — used to decide
+      whether to render as a key-value list vs a single value */
+  isObject(v: any): boolean {
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+  }
+
+  /** Return [[key, value], ...] entries so the template can iterate */
+  objectEntries(obj: any): [string, any][] {
+    return obj ? Object.entries(obj) : [];
+  }
 }

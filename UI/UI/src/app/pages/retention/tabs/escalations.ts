@@ -1,4 +1,6 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Router, NavigationEnd } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { RetentionService } from '../../../services/retention.service';
 import { AuthService } from '../../../services/auth.service';
@@ -10,19 +12,36 @@ import { AuthService } from '../../../services/auth.service';
   templateUrl: './escalations.html',
   styleUrls: ['./escalations.scss']
 })
-export class RetentionEscalationsTab implements OnInit {
-  private svc  = inject(RetentionService);
-  private auth = inject(AuthService);
+export class RetentionEscalationsTab implements OnInit, OnDestroy {
+  private svc    = inject(RetentionService);
+  private auth   = inject(AuthService);
+  private router = inject(Router);
+  private routerSub?: Subscription;
   clientId     = this.auth.getClientId();
 
   rows    = signal<any[]>([]);
   loading = signal(true);
   error   = signal('');
 
-  ngOnInit() { this.load(); }
+  ngOnInit() {
+    this.load();
+    // Reload whenever user navigates back to this page
+    this.routerSub = this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe(e => {
+        if (e.urlAfterRedirects.includes('/escalations')) {
+          this.load();
+        }
+      });
+  }
+
+  ngOnDestroy() {
+    this.routerSub?.unsubscribe();
+  }
 
   load() {
     this.loading.set(true);
+    this.error.set('');   // clear stale error so a successful retry doesn't leave red banner
     this.svc.getEscalations(this.clientId).subscribe({
       next: (res) => { this.rows.set(res.escalations || []); this.loading.set(false); },
       error: () => { this.error.set('Failed to load escalations.'); this.loading.set(false); }

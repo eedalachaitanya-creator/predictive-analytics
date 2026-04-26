@@ -1,4 +1,6 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Router, NavigationEnd } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RetentionService, Intervention, OutcomeRequest } from '../../../services/retention.service';
@@ -11,9 +13,11 @@ import { AuthService } from '../../../services/auth.service';
   templateUrl: './interventions.html',
   styleUrls: ['./interventions.scss']
 })
-export class RetentionInterventionsTab implements OnInit {
-  private svc  = inject(RetentionService);
-  private auth = inject(AuthService);
+export class RetentionInterventionsTab implements OnInit, OnDestroy {
+  private svc    = inject(RetentionService);
+  private auth   = inject(AuthService);
+  private router = inject(Router);
+  private routerSub?: Subscription;
   clientId     = this.auth.getClientId();
 
   rows          = signal<Intervention[]>([]);
@@ -25,10 +29,25 @@ export class RetentionInterventionsTab implements OnInit {
   outcomeStatus = signal<'accepted' | 'declined' | 'no_response' | 'bounced'>('accepted');
   revenueInput  = signal('');
 
-  ngOnInit() { this.load(); }
+  ngOnInit() {
+    this.load();
+    // Reload whenever user navigates back to this page (after generating offers, etc.)
+    this.routerSub = this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe(e => {
+        if (e.urlAfterRedirects.includes('/interventions')) {
+          this.load();
+        }
+      });
+  }
+
+  ngOnDestroy() {
+    this.routerSub?.unsubscribe();
+  }
 
   load() {
     this.loading.set(true);
+    this.error.set('');   // clear stale error so a successful retry doesn't leave red banner
     this.svc.getInterventions(this.clientId).subscribe({
       next: (res) => { this.rows.set(res.interventions || res || []); this.loading.set(false); },
       error: () => { this.error.set('Failed to load interventions.'); this.loading.set(false); }

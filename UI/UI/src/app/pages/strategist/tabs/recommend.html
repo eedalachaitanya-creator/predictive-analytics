@@ -19,12 +19,27 @@
             }
           </div>
 
-          <input class="form-input" placeholder="Product name"
-            [value]="p.name" (input)="updateProduct(i, 'name', $any($event.target).value)" />
-
+          <div class="autocomplete-wrap">
+            <input class="form-input" placeholder="Product name (start typing to search)"
+              [value]="p.name"
+              (input)="updateProduct(i, 'name', $any($event.target).value)"
+              (blur)="closeSuggestions()" />
+            @if (suggestionsOpen() === i && suggestions()[i]?.length) {
+              <div class="autocomplete-dropdown">
+                @for (s of suggestions()[i]; track s.name) {
+                  <div class="autocomplete-item" (mousedown)="pickSuggestion(i, s.name)">
+                    <span class="ac-name">{{ s.name }}</span>
+                    <span class="ac-count">{{ s.listing_count }} listing{{ s.listing_count === 1 ? '' : 's' }}</span>
+                  </div>
+                }
+              </div>
+            }
+          </div>
           <input class="form-input" type="number"
             placeholder="Cost price in ₹ (optional — uses saved price if blank)"
-            [value]="p.cost" (input)="updateProduct(i, 'cost', $any($event.target).value)" />
+            [value]="p.cost"
+            (input)="updateProduct(i, 'cost', $any($event.target).value)"
+            (wheel)="$event.preventDefault()" />
 
           <!-- Competitor prices shown as clean chips — no JSON -->
           @if (p.platforms.length > 0) {
@@ -74,6 +89,18 @@
             <input class="form-input param-input" type="number"
               [value]="undercutPct()" (input)="undercutPct.set(+$any($event.target).value)" />
             <span class="param-unit">%</span>
+          </div>
+        </div>
+        <div class="param-item">
+          <label class="param-label">Market Currency</label>
+          <div class="param-input-wrap">
+            <select class="form-input param-input"
+              [value]="currency()"
+              (change)="currency.set($any($event.target).value)">
+              @for (cur of currencyOptions; track cur) {
+                <option [value]="cur">{{ cur }}</option>
+              }
+            </select>
           </div>
         </div>
       </div>
@@ -200,8 +227,35 @@
           }
         </div>
 
-        @if (rec.reasoning) {
-          <div class="reasoning">{{ rec.reasoning }}</div>
+        @if (rec.strategy === 'retention' && rec.churn_context) {
+          <div class="churn-context-card">
+            <div class="cc-header">🎯 Applied for at-risk customer</div>
+            <div class="cc-grid">
+              <div class="cc-item">
+                <span class="cc-label">Customer ID</span>
+                <span class="cc-value mono">{{ rec.churn_context!.customer_id }}</span>
+              </div>
+              <div class="cc-item">
+                <span class="cc-label">Tier</span>
+                <span class="cc-value">{{ rec.churn_context!.customer_tier }}</span>
+              </div>
+              <div class="cc-item">
+                <span class="cc-label">Risk Level</span>
+                <span class="cc-value">{{ rec.churn_context!.risk_level }}</span>
+              </div>
+              <div class="cc-item">
+                <span class="cc-label">Churn Probability</span>
+                <span class="cc-value">{{ fmtProb(rec.churn_context!.churn_probability) }}</span>
+              </div>
+              <div class="cc-item">
+                <span class="cc-label">Discount Applied</span>
+                <span class="cc-value retention-discount">{{ rec.churn_context!.discount_applied.toFixed(1) }}%</span>
+              </div>
+            </div>
+            @if (rec.churn_context!.discount_reason) {
+              <div class="cc-reason">{{ rec.churn_context!.discount_reason }}</div>
+            }
+          </div>
         }
       </div>
     }

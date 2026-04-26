@@ -141,3 +141,103 @@
 .comp-platform { color: var(--text-muted); text-transform: capitalize; }
 .comp-price { font-weight: 600; color: var(--text-primary); }
 .comp-empty { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 4px; }
+/* ── Churn context card (retention-only) ────────────────────────────── */
+.churn-context-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #fdf4ff;         /* light purple */
+  border: 1px solid #e9d5ff;
+  border-radius: 8px;
+  font-size: 13px;
+
+  .cc-header {
+    font-weight: 600;
+    color: #7c3aed;
+    margin-bottom: 8px;
+  }
+
+  .cc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+  }
+
+  .cc-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .cc-label {
+    color: #6b7280;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  .cc-value {
+    color: #111827;
+    font-weight: 500;
+
+    &.mono { font-family: monospace; font-size: 12px; }
+    &.retention-discount { color: #7c3aed; font-weight: 700; }
+  }
+
+  .cc-reason {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #e9d5ff;
+    color: #6b7280;
+    font-size: 12px;
+    font-style: italic;
+  }
+}
+/* ── Product name autocomplete ─────────────────────────────────────── */
+.autocomplete-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin-top: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.autocomplete-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #f3f4f6;
+
+  &:last-child { border-bottom: none; }
+  &:hover { background: #eff6ff; }
+
+  .ac-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #111827;
+  }
+
+  .ac-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: #6b7280;
+    font-weight: 500;
+  }
+}

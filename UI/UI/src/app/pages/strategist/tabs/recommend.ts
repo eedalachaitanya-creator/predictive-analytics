@@ -23,6 +23,16 @@ export class StrategistRecommendTab {
   private auth = inject(AuthService);
   clientId     = this.auth.getClientId();
 
+  constructor() {
+    // Pre-fill currency dropdown from client_config (silent fallback to INR)
+    this.svc.getClientConfig(this.clientId).subscribe({
+      next: (cfg: any) => {
+        if (cfg?.currency) this.currency.set(cfg.currency);
+      },
+      error: () => { /* keep INR default */ }
+    });
+  }
+
   // products      = signal<ProductRow[]>([]);
   products      = signal<ProductRow[]>([{ name: '', cost: '', listings: '', platforms: [] }]);
   savedCosts    = signal<Record<string, number>>({});
@@ -38,6 +48,14 @@ export class StrategistRecommendTab {
   results       = signal<PricingRecommendation[]>([]);
   runMeta       = signal<{ run_id: string; elapsed: number; retention_count: number } | null>(null);
 
+  // Currency — prefilled from client_config.currency, user can override per request
+  currency        = signal('INR');
+  currencyOptions = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
+
+  // Autocomplete state — suggestions[i] = list for product row i
+  suggestions     = signal<Record<number, { name: string; listing_count: number }[]>>({});
+  suggestionsOpen = signal<number | null>(null);   // which row's dropdown is visible
+  private searchTimeouts: Record<number, any> = {};
   // ngOnInit() { this.loadSample(); }
 
   loadSample() {
@@ -90,6 +108,46 @@ export class StrategistRecommendTab {
       updated[i] = { ...updated[i], [field]: value };
       return updated;
     });
+
+    // Trigger autocomplete only on name field changes — debounced 250ms
+    if (field === 'name') {
+      this.debouncedSearch(i, value);
+    }
+  }
+
+  private debouncedSearch(i: number, q: string) {
+    // Cancel any pending search for this row
+    if (this.searchTimeouts[i]) clearTimeout(this.searchTimeouts[i]);
+
+    // Empty query → hide dropdown
+    if (!q || q.trim().length < 2) {
+      this.suggestionsOpen.set(null);
+      return;
+    }
+
+    // 250ms debounce — avoid hitting backend on every keystroke
+    this.searchTimeouts[i] = setTimeout(() => {
+      this.svc.searchProducts(q.trim()).subscribe(res => {
+        this.suggestions.update(s => ({ ...s, [i]: res.products || [] }));
+        this.suggestionsOpen.set(res.products?.length ? i : null);
+      });
+    }, 250);
+  }
+
+  /** User clicked a suggestion — fill the product name and close dropdown */
+  pickSuggestion(i: number, name: string) {
+    this.products.update(p => {
+      const updated = [...p];
+      updated[i] = { ...updated[i], name };
+      return updated;
+    });
+    this.suggestionsOpen.set(null);
+  }
+
+  /** Close dropdown when user tabs/clicks away */
+  closeSuggestions() {
+    // Small timeout so click on suggestion fires BEFORE blur hides it
+    setTimeout(() => this.suggestionsOpen.set(null), 150);
   }
 
   run() {
@@ -115,6 +173,7 @@ export class StrategistRecommendTab {
       target_margin_pct: this.targetMargin(),
       min_margin_pct:    this.minMargin(),
       undercut_pct:      this.undercutPct(),
+      currency:          this.currency(),
     };
 
     if (this.useChurn() && this.churnJson().trim()) {
@@ -154,6 +213,7 @@ export class StrategistRecommendTab {
   trendIcon(t: string) { return t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️'; }
   fmtPrice(n: number)  { return n ? '₹' + n.toFixed(2) : '—'; }
   fmtPct(n: number)    { return (n || 0).toFixed(1) + '%'; }
+  fmtProb(n: number)   { return ((n || 0) * 100).toFixed(1) + '%'; }
   platformIcon(p: string) {
     const icons: Record<string, string> = {
       amazon: '🛒', flipkart: '🏪', meesho: '🛍', myntra: '👗', snapdeal: '🏷'

@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
+import { Observable, throwError, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
@@ -48,6 +48,16 @@ export interface StrategistRequest {
   target_margin_pct?: number;
   min_margin_pct?:    number;
   undercut_pct?:      number;
+  currency?:          string;
+}
+
+export interface ChurnContext {
+  customer_id:       string;
+  churn_probability: number;
+  risk_level:        string;
+  customer_tier:     string;
+  discount_applied:  number;
+  discount_reason:   string;
 }
 
 export interface PricingRecommendation {
@@ -66,8 +76,8 @@ export interface PricingRecommendation {
   confidence:          string;
   flag:                string;
   reasoning:           string;
+  churn_context?:      ChurnContext | null;
 }
-
 export interface StrategistResponse {
   run_id:            string;
   client_id:         string;
@@ -138,5 +148,19 @@ export class StrategistService {
   getPipelineStats(): Observable<any> {
     return this.http.get<any>(`${BASE}/api/strategist/costs`, { headers: headers() })
       .pipe(catchError(e => throwError(() => e)));
+  }
+
+  /** Autocomplete support for the Pricing Engine product input.
+   *  Passes the user's current text as `q`; backend does case-insensitive
+   *  substring match against canonical_name, ranked by listing count. */
+  searchProducts(q: string): Observable<{ count: number; products: { name: string; listing_count: number }[] }> {
+    const params = q ? `?q=${encodeURIComponent(q)}&limit=10` : `?limit=20`;
+    return this.http.get<any>(`${BASE}/api/db/products${params}`, { headers: headers() })
+      .pipe(catchError(() => of({ count: 0, products: [] })));
+  }
+  /** Fetch client config (incl. preferred currency) for UI prefill */
+  getClientConfig(clientId: string): Observable<any> {
+    return this.http.get<any>(`${BASE}/api/db/client-config/${clientId}`, { headers: headers() })
+      .pipe(catchError(() => of({ currency: 'INR' })));
   }
 }

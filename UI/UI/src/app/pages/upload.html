@@ -204,4 +204,33 @@
     ⚙️ Configuration &amp; Rules (Vendor Config · Value-Tier · Business Segment · Value Proposition) are set directly in the ⚙️ Settings tab — no file upload needed for these.<br><br>
     💡 All uploaded files are validated automatically. Required columns must be present. Date columns must use ISO 8601 format (YYYY-MM-DD). Duplicate primary keys will be flagged.
   </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Discard-confirm modal — replaces the native window.confirm() that
+       used to render the browser-chrome "localhost:4200 says" dialog.
+       Backdrop click cancels; clicks inside the card don't bubble to the
+       backdrop. Modal CSS is global (see styles.scss).
+       ══════════════════════════════════════════════════════════════════ -->
+  @if (discardConfirmOpen()) {
+    <div class="modal-backdrop" (click)="cancelDiscard()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <h3 class="modal-title">Discard all staged files?</h3>
+        <p class="modal-sub">
+          This removes every file you've uploaded in the current batch.
+          You'll need to re-select them from your computer to start over.
+          This cannot be undone.
+        </p>
+        <div class="modal-actions">
+          <button class="btn outline"
+                  [disabled]="uploadSvc.discarding()"
+                  (click)="cancelDiscard()">Cancel</button>
+          <button class="btn walmart"
+                  [disabled]="uploadSvc.discarding()"
+                  (click)="confirmDiscard()">
+            {{ uploadSvc.discarding() ? 'Removing…' : 'Discard files' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
 </div>

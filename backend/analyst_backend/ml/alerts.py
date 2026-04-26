@@ -125,7 +125,6 @@ def detect_overdue_refills(threshold_days: int = 0) -> pd.DataFrame:
             mv.open_tickets,
             mv.rfm_total_score,
             mv.days_since_last_order,
-            mv.is_high_value,
             mv.return_rate_pct,
             mv.total_reviews,
             mv.total_tickets

@@ -33,11 +33,18 @@ VALIDATION_CONFIG = {
         "group": "Transaction",
         "pk": "customer_id",
         "has_client_id": True,
+        # last_login_date added 2026-04-24 — it's now part of the
+        # two-condition churn label definition (see migration
+        # 2026_04_24_login_aware_churn_phase2.sql). A customer master
+        # without this column means churn_label falls back to the
+        # legacy single-condition rule via COALESCE(...,9999), which
+        # silently weakens the model. Marking it required surfaces
+        # the gap on the Validation page instead of letting it pass.
         "required_cols": [
             "client_id", "customer_id", "customer_email", "customer_name",
-            "account_created_date",
+            "account_created_date", "last_login_date",
         ],
-        "date_cols": ["account_created_date"],
+        "date_cols": ["account_created_date", "last_login_date"],
     },
     "order": {
         "table": "orders",

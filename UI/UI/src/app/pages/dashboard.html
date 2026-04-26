@@ -70,7 +70,11 @@
       <div class="stat-card">
         <div class="stat-value">{{ kpis()?.highValue | number }}</div>
         <div class="stat-label">High Value</div>
-        <div class="stat-sub">Top {{ 100 - (kpis()?.highValuePercentile ?? 75) }}% by spend</div>
+        <!-- 2026-04-25: subtitle changed from "Top X% by spend" to a static
+             "Platinum tier" label. High Value now keys on customer_tier =
+             'Platinum' (top 25% by net spend in quartile mode), since the
+             configurable high_value_percentile cutoff was retired. -->
+        <div class="stat-sub">Platinum tier customers</div>
       </div>
       <div class="stat-card"
            [title]="'Customers with no non-cancelled order in the past ' + (kpis()?.churnWindowDays ?? 90) + ' days (from the Settings page). Based on order recency only — the ML-predicted churn risk lives on the Churn Scores page and may not match this number.'">

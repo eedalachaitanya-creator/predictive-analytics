@@ -103,6 +103,17 @@ TEST_SIZE = 0.2
 # probability continuum while we strip only the most-ambiguous boundary.
 GRAY_ZONE_LOWER = 85   # Customers with DSLO >= this are ambiguous
 GRAY_ZONE_UPPER = 95   # Customers with DSLO < this are ambiguous
+
+# ── Login gray-zone (Phase 4 — login-aware churn rule, 2026-04-25) ──────────
+# Same idea as the order gray-zone above, applied to the SECOND condition of
+# the new two-condition churn label. A customer at exactly
+# days_since_last_login = 30 (login_window_days) sits on the boundary; small
+# day-to-day variance (one log-in or no log-in this morning) flips their
+# label between 0 and 1. ±5 around the default login window mirrors the
+# order side and keeps the impact symmetric.
+LOGIN_GRAY_ZONE_LOWER = 25   # Customers with DSLI >= this are ambiguous
+LOGIN_GRAY_ZONE_UPPER = 35   # Customers with DSLI < this are ambiguous
+
 N_FOLDS = 5
 TARGET_COL = 'churn_label'
 
@@ -191,6 +202,21 @@ LEAKY_COLS = [
     # just don't reach the model.
     'last_login_date',                # raw date used to derive label
     'days_since_last_login',          # = ref_date − last_login_date
+    # ── Redundancy exclusion (2026-04-25) ───────────────────────────────
+    # is_high_value is NOT a target leak — it's redundant with
+    # customer_tier_encoded. In quartile mode it differs from the Platinum
+    # tier flag only by a 5-percentage-point cutoff (75 vs 80); in custom
+    # mode it uses the SAME threshold as Platinum (`custom_platinum_min`),
+    # making it literally identical. The two flags ride on the same axis
+    # (net spend) and were burning two of our 34 feature slots on one
+    # signal. The correlation-drop step at threshold 0.90 was missing it
+    # because binary vs ordinal-encoded gave them just enough divergence
+    # to sneak through.
+    #
+    # We DON'T drop the column from the MV (the strategist still consumes
+    # `mv.is_high_value` in repositories.py / strategist_router.py), so
+    # it must be excluded here at training time only.
+    'is_high_value',
 ]
 
 # ── REVIEW FEATURES (excluded from model) ───────────────────────────────────
@@ -673,6 +699,89 @@ def exclude_gray_zone_from_training(
     return X_train_clean, y_train_clean, gray_zone_log
 
 
+def exclude_login_gray_zone_from_training(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    df_full: pd.DataFrame,
+    lower: int = LOGIN_GRAY_ZONE_LOWER,
+    upper: int = LOGIN_GRAY_ZONE_UPPER,
+) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Any]]:
+    """
+    Mirror of exclude_gray_zone_from_training, applied to the LOGIN window
+    instead of the order window.
+
+    Background (Phase 4 churn-label work, 2026-04-25):
+        The new two-condition churn label is:
+              churn = (days_since_last_order >= churn_window_days)
+                  AND (days_since_last_login   > login_window_days)
+        The order gray-zone strips boundary customers around the first
+        condition. This function strips them around the second one.
+
+        A customer at days_since_last_login ≈ 30 has a label that flips
+        easily on day-to-day noise — one extra app open this morning and
+        their second condition flips. Excluding [25, 35) from the training
+        set lets the model learn from clear-signal customers while keeping
+        boundary cases in the test set so held-out metrics still reflect
+        production reality.
+
+    TRAINING SET ONLY. Test set is left intact, same convention as the
+    order gray-zone function above.
+
+    Both functions can be called sequentially (we drop a customer if
+    EITHER gray zone applies to them). They use independent masks because
+    a customer in only one gray zone is still ambiguous.
+
+    Args:
+        X_train, y_train: Training matrix + target after split
+        df_full: Original DataFrame (still has days_since_last_login,
+                 which is in LEAKY_COLS and dropped from X_train)
+        lower / upper: Login gray-zone bounds (inclusive / exclusive)
+
+    Returns:
+        (X_train_clean, y_train_clean, gray_zone_log)
+    """
+    log.info("Excluding login gray-zone customers from training "
+             "(DSLI in [%d, %d))...", lower, upper)
+
+    if 'days_since_last_login' not in df_full.columns:
+        log.warning("  days_since_last_login missing from source df — "
+                    "skipping login gray-zone exclusion. This is expected "
+                    "for tenants that haven't supplied login data yet; the "
+                    "single-condition churn rule applies to them and the "
+                    "login gray-zone is irrelevant.")
+        return X_train, y_train, {
+            'lower': lower, 'upper': upper,
+            'excluded': 0, 'reason': 'dsli_missing',
+        }
+
+    dsli = df_full.loc[X_train.index, 'days_since_last_login']
+    gray_mask = (dsli >= lower) & (dsli < upper)
+    n_excluded = int(gray_mask.sum())
+    n_total = len(X_train)
+
+    if n_excluded == 0:
+        log.info("  No customers in login gray zone — no rows excluded")
+    else:
+        pct = 100.0 * n_excluded / max(n_total, 1)
+        log.info("  %d rows excluded (%.1f%% of train set, %d → %d)",
+                 n_excluded, pct, n_total, n_total - n_excluded)
+
+    X_train_clean = X_train.loc[~gray_mask]
+    y_train_clean = y_train.loc[~gray_mask]
+
+    log.info("  Train distribution after login gray-zone: %s",
+             y_train_clean.value_counts().to_dict())
+
+    gray_zone_log = {
+        'lower': lower,
+        'upper': upper,
+        'excluded': n_excluded,
+        'train_before': n_total,
+        'train_after': len(X_train_clean),
+    }
+    return X_train_clean, y_train_clean, gray_zone_log
+
+
 def scale_features(
     X_train: pd.DataFrame,
     X_test: pd.DataFrame,
@@ -822,12 +931,38 @@ def build_xgboost(class_weight_ratio: Optional[float] = None, **params) -> Any:
         log.error("XGBoost not installed. Run: pip install xgboost")
         raise
 
+    # 2026-04-25 — capacity-trimmed defaults for ~500-row dataset.
+    #
+    # Previously max_depth=6, learning_rate=0.1, no regularization, no
+    # min_child_weight. With 100 boosting rounds × depth-6 trees, the
+    # model had room for ~6,400 leaves on a training fold of ~450 rows.
+    # Result: CV showed train AUC=0.96 vs test AUC=0.69 — classic
+    # memorization gap. Diagnosis assumed no data leak (verified —
+    # CV runs on X_full snapshot pre-SMOTE/pre-scaling).
+    #
+    # New defaults trade a small amount of training-fold AUC for a
+    # large reduction in the train-test gap:
+    #   - max_depth 6 → 3:        2^3=8 leaves max per tree (vs 64)
+    #   - learning_rate 0.1 → 0.05: slower fit, less overshoot
+    #   - min_child_weight 1 → 5:  leaves need ≥5 samples worth of hessian
+    #   - reg_alpha 0 → 1.0:       L1 — drops uninformative features
+    #   - reg_lambda 1 → 5.0:      L2 — shrinks leaf weights toward 0
+    #   - subsample 0.8 → 0.7:     more row noise per tree
+    #   - colsample 0.8 → 0.7:     more column noise per tree
+    #
+    # When --tune is passed the RandomizedSearch grid (TUNE_PARAM_GRID
+    # in this file) is consulted instead; these defaults only matter
+    # for the un-tuned path — which is what the pipeline currently
+    # uses.
     defaults = {
         'n_estimators': 100,
-        'max_depth': 6,
-        'learning_rate': 0.1,
-        'subsample': 0.8,
-        'colsample_bytree': 0.8,
+        'max_depth': 3,
+        'learning_rate': 0.05,
+        'min_child_weight': 5,
+        'reg_alpha': 1.0,
+        'reg_lambda': 5.0,
+        'subsample': 0.7,
+        'colsample_bytree': 0.7,
         'random_state': RANDOM_STATE,
         'n_jobs': -1,
     }
@@ -854,11 +989,30 @@ def build_random_forest(class_weight: Optional[str] = None, **params) -> Any:
         Unfitted RandomForestClassifier
     """
     from sklearn.ensemble import RandomForestClassifier
+    # 2026-04-25 — capacity-trimmed defaults for ~500-row dataset.
+    #
+    # Previously max_depth=15, min_samples_leaf=5, n_estimators=100. With
+    # 450 training rows per CV fold, depth-15 trees grew until every
+    # leaf had effectively one sample — train fold AUC = 0.92, test fold
+    # AUC = 0.71, gap = 0.21 (overfitting flag tripped).
+    #
+    # New defaults shrink the trees and bag harder:
+    #   - max_depth 15 → 6:        log2(500)≈9, depth 6 is plenty
+    #   - min_samples_leaf 5 → 10:  doubles the floor
+    #   - min_samples_split 10 → 20: doubles the floor
+    #   - n_estimators 100 → 200:   more shallow trees beat fewer deep
+    #   - max_features 'sqrt'       (sklearn default but explicit)
+    #
+    # Same RandomizedSearch grid caveat as XGBoost: --tune overrides
+    # these via TUNE_PARAM_GRID. Note the RF tune grid still allows
+    # max_depth=None — that should be tightened separately if --tune
+    # ever lands in the pipeline default.
     defaults = {
-        'n_estimators': 100,
-        'max_depth': 15,
-        'min_samples_split': 10,
-        'min_samples_leaf': 5,
+        'n_estimators': 200,
+        'max_depth': 6,
+        'min_samples_split': 20,
+        'min_samples_leaf': 10,
+        'max_features': 'sqrt',
         'random_state': RANDOM_STATE,
         'n_jobs': -1,
     }
@@ -1372,10 +1526,10 @@ def generate_training_report(
     lines.append(f"  Features retained: {len(feature_names)}")
     lines.append("")
 
-    # Gray-zone exclusion summary (Step 3)
+    # Gray-zone exclusion summary (Step 3 — order window)
     gz = cleaning_log.get('gray_zone', {})
     lines.append("-" * 75)
-    lines.append("  GRAY-ZONE EXCLUSION (TRAINING ONLY)")
+    lines.append("  GRAY-ZONE EXCLUSION — ORDER WINDOW (TRAINING ONLY)")
     lines.append("-" * 75)
     if gz.get('skipped'):
         lines.append("  Skipped (--skip-gray-zone flag)")
@@ -1387,7 +1541,26 @@ def generate_training_report(
         lines.append(f"  Train size: {gz.get('train_before', 0)} → {gz.get('train_after', 0)}")
         lines.append("  (Test set keeps all customers for honest evaluation)")
     else:
-        lines.append("  No gray-zone info recorded")
+        lines.append("  No order gray-zone info recorded")
+    lines.append("")
+
+    # Gray-zone exclusion summary (Phase 4 — login window, 2026-04-25)
+    lgz = cleaning_log.get('login_gray_zone', {})
+    lines.append("-" * 75)
+    lines.append("  GRAY-ZONE EXCLUSION — LOGIN WINDOW (TRAINING ONLY)")
+    lines.append("-" * 75)
+    if lgz.get('skipped'):
+        lines.append("  Skipped (--skip-login-gray-zone flag)")
+    elif lgz.get('reason') == 'dsli_missing':
+        lines.append("  Skipped: days_since_last_login column unavailable "
+                     "(tenant has not supplied login data yet)")
+    elif lgz:
+        lines.append(f"  Gray zone window: DSLI in [{lgz.get('lower')}, {lgz.get('upper')})")
+        lines.append(f"  Excluded from train: {lgz.get('excluded', 0)} rows")
+        lines.append(f"  Train size: {lgz.get('train_before', 0)} → {lgz.get('train_after', 0)}")
+        lines.append("  (Test set keeps all customers for honest evaluation)")
+    else:
+        lines.append("  No login gray-zone info recorded")
     lines.append("")
 
     # Test set metrics
@@ -1606,6 +1779,17 @@ Examples:
     parser.add_argument('--gray-zone-upper', type=int, default=GRAY_ZONE_UPPER,
                         help=f'Upper DSLO bound of gray zone '
                              f'(default: {GRAY_ZONE_UPPER})')
+    # Login gray-zone (Phase 4 — login-aware churn rule, 2026-04-25):
+    # mirrors the order gray-zone above for the second condition of the
+    # two-condition churn label. Default ±5 around the 30-day login window.
+    parser.add_argument('--skip-login-gray-zone', action='store_true',
+                        help='Disable login gray-zone exclusion (train on all customers)')
+    parser.add_argument('--login-gray-zone-lower', type=int, default=LOGIN_GRAY_ZONE_LOWER,
+                        help=f'Lower DSLI bound of login gray zone '
+                             f'(default: {LOGIN_GRAY_ZONE_LOWER})')
+    parser.add_argument('--login-gray-zone-upper', type=int, default=LOGIN_GRAY_ZONE_UPPER,
+                        help=f'Upper DSLI bound of login gray zone '
+                             f'(default: {LOGIN_GRAY_ZONE_UPPER})')
     # Probability calibration (audit 2026-04-24 issue #7): wrap the base
     # tree model with CalibratedClassifierCV(method='isotonic', cv=5) so
     # predict_proba returns well-calibrated probabilities instead of the
@@ -1834,6 +2018,24 @@ def main():
     else:
         log.info("Gray-zone exclusion disabled via --skip-gray-zone")
         cleaning_log['gray_zone'] = {'skipped': True}
+
+    # ── Step 5c: Login gray-zone exclusion (training only) ─────────────────
+    # Phase 4 (2026-04-25): same idea as Step 5b but on the second condition
+    # of the new two-condition churn rule. A customer at days_since_last_
+    # login ≈ 30 has a label that flips on small daily noise. Drop them
+    # from training; keep them in test for honest held-out metrics.
+    # Runs AFTER the order gray-zone — both can apply, both shrink the
+    # training set independently.
+    if not args.skip_login_gray_zone:
+        X_train, y_train, login_gray_zone_log = exclude_login_gray_zone_from_training(
+            X_train, y_train, df,
+            lower=args.login_gray_zone_lower,
+            upper=args.login_gray_zone_upper,
+        )
+        cleaning_log['login_gray_zone'] = login_gray_zone_log
+    else:
+        log.info("Login gray-zone exclusion disabled via --skip-login-gray-zone")
+        cleaning_log['login_gray_zone'] = {'skipped': True}
 
     # ── Step 6: Handle class imbalance ─────────────────────────────────────
     X_train, y_train = handle_class_imbalance(X_train, y_train, method=args.imbalance_method)

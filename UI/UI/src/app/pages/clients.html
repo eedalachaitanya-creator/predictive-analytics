@@ -242,16 +242,38 @@
 
               <td><button class="btn outline sm" (click)="selectClient(c)">▶ View</button></td>
 
-              <!-- ─ Delete cell (super_admin only) ─────────────────────────
-                   Active rows keep the two-click Delete flow. Inactive
-                   (already soft-deleted) rows show a muted "Deleted" tag
-                   in the same slot so the column stays aligned. -->
+              <!-- ─ Action cell (super_admin only) ──────────────────────────
+                   Active rows: two-click Delete flow.
+                   Inactive rows: two-click Reactivate flow (replaces the
+                   old disabled "Deleted" tag). Reactivating is safe — no
+                   tenant data was wiped at delete time, so all customers,
+                   orders, churn scores, and ML features come back online
+                   immediately when the flag flips.  -->
               @if (isSuperAdmin()) {
                 <td>
                   @if (!c.is_active) {
-                    <span class="deleted-tag" [title]="'Deactivated ' + formatDate(c.deactivated_at)">
-                      ✗ Deleted
-                    </span>
+                    <!-- Inactive client: show Reactivate button (or its
+                         confirm/cancel pair while pending). -->
+                    @if (reactivateConfirmId() === c.client_id) {
+                      <div class="flex-row" style="gap:6px; flex-wrap:nowrap">
+                        <button class="btn walmart sm"
+                                [disabled]="reactivating()"
+                                (click)="reactivateClient(c.client_id)">
+                          {{ reactivating() ? 'Reactivating…' : '✓ Confirm' }}
+                        </button>
+                        <button class="btn outline sm"
+                                [disabled]="reactivating()"
+                                (click)="cancelReactivate()">
+                          ✕ Cancel
+                        </button>
+                      </div>
+                    } @else {
+                      <button class="btn outline sm"
+                              (click)="confirmReactivate(c.client_id)"
+                              [title]="'Deactivated ' + formatDate(c.deactivated_at) + ' — click to restore'">
+                        ↺ Reactivate
+                      </button>
+                    }
                   } @else if (deleteConfirmId() === c.client_id) {
                     <div class="flex-row" style="gap:6px; flex-wrap:nowrap">
                       <button class="btn danger sm"

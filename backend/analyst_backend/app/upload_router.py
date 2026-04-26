@@ -148,7 +148,11 @@ MASTER_TYPE_TO_TABLE = {
 # VALIDATION_CONFIG) avoids a cross-module cycle and lets the two checkers
 # evolve independently.
 REQUIRED_COLS_PER_MASTER = {
-    "customer":         ["customer_id", "customer_email", "customer_name", "account_created_date"],
+    # last_login_date added 2026-04-24 — required because it drives the
+    # login-aware churn label. Uploading a customer master with this
+    # column entirely blank gets rejected at staging time, matching
+    # validation_router's required_cols list.
+    "customer":         ["customer_id", "customer_email", "customer_name", "account_created_date", "last_login_date"],
     "order":            ["order_id", "customer_id", "order_date", "order_value_usd"],
     "line_items":       ["line_item_id", "order_id", "customer_id", "product_id", "quantity", "unit_price_usd"],
     "product":          ["product_id", "product_name", "category_id"],
@@ -164,6 +168,50 @@ REQUIRED_COLS_PER_MASTER = {
 }
 
 
+def _assert_required_columns_present(df: pd.DataFrame, master_type: str, filename: str) -> None:
+    """Reject files where any REQUIRED column is missing from the header row.
+
+    Why this exists separately from _assert_file_has_real_data:
+        Previously the only schema check between upload and staging was the
+        "all matching columns are blank" guard, which bails only when EVERY
+        required column happens to be present-but-empty. A file missing a
+        single required column (e.g. customer master without last_login_date)
+        passed this guard and then silently landed NULL in the DB, leaking
+        through to the model. (Reported 2026-04-24 — last_login_date became
+        required for the login-aware churn rule but uploads without it kept
+        succeeding.)
+
+        This new check runs BEFORE the blank-data guard and rejects with a
+        specific, actionable message naming the missing column(s).
+
+    Normalization matches _load_df_to_staging's column-name handling
+    (strip + lower + space-to-underscore) so a user's "Last Login Date"
+    column header is correctly recognized as last_login_date.
+    """
+    required = REQUIRED_COLS_PER_MASTER.get(master_type, [])
+    if not required:
+        return  # master type has no required cols; nothing to assert
+
+    file_cols_normalized = {
+        str(c).strip().lower().replace(" ", "_") for c in df.columns
+    }
+    missing = [c for c in required if c not in file_cols_normalized]
+
+    if missing:
+        log.warning(
+            "Upload rejected for '%s' — missing required column(s): %s | "
+            "File had: %s",
+            master_type, missing, sorted(file_cols_normalized),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Missing required column(s): {', '.join(missing)}. "
+                f"Please add this column to your file and re-upload."
+            ),
+        )
+
+
 def _assert_file_has_real_data(df: pd.DataFrame, master_type: str, filename: str) -> None:
     """Reject files that have rows but every required column is 100% blank.
 
@@ -171,14 +219,18 @@ def _assert_file_has_real_data(df: pd.DataFrame, master_type: str, filename: str
     second-degree empty file — e.g. a template Excel where every data row is
     just placeholders or whitespace. Treats NaN AND empty / whitespace-only
     strings as blank.
+
+    Assumes _assert_required_columns_present has already run, so any required
+    column is guaranteed to be in df.columns by this point.
     """
     required = REQUIRED_COLS_PER_MASTER.get(master_type, [])
     if not required:
         return  # master type has no required cols; nothing to assert
 
     # Build the list of required columns that are actually present in the
-    # uploaded file. Columns that aren't present at all are a schema error
-    # caught later in _load_df_to_staging — not our concern here.
+    # uploaded file. After _assert_required_columns_present runs upstream,
+    # this list equals `required`; the comprehension is kept defensively in
+    # case a future caller skips the presence check.
     present = [c for c in required if c in df.columns]
     if not present:
         return  # schema mismatch is a different error class
@@ -603,13 +655,19 @@ def _read_file_to_df(file_bytes: bytes, filename: str, master_type: str = None) 
         matching = [c for c in expected_without_cid if c in normalized_cols]
 
         if len(matching) == 0:
+            # User-facing message stays short and friendly — the wall of
+            # column names that used to appear here was intimidating and
+            # not actionable for the typical client user. Detailed
+            # expected-vs-found is logged server-side so devs can still
+            # diagnose mis-uploads from the logs without exposing internal
+            # column names in the UI. (2026-04-24)
+            log.warning(
+                "Wrong-file upload rejected for '%s'. Expected: %s | Found: %s",
+                master_type, expected_without_cid, normalized_cols,
+            )
             raise HTTPException(
                 status_code=400,
-                detail=f"Wrong file for '{master_type}' upload. "
-                       f"None of the expected columns were found.\n"
-                       f"Expected columns: {expected_without_cid}\n"
-                       f"Found columns: {normalized_cols}\n"
-                       f"Please check you're uploading the correct file.",
+                detail="Wrong file uploaded. Please check you uploaded the correct file.",
             )
         log.info("Column validation for %s: %d/%d expected columns matched",
                  master_type, len(matching), len(expected_without_cid))
@@ -802,6 +860,13 @@ async def upload_file(
 
     if df.empty:
         raise HTTPException(status_code=400, detail="File is empty — no rows found")
+
+    # First-line schema check: every required column must be in the header
+    # row. Catches "right file type but missing a column" — e.g. customer
+    # master uploaded without last_login_date. Raises 400 with the missing
+    # column name(s) if so. Must run BEFORE _assert_file_has_real_data,
+    # which assumes required columns exist in df.columns.
+    _assert_required_columns_present(df, master_type, filename)
 
     # Guard against files that have rows but every required column is blank
     # (e.g. template Excel where every cell is a placeholder). Raises 400 if so.

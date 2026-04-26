@@ -110,6 +110,13 @@ export class ClientsComponent implements OnInit {
   deleting        = signal(false);
   deleteError     = signal('');
 
+  // Two-step reactivate, same pattern as delete. Reactivate is less
+  // destructive than delete (just flips is_active back to TRUE; tenant
+  // data was never wiped) so the confirmation copy is gentler.
+  reactivateConfirmId = signal<string | null>(null);
+  reactivating        = signal(false);
+  reactivateError     = signal('');
+
   // ── Data-overview state ──────────────────────────────────────────────
   // overview:        the latest payload from /clients/{id}/data-overview
   // overviewLoading: true while that call is in flight (shows a spinner
@@ -415,6 +422,46 @@ export class ClientsComponent implements OnInit {
           err?.error?.message ??
           err?.message ??
           'Could not delete client.'
+        );
+      }
+    });
+  }
+
+  // ── Reactivate (mirror of delete) ───────────────────────────────────
+  // No tenant data was wiped at delete time, so reactivate is a single
+  // POST that flips is_active back to TRUE. We keep the same two-step
+  // confirm pattern as delete for UI symmetry, even though it's safer.
+
+  confirmReactivate(clientId: string) {
+    this.reactivateError.set('');
+    this.reactivateConfirmId.set(clientId);
+  }
+
+  cancelReactivate() {
+    this.reactivateConfirmId.set(null);
+    this.reactivateError.set('');
+  }
+
+  reactivateClient(clientId: string) {
+    this.reactivating.set(true);
+    this.reactivateError.set('');
+    this.api.post<{ client_id: string; message: string }>(
+      `/clients/${clientId}/reactivate`,
+      {},
+    ).subscribe({
+      next: () => {
+        this.reactivating.set(false);
+        this.reactivateConfirmId.set(null);
+        // Reload so the tenant moves from the "Inactive" tab back to "Active".
+        this.loadClients();
+      },
+      error: (err) => {
+        this.reactivating.set(false);
+        this.reactivateError.set(
+          err?.error?.detail ??
+          err?.error?.message ??
+          err?.message ??
+          'Could not reactivate client.'
         );
       }
     });

@@ -630,8 +630,30 @@ def compute_churn_drivers(
                     "Unsupported model type for SHAP — needs tree_importances_ or coef_"
                 )
             sv = explainer.shap_values(X_score)
-            # Binary classifiers in sklearn return a list [neg_class, pos_class]
-            shap_values = sv[1] if isinstance(sv, list) else sv
+            # Normalise to a 2-D (n_samples, n_features) matrix of SHAP
+            # contributions for the POSITIVE (churn) class.
+            #
+            # SHAP's return shape for binary tree classifiers has changed
+            # across versions (2026-04-25 incident):
+            #   * shap < 0.42:  list -> [neg_class_2d, pos_class_2d]
+            #     handled by `sv[1]`.
+            #   * shap >= 0.42: numpy ndarray of shape
+            #     (n_samples, n_features, n_classes) for sklearn binary
+            #     classifiers like RandomForestClassifier. Indexing
+            #     `sv[row_idx]` later returns a 2-D (n_features,
+            #     n_classes) slice instead of a 1-D row, which then breaks
+            #     argsort + scalar comparisons downstream with
+            #     "The truth value of an array with more than one element
+            #     is ambiguous." We must slice on axis=-1 to keep the
+            #     positive-class column only.
+            #   * Some explainers / single-output models return a plain
+            #     2-D (n_samples, n_features) array directly — pass-through.
+            if isinstance(sv, list):
+                shap_values = sv[1]            # legacy: pick positive class
+            elif isinstance(sv, np.ndarray) and sv.ndim == 3:
+                shap_values = sv[:, :, 1]      # new SHAP: positive-class slice
+            else:
+                shap_values = sv               # already 2-D
     except Exception as e:
         # Last-resort fallback — SHAP unavailable or failed.
         #
@@ -758,11 +780,14 @@ def build_score_table(
     score_df['churn_probability'] = np.round(probabilities, 4)
     score_df['risk_level'] = risk_levels
 
-    # Add context columns for the strategist agent
+    # Add context columns for the strategist agent.
+    # 2026-04-25: dropped 'is_high_value' — it was redundant with
+    # customer_tier (Platinum is already the value-bucket signal). The
+    # MV no longer carries the column.
     context_cols = [
         'customer_tier', 'total_spend_usd', 'total_orders',
         'avg_order_value_usd', 'avg_rating', 'days_since_last_order',
-        'is_high_value', 'rfm_total_score',
+        'rfm_total_score',
     ]
     for col in context_cols:
         if col in original_df.columns:

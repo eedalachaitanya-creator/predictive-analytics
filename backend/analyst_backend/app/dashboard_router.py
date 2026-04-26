@@ -16,8 +16,13 @@ back a single JSON object with ALL the above data.
 NOTE: The materialized view (schema_migration_v2) only stores
 rfm_recency_score, rfm_frequency_score, rfm_monetary_score,
 rfm_total_score, and churn_label. Higher-level fields like
-rfm_segment, customer_tier, is_high_value, and is_repeat_customer
-are derived here in SQL using CASE expressions.
+rfm_segment, customer_tier, and is_repeat_customer are derived
+here in SQL using CASE expressions.
+
+2026-04-25 — Removed `is_high_value` references. The High Value KPI
+tile and the "High Value" tab now key on `customer_tier = 'Platinum'`,
+which is the source of truth for the value bucket since the redundant
+`is_high_value` column was dropped from the MV.
 """
 
 import math
@@ -58,14 +63,14 @@ def get_dashboard(
         # was current when the pipeline last refreshed the MV.
         #   churn_window_days       → drives the Lapsed Customer count.
         #   min_repeat_orders       → drives the Repeat Customer count.
-        #   high_value_percentile   → drives the High Value subtitle.
         #   ref_date                → mirrors the MV's logic (fixed date if the
         #                             client is configured that way, else NOW()).
+        # 2026-04-25: high_value_percentile dropped — High Value KPI now
+        # keys on customer_tier='Platinum' (no per-client knob anymore).
         cfg_row = conn.execute(text("""
             SELECT
                 COALESCE(churn_window_days, 90)                   AS churn_window_days,
                 COALESCE(min_repeat_orders, 2)                    AS min_repeat_orders,
-                COALESCE(high_value_percentile, 75)               AS high_value_percentile,
                 CASE WHEN reference_date_mode = 'fixed'
                       AND reference_date IS NOT NULL
                      THEN reference_date::TIMESTAMPTZ
@@ -77,8 +82,7 @@ def get_dashboard(
 
         churn_window_days     = int(cfg_row[0]) if cfg_row else 90
         min_repeat_orders     = int(cfg_row[1]) if cfg_row else 2
-        high_value_percentile = int(cfg_row[2]) if cfg_row else 75
-        ref_date              = cfg_row[3]     if cfg_row else None
+        ref_date              = cfg_row[2]     if cfg_row else None
 
         # totalCustomers is the raw registered count — matches the Validation
         # page. The ML-derived counts below (repeat / high-value / scored)
@@ -91,11 +95,14 @@ def get_dashboard(
 
         # Repeat threshold now reads from client_config (:min_repeat) — was
         # hardcoded to 2, which made the Settings page's value inert.
+        # 2026-04-25: high_value count now keys on Platinum tier instead
+        # of the dropped is_high_value column. Same rough magnitude (top
+        # 25% of spenders) but pulled from a single source of truth.
         r = conn.execute(text("""
             SELECT
-                COUNT(*)                                            AS scored_customers,
-                COUNT(*) FILTER (WHERE total_orders >= :min_repeat) AS repeat_customers,
-                COUNT(*) FILTER (WHERE is_high_value = 1)           AS high_value
+                COUNT(*)                                                  AS scored_customers,
+                COUNT(*) FILTER (WHERE total_orders >= :min_repeat)       AS repeat_customers,
+                COUNT(*) FILTER (WHERE customer_tier = 'Platinum')        AS high_value
             FROM mv_customer_features
             WHERE client_id = :cid
         """), {"cid": clientId, "min_repeat": min_repeat_orders})
@@ -150,7 +157,10 @@ def get_dashboard(
             "churned":            churned,
             "churnRate":          churn_rate,
             "churnWindowDays":     churn_window_days,
-            "highValuePercentile": high_value_percentile,
+            # highValuePercentile removed 2026-04-25 — UI subtitle for the
+            # High Value tile changed from "Top X% by spend" to a static
+            # "Platinum tier" label since the percentile is no longer
+            # client-configurable.
             "minRepeatOrders":    min_repeat_orders,
             "lastRunDate":        "",
         }
@@ -530,11 +540,12 @@ def get_dashboard_orders(
 
         # ── High Value Tab ───────────────────────────────────────────
         elif tab == "High Value":
-            # High value = the is_high_value flag set by the ML pipeline,
-            # which honours the client's high_value_percentile setting.
+            # 2026-04-25: High Value = customer_tier = 'Platinum' (top
+            # spenders). Previously used the redundant `is_high_value`
+            # flag; that column was dropped from the MV.
             r = conn.execute(text("""
                 SELECT COUNT(*) FROM mv_customer_features
-                WHERE client_id = :cid AND is_high_value = 1
+                WHERE client_id = :cid AND customer_tier = 'Platinum'
             """), {"cid": clientId})
             total = r.scalar() or 0
             pages = math.ceil(total / page_size) if total > 0 else 0
@@ -555,7 +566,7 @@ def get_dashboard_orders(
                     mv.churn_label
                 FROM mv_customer_features mv
                 JOIN customers c ON mv.customer_id = c.customer_id AND mv.client_id = c.client_id
-                WHERE mv.client_id = :cid AND mv.is_high_value = 1
+                WHERE mv.client_id = :cid AND mv.customer_tier = 'Platinum'
                 ORDER BY mv.total_spend_usd DESC
                 LIMIT :limit OFFSET :offset
             """), {"cid": clientId, "limit": page_size, "offset": offset})

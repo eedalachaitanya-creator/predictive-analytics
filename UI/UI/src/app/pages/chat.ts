@@ -42,6 +42,32 @@ export class ChatComponent implements OnInit, AfterViewChecked {
     this.send();
   }
 
+  /**
+   * Map each capability card (SQL Queries / ML Predictions / Customer
+   * Profiles / Risk Analysis) to a representative example query that
+   * exercises that capability. Click a card → it seeds the chat input
+   * with a question and sends it, exactly like the suggestion chips
+   * below.
+   *
+   * 2026-04-25: previously the four cards were decorative <div>s with no
+   * click handler. Users reasonably expected them to do something; now
+   * they do.
+   */
+  private readonly TOOL_EXAMPLES: Record<string, string> = {
+    sql:     'How many customers do we have in each tier?',
+    ml:      'What is the average churn probability for high-risk customers?',
+    profile: 'Show me the profile of customer WMT-CUST-00042',
+    risk:    'Break down churn risk distribution by customer tier',
+  };
+
+  useTool(toolKey: 'sql' | 'ml' | 'profile' | 'risk') {
+    const text = this.TOOL_EXAMPLES[toolKey];
+    if (text) {
+      this.userInput = text;
+      this.send();
+    }
+  }
+
   newChat() {
     this.chat.newConversation();
     this.userInput = '';

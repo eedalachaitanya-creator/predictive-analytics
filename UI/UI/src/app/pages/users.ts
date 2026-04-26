@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject, computed } from '@angular/core';
+import { Component, OnInit, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UserManagementService } from '../services/user-management.service';
@@ -16,10 +16,18 @@ export class UsersComponent implements OnInit {
 
   // The "+ Add New User" modal has been retired — new users are created by
   // the "+ Add New Client" flow on the Clients page (which provisions a
-  // client_config row AND its first user in one transaction). This page
-  // now only shows the roster + lets a super admin toggle status or delete.
-  // deleteConfirmId drives the two-click delete pattern below.
-  deleteConfirmId = signal<string | null>(null);
+  // client_config row AND its first user in one transaction). This page is
+  // now a read-only roster + status toggle.
+  //
+  // The per-row hard-delete (DELETE FROM users) was removed 2026-04-25
+  // because it created drift between Users and Clients pages: a deleted
+  // user vanished here but the corresponding client_config row stayed on
+  // the Clients page, with no way to restore the (gone) user via the
+  // Clients-page reactivate flow. Tenant offboarding now happens on the
+  // Clients page via soft-delete (is_active flag); the user account
+  // follows the client's active state through auth_router's login gate.
+  // The backend DELETE /users/{id} endpoint still exists for one-off
+  // admin scripts but no UI calls it anymore.
 
   // Stats
   superAdmins = computed(() => this.svc.users().filter(u => u.role === 'super_admin').length);
@@ -27,16 +35,6 @@ export class UsersComponent implements OnInit {
 
   ngOnInit() {
     this.svc.loadUsers().subscribe({ error: () => {} });
-  }
-
-  confirmDelete(id: string) { this.deleteConfirmId.set(id); }
-  cancelDelete()             { this.deleteConfirmId.set(null); }
-
-  deleteUser(id: string) {
-    this.svc.deleteUser(id).subscribe({
-      next: () => this.deleteConfirmId.set(null),
-      error: e  => console.error(e)
-    });
   }
 
   toggleStatus(u: AppUser) {

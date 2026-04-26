@@ -413,7 +413,9 @@ export interface DashboardKpis {
   // the user actually configured.
   churnWindowDays?: number;
   minRepeatOrders?: number;
-  highValuePercentile?: number;
+  // 2026-04-25: highValuePercentile removed. Backend no longer returns it
+  // because the high_value_percentile column was dropped from client_config.
+  // The High Value KPI tile now shows the Platinum-tier customer count.
   lastRunDate: string;
 }
 
@@ -485,58 +487,13 @@ export interface AnalyticsData {
 }
 
 
-// ── Messages (richer version of value_propositions for the UI) ─
-// DB-aligned keys use snake_case matching value_propositions columns.
-// subject / body / active / updatedAt / id are managed by the
-// messages API and do not exist in the seed schema.
-
-// Frontend-normalised enums (mapped from DB values in the service layer)
-export type TierKey   = 'platinum' | 'gold' | 'silver' | 'bronze';
-export type RiskLevel = 'at_risk' | 'returning' | 'reactivated' | 'new';
-export type Channel   = 'email' | 'sms' | 'push' | 'email_sms' | 'email_push' | 'push_sms';
-
-// Mapping helpers — use in services to convert DB ↔ frontend values
-export const DB_TO_TIER_KEY: Record<TierName, TierKey> = {
-  Platinum: 'platinum', Gold: 'gold', Silver: 'silver', Bronze: 'bronze'
-};
-export const TIER_KEY_TO_DB: Record<TierKey, TierName> = {
-  platinum: 'Platinum', gold: 'Gold', silver: 'Silver', bronze: 'Bronze'
-};
-
-export const DB_TO_RISK_LEVEL: Record<DbRiskLevel, RiskLevel> = {
-  'At-Risk': 'at_risk', Returning: 'returning', Reactivated: 'reactivated', New: 'new'
-};
-export const RISK_LEVEL_TO_DB: Record<RiskLevel, DbRiskLevel> = {
-  at_risk: 'At-Risk', returning: 'Returning', reactivated: 'Reactivated', new: 'New'
-};
-
-export const DB_TO_CHANNEL: Record<DbChannel, Channel> = {
-  Email: 'email', SMS: 'sms', Push: 'push',
-  'Email + SMS': 'email_sms', 'Email + Push': 'email_push', 'Push + SMS': 'push_sms'
-};
-export const CHANNEL_TO_DB: Record<Channel, DbChannel> = {
-  email: 'Email', sms: 'SMS', push: 'Push',
-  email_sms: 'Email + SMS', email_push: 'Email + Push', push_sms: 'Push + SMS'
-};
-
-export interface MessageTemplate {
-  id: string;                    // frontend-generated / messages API
-  // DB-aligned fields matching value_propositions columns (normalised)
-  tier_name: TierKey;            // DB: tier_name  (Platinum → 'platinum')
-  risk_level: RiskLevel;         // DB: risk_level (At-Risk  → 'at_risk')
-  discount_pct: number;          // DB: discount_pct
-  channel: Channel;              // DB: channel    (Email + SMS → 'email_sms')
-  action_type: string;           // DB: action_type
-  message_template: string;      // DB: message_template (raw text, {placeholders})
-  priority: number;              // DB: priority
-  // Extended fields (messages API only, not in seed schema)
-  subject: string;
-  body: string;
-  active: boolean;
-  updatedAt: string;
-}
-
-export interface SaveTemplatesRequest {
-  clientId: string;
-  templates: MessageTemplate[];
-}
+// 2026-04-25: Removed the entire Messages section.
+// The Analyst Agent's Message Templates page was retired because outreach
+// generation is the Retention Agent's responsibility. Removed from this file:
+//   * type aliases:  TierKey, RiskLevel, Channel
+//   * mapping consts: DB_TO_TIER_KEY, TIER_KEY_TO_DB,
+//                     DB_TO_RISK_LEVEL, RISK_LEVEL_TO_DB,
+//                     DB_TO_CHANNEL, CHANNEL_TO_DB
+//   * interfaces:    MessageTemplate, SaveTemplatesRequest
+// The DB-side enum types (TierName, DbRiskLevel, DbChannel) stay because
+// segments.service.ts and value_propositions still consume them.

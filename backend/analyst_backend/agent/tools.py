@@ -380,7 +380,9 @@ def get_customer_profile(customer_id: str) -> str:
         profile.append("ACCOUNT:")
         profile.append(f"  Tier: {row.get('customer_tier', 'N/A')}")
         profile.append(f"  Account Age: {row.get('account_age_days', 0)} days")
-        profile.append(f"  High Value: {'Yes' if row.get('is_high_value', 0) == 1 else 'No'}")
+        # 2026-04-25: 'High Value' line removed — Tier (Platinum/Gold/Silver/
+        # Bronze) is already the value bucket. is_high_value column was
+        # dropped from the MV because it was redundant with Platinum tier.
 
         # Order metrics
         profile.append("\nORDER HISTORY:")

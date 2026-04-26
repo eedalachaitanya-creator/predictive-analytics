@@ -92,9 +92,28 @@ export class UploadComponent implements OnInit {
     });
   }
 
-  /** Discard the pending batch. Confirm first to avoid accidental data loss. */
+  // ── Discard-confirm modal state ─────────────────────────────────────
+  // discardConfirmOpen toggles the in-app modal that asks the user to
+  // confirm before wiping all staged files. We dropped the native
+  // window.confirm() because it renders the browser-chrome dialog with
+  // a "localhost:4200 says" header that looks like a system error and
+  // breaks the visual flow of the app.
+  discardConfirmOpen = signal(false);
+
+  /** Open the discard-confirm modal. (Doesn't call the API yet.) */
   discardBatch() {
-    if (!confirm('Discard all staged files? This cannot be undone.')) return;
+    this.discardConfirmOpen.set(true);
+  }
+
+  /** User clicked Cancel in the modal — just close it, no API call. */
+  cancelDiscard() {
+    this.discardConfirmOpen.set(false);
+  }
+
+  /** User clicked Confirm in the modal — fire the discard API call,
+   *  reload, and close the modal regardless of success/failure. */
+  confirmDiscard() {
+    this.discardConfirmOpen.set(false);
     this.uploadSvc.discard(this.clientId).subscribe({
       next: () => {
         this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });

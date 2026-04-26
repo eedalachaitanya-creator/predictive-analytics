@@ -212,9 +212,13 @@ def load_client_config(ws):
         if param and not param.startswith("──") and param != "Parameter":
             config[param] = value
 
+    # 2026-04-25: high_value_percentile column dropped from client_config
+    # (migration 2026_04_25_remove_is_high_value.sql). Don't load or insert
+    # it. customer_tier (Platinum/Gold/Silver/Bronze) is the single source
+    # of truth for value bucketing now.
     cols = ["client_id", "client_name", "client_code", "currency", "timezone",
             "churn_window_days", "high_ltv_threshold", "mid_ltv_threshold", "max_discount_pct",
-            "min_repeat_orders", "high_value_percentile", "recent_order_gap_window", "tier_method",
+            "min_repeat_orders", "recent_order_gap_window", "tier_method",
             "custom_platinum_min", "custom_gold_min", "custom_silver_min", "custom_bronze_min",
             "reference_date_mode", "reference_date", "prediction_mode"]
     data = [(
@@ -228,7 +232,6 @@ def load_client_config(ws):
         float(config.get("fixed_tier2_min_spend_usd", config.get("mid_ltv_threshold", 200))),
         float(config.get("max_discount_pct", 30)),
         int(config.get("min_repeat_orders", 2)),
-        int(config.get("high_value_percentile", 75)),
         int(config.get("recent_order_gap_window", 3)),
         config.get("tier_method", "quartile"),
         float(config.get("custom_platinum_min", 500.00)),

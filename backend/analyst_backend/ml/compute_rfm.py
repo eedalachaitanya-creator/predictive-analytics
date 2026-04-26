@@ -584,17 +584,10 @@ def analyze_tier_distribution(df):
         })
         tier_df.to_csv(OUTPUT_DIR / "tier_distribution.csv", index=False)
 
-    # High-value analysis
-    if 'is_high_value' in df.columns:
-        hv_count = df['is_high_value'].sum()
-        hv_pct = hv_count / len(df) * 100
-        hv_churn = df[df['is_high_value'] == 1]['churn_label'].mean() * 100
-        non_hv_churn = df[df['is_high_value'] == 0]['churn_label'].mean() * 100
-
-        tier_analysis['high_value_count'] = int(hv_count)
-        tier_analysis['high_value_pct'] = hv_pct
-        tier_analysis['high_value_churn'] = hv_churn
-        tier_analysis['non_high_value_churn'] = non_hv_churn
+    # 2026-04-25: 'High Value' analysis removed. is_high_value was redundant
+    # with customer_tier (Platinum mostly) and the column was dropped from
+    # the MV. Tier-vs-churn distribution above already conveys the same
+    # information at finer granularity (Platinum/Gold/Silver/Bronze).
 
     return tier_analysis
 

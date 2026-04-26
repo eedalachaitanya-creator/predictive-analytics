@@ -30,23 +30,35 @@
       <p>I can help you analyze churn risk, explore customer data, and suggest retention strategies.
          I have access to your database, ML models, and customer profiles.</p>
 
+      <!--
+        2026-04-25: the four capability cards used to be plain <div>s
+        with no click handler — visually they looked like buttons but
+        did nothing. They are now real <button>s that seed the chat
+        with a representative example query for that capability and
+        send it (same UX as the suggestion chips below). The mapping
+        toolKey → query lives in chat.ts:TOOL_EXAMPLES.
+      -->
       <div class="tools-grid">
-        <div class="tool-card">
+        <button type="button" class="tool-card" (click)="useTool('sql')"
+                title="Ask a SQL-style question — e.g. customer counts by tier">
           <span class="tool-icon">🗄️</span>
           <span class="tool-label">SQL Queries</span>
-        </div>
-        <div class="tool-card">
+        </button>
+        <button type="button" class="tool-card" (click)="useTool('ml')"
+                title="Ask about ML-predicted churn probabilities">
           <span class="tool-icon">🤖</span>
           <span class="tool-label">ML Predictions</span>
-        </div>
-        <div class="tool-card">
+        </button>
+        <button type="button" class="tool-card" (click)="useTool('profile')"
+                title="Look up a single customer's full profile">
           <span class="tool-icon">👤</span>
           <span class="tool-label">Customer Profiles</span>
-        </div>
-        <div class="tool-card">
+        </button>
+        <button type="button" class="tool-card" (click)="useTool('risk')"
+                title="Break risk distribution down by tier or segment">
           <span class="tool-icon">📊</span>
           <span class="tool-label">Risk Analysis</span>
-        </div>
+        </button>
       </div>
 
       <p class="try-label">Try asking:</p>

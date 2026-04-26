@@ -11,8 +11,17 @@
        retired — new users are now created exclusively as part of the
        "+ Add New Client" flow on the Clients page (the super admin picks a
        contact name/email/password there and that user is provisioned in the
-       same transaction as the client_config row). This page is now a
-       read-only roster + status/delete controls. -->
+       same transaction as the client_config row). This page is a read-only
+       roster.
+
+       The per-row Delete button was removed 2026-04-25. Reason: it was the
+       only HARD-delete in the system (DELETE FROM users), which created
+       drift between Users and Clients pages — a deleted user vanished
+       here, but their client_config row stayed visible on the Clients
+       page, and a later soft-delete + reactivate from there couldn't
+       resurrect the (gone) user. To remove a tenant, use the Clients
+       page → 🗑 Delete (soft-delete with reactivate). The user account
+       follows the client's active state via auth_router's is_active gate. -->
   <div class="flex-row mb-20">
     @if (svc.loading()) { <span class="text-muted" style="font-size:12px">Loading…</span> }
     @if (svc.error()) { <span class="text-red" style="font-size:12px">⚠️ {{ svc.error() }}</span> }
@@ -24,7 +33,7 @@
     @if (svc.users().length) {
       <table class="data-table">
         <thead>
-          <tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Client Access</th><th>Last Login</th><th>Status</th><th>Actions</th></tr>
+          <tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Client Access</th><th>Last Login</th><th>Status</th></tr>
         </thead>
         <tbody>
           @for (u of svc.users(); track u.id; let i = $index) {
@@ -40,17 +49,6 @@
                   <span class="dot" [class]="statusDot(u.status)"></span>
                   <span style="font-size:11px;margin-left:4px;color:var(--text-secondary)">{{ u.status }}</span>
                 </button>
-              </td>
-              <td>
-                <div class="flex-row" style="gap:6px">
-                  @if (deleteConfirmId() === u.id) {
-                    <span style="font-size:11px;color:var(--accent-red)">Delete?</span>
-                    <button class="btn danger sm" (click)="deleteUser(u.id)">Yes</button>
-                    <button class="btn ghost sm" (click)="cancelDelete()">No</button>
-                  } @else {
-                    <button class="btn ghost sm" title="Delete user" (click)="confirmDelete(u.id)">🗑</button>
-                  }
-                </div>
               </td>
             </tr>
           }

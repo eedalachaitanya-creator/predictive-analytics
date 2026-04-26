@@ -24,10 +24,13 @@ export class SidebarComponent {
   analystGroup: NavGroup = {
     label: 'Analyst Agent',
     icon:  '🔮',
+    // 2026-04-25: '/app/messages' removed from both pathPrefixes and
+    // children — outreach template configuration is owned by the
+    // Retention Agent, not the Analyst Agent.
     pathPrefixes: [
       '/app/upload', '/app/validation', '/app/settings',
       '/app/dashboard', '/app/churn-scores', '/app/downloads',
-      '/app/messages', '/app/chat', '/app/cost-tracking',
+      '/app/chat', '/app/cost-tracking',
     ],
     children: [
       { path: '/app/upload',        label: 'Upload Data',   icon: '📤' },
@@ -36,7 +39,6 @@ export class SidebarComponent {
       { path: '/app/dashboard',     label: 'Dashboard',     icon: '📊' },
       { path: '/app/churn-scores',  label: 'Churn Scores',  icon: '📈' },
       { path: '/app/downloads',     label: 'Downloads',     icon: '📥' },
-      { path: '/app/messages',      label: 'Messages',      icon: '💬' },
       { path: '/app/chat',          label: 'Agent Chat',    icon: '🤖' },
       { path: '/app/cost-tracking', label: 'Cost Tracking', icon: '💰' },
     ],

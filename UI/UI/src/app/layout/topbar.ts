@@ -12,7 +12,7 @@ const META: Record<string, { title: string; meta: string }> = {
   dashboard:  { title: '📊 Output Dashboard',        meta: 'Pipeline results' },
   downloads:  { title: '📥 Downloads',               meta: 'Export your results' },
   chat:       { title: '🤖 Agent Chat',              meta: 'Ask questions about your data' },
-  messages:   { title: '💬 Message Templates',       meta: 'Configure templates by Tier × Risk Level' },
+  // 2026-04-25: 'messages' entry removed — page retired (Retention Agent owns outreach).
   clients:    { title: '👥 Client Management',       meta: 'Admin Console · Manage all retail clients' },
   users:      { title: '👤 User Management',         meta: 'Admin Console · Assign roles and client access' },
   monitor:    { title: '💰 Cost Monitoring',         meta: 'Admin Console · LLM cost tracking' },

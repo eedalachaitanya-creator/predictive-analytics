@@ -952,7 +952,13 @@ def delete_client(
                 "message": f"Client {client_id} was already deactivated.",
             }
 
-    # ── Flip the flag ─────────────────────────────────────────────────
+    # ── Flip the flag (and cascade to single-client users) ────────────
+    # Two UPDATEs in ONE transaction so the client + its users go inactive
+    # together. Without the user cascade, the Users page would still show
+    # the user as "active" while the auth gate blocks their login —
+    # confusing for super admins reviewing the roster. Multi-client users
+    # (super_admin role, or anyone with client_access of length > 1) are
+    # NOT cascaded; they have other tenants and stay active.
     try:
         with engine.begin() as conn:
             conn.execute(
@@ -963,16 +969,34 @@ def delete_client(
                 ),
                 {"cid": client_id},
             )
+            cascade_result = conn.execute(
+                text(
+                    "UPDATE users "
+                    "SET is_active = FALSE "
+                    "WHERE :cid = ANY(client_access) "
+                    "  AND COALESCE(array_length(client_access, 1), 0) = 1 "
+                    "  AND role <> 'super_admin' "
+                    "  AND is_active = TRUE"
+                ),
+                {"cid": client_id},
+            )
+            cascaded_user_count = cascade_result.rowcount or 0
     except Exception as e:
         log.error("delete_client failed for %s: %s", client_id, e)
         raise HTTPException(status_code=500, detail=f"Could not deactivate client: {e}")
 
-    log.info("Deactivated client %s (soft-delete).", client_id)
+    log.info(
+        "Deactivated client %s (soft-delete; %d associated user(s) also deactivated).",
+        client_id, cascaded_user_count,
+    )
 
     log_audit_event(
         request,
         action_type="client_deactivated",
-        details=f"Soft-deleted client {client_id} (is_active=FALSE; tenant data retained)",
+        details=(
+            f"Soft-deleted client {client_id} (is_active=FALSE; tenant data retained). "
+            f"Cascaded user deactivation to {cascaded_user_count} single-client user(s)."
+        ),
         client_id=client_id,
         user_id=caller["id"],
         user_email=caller["email"],
@@ -982,5 +1006,110 @@ def delete_client(
     return {
         "client_id": client_id,
         "deleted": {},
+        "users_deactivated": cascaded_user_count,
         "message": f"Client {client_id} has been deactivated.",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reactivate (soft-undelete) a client
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/clients/{client_id}/reactivate")
+def reactivate_client(
+    client_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """
+    Super-admin-only: reactivate a previously soft-deleted client.
+    Sets is_active=TRUE and clears deactivated_at. All tenant data
+    (customers, orders, line_items, reviews, tickets, churn_scores,
+    mv_customer_features, etc.) was preserved during deactivation
+    because no FK cascades exist on client_config — the data is still
+    queryable by client_id and the client simply re-appears in the
+    admin list, dropdowns, and dashboards.
+
+    Idempotent: reactivating an already-active client returns success.
+    """
+    # ── Auth: super_admin only ────────────────────────────────────────
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization required")
+    token = authorization.replace("Bearer ", "")
+    caller = _find_user_by_token(token)
+    if not caller:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if caller["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Only super admins can reactivate clients")
+
+    # ── Confirm client exists ─────────────────────────────────────────
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT is_active FROM client_config WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+        if row[0] is True:
+            # Idempotent — already active.
+            return {
+                "client_id": client_id,
+                "message": f"Client {client_id} was already active.",
+            }
+
+    # ── Flip the flag back (and cascade to single-client users) ──────
+    # Mirror of the cascade in delete_client: when the tenant comes back
+    # online, its single-client users come back online too. This is the
+    # path that brings users back into the Users page roster as "active"
+    # after a client is reactivated. Multi-client users were never
+    # touched by the delete cascade, so they don't need re-flipping.
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE client_config "
+                    "SET is_active = TRUE, deactivated_at = NULL "
+                    "WHERE client_id = :cid"
+                ),
+                {"cid": client_id},
+            )
+            cascade_result = conn.execute(
+                text(
+                    "UPDATE users "
+                    "SET is_active = TRUE "
+                    "WHERE :cid = ANY(client_access) "
+                    "  AND COALESCE(array_length(client_access, 1), 0) = 1 "
+                    "  AND role <> 'super_admin' "
+                    "  AND is_active = FALSE"
+                ),
+                {"cid": client_id},
+            )
+            cascaded_user_count = cascade_result.rowcount or 0
+    except Exception as e:
+        log.error("reactivate_client failed for %s: %s", client_id, e)
+        raise HTTPException(status_code=500, detail=f"Could not reactivate client: {e}")
+
+    log.info(
+        "Reactivated client %s (is_active=TRUE; %d associated user(s) also reactivated).",
+        client_id, cascaded_user_count,
+    )
+
+    log_audit_event(
+        request,
+        action_type="client_reactivated",
+        details=(
+            f"Reactivated client {client_id} (is_active=TRUE; tenant data was "
+            f"never wiped during deactivation, so all customers/orders/scores "
+            f"are immediately available for queries and model training). "
+            f"Cascaded user reactivation to {cascaded_user_count} single-client user(s)."
+        ),
+        client_id=client_id,
+        user_id=caller["id"],
+        user_email=caller["email"],
+        outcome="success",
+    )
+
+    return {
+        "client_id": client_id,
+        "users_reactivated": cascaded_user_count,
+        "message": f"Client {client_id} has been reactivated.",
     }

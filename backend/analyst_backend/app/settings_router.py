@@ -7,10 +7,15 @@ PUT  /api/v1/settings?clientId=CLT-001  — Update settings for a client
 These settings are stored in the client_config table and directly affect
 how the ML pipeline processes data:
   - churn_window_days: defines what "churned" means (e.g., 90 days no order)
+  - login_window_days: second condition of the churn rule
   - min_repeat_orders: minimum orders to count as repeat customer
-  - high_value_percentile: percentile cutoff for high-value flag
   - tier thresholds: custom spend amounts for Platinum/Gold/Silver/Bronze
   - prediction_mode: churn | retention | segmentation | full
+
+2026-04-25 — Removed `high_value_percentile`. It drove the now-deleted
+`is_high_value` column in mv_customer_features. customer_tier (Platinum
+= top 25%) is the value bucket. Field is no longer accepted, returned,
+or persisted.
 """
 
 import logging
@@ -36,7 +41,7 @@ class SettingsUpdate(BaseModel):
     # per tenant from the Settings page.
     login_window_days: Optional[int] = None
     min_repeat_orders: Optional[int] = None
-    high_value_percentile: Optional[int] = None
+    # high_value_percentile removed 2026-04-25 — see module docstring.
     recent_order_gap_window: Optional[int] = None
     prediction_mode: Optional[str] = None
     tier_method: Optional[str] = None
@@ -72,7 +77,7 @@ def get_settings(
             row = conn.execute(
                 text("""
                     SELECT client_id, client_name, client_code, currency, timezone,
-                           churn_window_days, min_repeat_orders, high_value_percentile,
+                           churn_window_days, min_repeat_orders,
                            recent_order_gap_window, prediction_mode, tier_method,
                            custom_platinum_min, custom_gold_min, custom_silver_min, custom_bronze_min,
                            high_ltv_threshold, mid_ltv_threshold, max_discount_pct,
@@ -89,6 +94,8 @@ def get_settings(
         if not row:
             raise HTTPException(status_code=404, detail=f"No config found for {clientId}")
 
+        # 2026-04-25: positional indexes shifted down by 1 starting at row[7]
+        # because high_value_percentile was dropped from the SELECT list.
         return {
             "client_id": row[0],
             "client_name": row[1],
@@ -97,25 +104,24 @@ def get_settings(
             "timezone": row[4],
             "churn_window_days": row[5],
             "min_repeat_orders": row[6],
-            "high_value_percentile": row[7],
-            "recent_order_gap_window": row[8],
-            "prediction_mode": row[9],
-            "tier_method": row[10],
-            "custom_platinum_min": float(row[11]) if row[11] else 500.0,
-            "custom_gold_min": float(row[12]) if row[12] else 250.0,
-            "custom_silver_min": float(row[13]) if row[13] else 100.0,
-            "custom_bronze_min": float(row[14]) if row[14] else 0.0,
-            "high_ltv_threshold": float(row[15]) if row[15] else 1000.0,
-            "mid_ltv_threshold": float(row[16]) if row[16] else 200.0,
-            "max_discount_pct": float(row[17]) if row[17] else 30.0,
-            "reference_date_mode": row[18],
-            "reference_date": row[19].isoformat() if row[19] else None,
-            "fiscal_year_start": row[20].isoformat() if row[20] else None,
-            "tier_label_platinum": row[21] or '💎 Platinum',
-            "tier_label_gold":     row[22] or '🥇 Gold',
-            "tier_label_silver":   row[23] or '🥈 Silver',
-            "tier_label_bronze":   row[24] or '🥉 Bronze',
-            "login_window_days":   row[25] if row[25] is not None else 30,
+            "recent_order_gap_window": row[7],
+            "prediction_mode": row[8],
+            "tier_method": row[9],
+            "custom_platinum_min": float(row[10]) if row[10] else 500.0,
+            "custom_gold_min": float(row[11]) if row[11] else 250.0,
+            "custom_silver_min": float(row[12]) if row[12] else 100.0,
+            "custom_bronze_min": float(row[13]) if row[13] else 0.0,
+            "high_ltv_threshold": float(row[14]) if row[14] else 1000.0,
+            "mid_ltv_threshold": float(row[15]) if row[15] else 200.0,
+            "max_discount_pct": float(row[16]) if row[16] else 30.0,
+            "reference_date_mode": row[17],
+            "reference_date": row[18].isoformat() if row[18] else None,
+            "fiscal_year_start": row[19].isoformat() if row[19] else None,
+            "tier_label_platinum": row[20] or '💎 Platinum',
+            "tier_label_gold":     row[21] or '🥇 Gold',
+            "tier_label_silver":   row[22] or '🥈 Silver',
+            "tier_label_bronze":   row[23] or '🥉 Bronze',
+            "login_window_days":   row[24] if row[24] is not None else 30,
         }
 
     except HTTPException:
@@ -146,7 +152,8 @@ def update_settings(
         "churn_window_days": req.churn_window_days,
         "login_window_days": req.login_window_days,
         "min_repeat_orders": req.min_repeat_orders,
-        "high_value_percentile": req.high_value_percentile,
+        # high_value_percentile removed 2026-04-25 (column dropped from
+        # client_config; see migration 2026_04_25_remove_is_high_value.sql).
         "recent_order_gap_window": req.recent_order_gap_window,
         "prediction_mode": req.prediction_mode,
         "tier_method": req.tier_method,

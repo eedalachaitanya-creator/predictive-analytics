@@ -115,6 +115,12 @@
   justify-content: center;
 }
 
+/*
+ * 2026-04-25: .tool-card became a real <button>, so it gets clickable
+ * affordance (cursor, hover, focus) matching .suggestion-chip below.
+ * `font-family: inherit` and the explicit color reset prevent the
+ * browser's default button styling from hijacking the look.
+ */
 .tool-card {
   display: flex;
   align-items: center;
@@ -124,9 +130,24 @@
   border: 1px solid #e2e8f0;
   border-radius: 20px;
   font-size: 0.8rem;
+  font-family: inherit;
   color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
 
   .tool-icon { font-size: 1rem; }
+
+  &:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+  }
 }
 
 .try-label {

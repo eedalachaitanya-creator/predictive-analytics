@@ -294,16 +294,36 @@ def step_extract_features(db_url: str) -> Dict:
 
         log.info(f"  Extracted: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
-        # Save feature matrix
-        feature_path = DATA_DIR / "feature_matrix.csv"
+        # Save feature matrix.
+        #
+        # Why two files (2026-04-25):
+        #   * feature_matrix.csv     — historical name used by train_model.py
+        #     when --source csv is invoked.
+        #   * customer_features.csv  — historical name used by predict.py
+        #     when scoring from CSV (the standalone path).
+        # Previously only feature_matrix.csv was written here, so when
+        # `python -m ml.predict` was run directly (not via this pipeline)
+        # it fell back to a stale customer_features.csv produced by an
+        # older `compute_rfm.py` standalone run — sometimes containing
+        # only a single client_id, leading to mysterious "predict scored
+        # 199 customers" output even though the DB had 700+ rows. Writing
+        # both files from the same fresh DataFrame keeps both standalone
+        # entry points honest. The pipeline's own `predict` step (below)
+        # uses source="db" and is unaffected, but defence-in-depth is
+        # cheap here (~few hundred KB CSV duplicate).
+        feature_path  = DATA_DIR / "feature_matrix.csv"
+        customer_path = DATA_DIR / "customer_features.csv"
         df.to_csv(feature_path, index=False)
-        log.info(f"  Saved feature matrix to {feature_path.name}")
+        df.to_csv(customer_path, index=False)
+        log.info(f"  Saved feature matrix  to {feature_path.name}")
+        log.info(f"  Saved customer features to {customer_path.name}")
 
         # Generate basic statistics
         result = {
             "total_rows": len(df),
             "total_columns": df.shape[1],
             "feature_path": str(feature_path),
+            "customer_path": str(customer_path),
             "data_types": df.dtypes.astype(str).to_dict(),
         }
 
@@ -398,76 +418,145 @@ def step_train_model(
     imbalance_strategy: str = "smote",
 ) -> Dict:
     """
-    Train machine learning model for churn prediction.
+    Train churn-prediction model by delegating to ``ml.train_model``.
 
-    This step would import and call training logic from a training module.
+    Why this is a subprocess call (2026-04-25 rewrite):
+        Previously this function was a stub that fabricated metrics
+        (accuracy=0.85 hardcoded), saved a `xgboost_<ts>.pkl` shell with
+        ``"model": None``, and never produced a real classifier. predict.py
+        looks for ``churn_model_<type>.joblib`` files written by
+        ``ml/train_model.py``, so the stub's output was silently ignored —
+        any `--steps train,predict` run was secretly using whatever
+        joblib was last produced by a manual ``python -m ml.train_model``
+        call (or failing if none existed).
+
+        train_model.py is the source of truth for training: it owns the
+        feature-selection-leak fix, gray-zone exclusion (order + login),
+        SMOTE / class-weight / no-resample switching, calibration via
+        ``CalibratedClassifierCV(method='isotonic', cv=5)``, and the
+        AUC-based winner selection when ``--model-type all`` is passed.
+        Reimplementing any of that here would drift; subprocess delegation
+        keeps a single trainer codepath.
 
     Args:
-        db_url: Database URL
-        model_type: 'xgboost' or 'random_forest' (LogisticRegression removed)
-        imbalance_strategy: 'smote', 'class_weight', 'none'
+        db_url: Database URL (forwarded as ``--db-url`` to train_model).
+        model_type: 'xgboost', 'random_forest', or 'all'. Default 'xgboost'
+            mirrors the historical pipeline default. Use 'all' to trigger
+            the full 3-model bake-off + AUC-winner pick.
+        imbalance_strategy: forwarded as ``--imbalance-method``.
 
     Returns:
-        Dictionary with model path and metrics
+        Dict with model_path (the ``.joblib`` file train_model.py just
+        wrote), model_type, training_samples, and final metrics.
     """
     try:
         log.info("Step 5: TRAIN MODEL")
         log.info("-" * 70)
-
-        engine = connect_db(db_url)
-
         log.info(f"  Model type: {model_type}")
         log.info(f"  Imbalance strategy: {imbalance_strategy}")
+        log.info("  Delegating to ml.train_model (subprocess)...")
 
-        log.info("  Reading training features...")
-        df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
-
-        engine.dispose()
-
-        # Simulate model training
-        log.info(f"  Training {model_type} model...")
-        log.info(f"  Training set size: {len(df):,} samples")
-
-        # Create dummy model metadata
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        model_filename = f"{model_type}_{timestamp}.pkl"
-        model_path = MODEL_DIR / model_filename
-
-        # Dummy model data
-        model_data = {
-            "model": None,  # Would be actual trained model
-            "scaler": None,  # Would be actual fitted scaler
-            "feature_names": [col for col in df.columns if col not in [
-                "client_id", "customer_id", "churn_label"
-            ]],
-            "metadata": {
-                "model_type": model_type,
-                "imbalance_strategy": imbalance_strategy,
-                "training_samples": len(df),
-                "training_date": datetime.now().isoformat(),
-                "accuracy": 0.85,  # Placeholder
-                "precision": 0.82,
-                "recall": 0.79,
-                "f1_score": 0.80,
-            },
+        # Snapshot existing model files so we can identify the new one
+        # train_model.py writes. train_model.py uses fixed filenames
+        # (`churn_model_<type>.joblib`) and overwrites in place, so
+        # comparing mtime is the most reliable detector.
+        before_mtimes = {
+            p.name: p.stat().st_mtime
+            for p in MODEL_DIR.glob("churn_model_*.joblib")
         }
 
-        # In real implementation, would train and save actual model
-        log.info(f"  Model metrics:")
-        log.info(f"    Accuracy:  {model_data['metadata']['accuracy']:.4f}")
-        log.info(f"    Precision: {model_data['metadata']['precision']:.4f}")
-        log.info(f"    Recall:    {model_data['metadata']['recall']:.4f}")
-        log.info(f"    F1-Score:  {model_data['metadata']['f1_score']:.4f}")
+        import subprocess
+        cmd = [
+            sys.executable, "-m", "ml.train_model",
+            "--source", "db",
+            "--db-url", db_url,
+            "--model-type", model_type,
+            "--imbalance-method", imbalance_strategy,
+        ]
+        # Run from analyst_backend/ so `-m ml.train_model` resolves the
+        # package (BASE_DIR = analyst_backend/ml, so parent is the right
+        # cwd for the package import).
+        cwd = PROJECT_ROOT
+        log.info(f"  Command: {' '.join(cmd)}")
+        log.info(f"  Working dir: {cwd}")
 
-        # Save model
-        joblib.dump(model_data, model_path)
-        log.info(f"  Saved model to {model_filename}")
+        # Stream child output through our logger by capturing then
+        # re-emitting. We don't want to silently swallow training output
+        # (gray-zone counts, feature-selection diagnostics, AUC lines).
+        result = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.stdout:
+            for line in result.stdout.rstrip().splitlines():
+                log.info(f"    [train] {line}")
+        if result.stderr:
+            # train_model.py logs to stderr by default (logging.basicConfig
+            # writes there), so this is the main signal stream — not
+            # necessarily an error.
+            for line in result.stderr.rstrip().splitlines():
+                log.info(f"    [train] {line}")
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ml.train_model exited with code {result.returncode}. "
+                f"See [train] lines above for details."
+            )
+
+        # Identify the freshly written model file.
+        candidates = list(MODEL_DIR.glob("churn_model_*.joblib"))
+        if not candidates:
+            raise RuntimeError(
+                f"train_model.py finished but no churn_model_*.joblib "
+                f"files were found in {MODEL_DIR}."
+            )
+        # Pick the file with the newest mtime that is either new or was
+        # touched during this run.
+        new_or_touched = [
+            p for p in candidates
+            if p.name not in before_mtimes
+            or p.stat().st_mtime > before_mtimes[p.name]
+        ]
+        if not new_or_touched:
+            # Trainer didn't write anything new — should not happen if
+            # returncode was 0, but guard anyway.
+            raise RuntimeError(
+                "train_model.py returned 0 but no churn_model_*.joblib "
+                "was created or updated. Check the [train] log lines."
+            )
+        model_path = max(new_or_touched, key=lambda p: p.stat().st_mtime)
+        log.info(f"  Saved model to {model_path.name}")
+
+        # Read back metrics from the .joblib for the pipeline status
+        # report. train_model.save_model embeds metadata.metrics inside
+        # the package dict (see train_model.py:1858-1864).
+        try:
+            package = joblib.load(model_path)
+            metadata = package.get("metadata", {}) or {}
+            metrics  = metadata.get("metrics", {}) or {}
+            training_samples = metadata.get(
+                "training_samples", metadata.get("n_train", None)
+            )
+        except Exception as e:
+            log.warning(f"  Could not read metrics back from model: {e}")
+            metadata = {}
+            metrics = {}
+            training_samples = None
+
+        if metrics:
+            log.info(f"  Model metrics:")
+            for k in ("accuracy", "precision", "recall", "f1", "auc_roc"):
+                if k in metrics:
+                    log.info(f"    {k:9s}: {metrics[k]:.4f}")
 
         return {
             "model_path": str(model_path),
-            "model_type": model_type,
-            "training_samples": len(df),
-            "metrics": model_data["metadata"],
+            "model_type": metadata.get("model_type", model_type),
+            "training_samples": training_samples,
+            "metrics": metrics,
+            "metadata": metadata,
         }
 
     except Exception as e:
@@ -598,6 +687,7 @@ def execute_pipeline(
     steps: List[str],
     excel_path: Optional[str] = None,
     model_type: str = "xgboost",
+    imbalance_strategy: str = "smote",
 ) -> Tuple[bool, PipelineStatus]:
     """
     Execute specified pipeline steps in order.
@@ -607,6 +697,8 @@ def execute_pipeline(
         steps: List of step names to execute
         excel_path: Path to Excel file (optional)
         model_type: ML model type for training
+        imbalance_strategy: Class-imbalance handling, forwarded to
+            train_model.py via --imbalance-method.
 
     Returns:
         Tuple of (success, status)
@@ -642,7 +734,11 @@ def execute_pipeline(
         "refresh": lambda: step_refresh_view(db_url),
         "extract": lambda: step_extract_features(db_url),
         "eda": lambda: step_run_eda(db_url),
-        "train": lambda: step_train_model(db_url, model_type=model_type),
+        "train": lambda: step_train_model(
+            db_url,
+            model_type=model_type,
+            imbalance_strategy=imbalance_strategy,
+        ),
         "predict": lambda: step_predict(db_url),
     }
 
@@ -772,10 +868,19 @@ def main():
     )
     parser.add_argument(
         "--model-type",
-        choices=["xgboost", "random_forest"],
+        choices=["xgboost", "random_forest", "all"],
         default="xgboost",
-        help="ML model type for training (default: xgboost). LogisticRegression "
-             "was removed — see ml/train_model.py comment for rationale.",
+        help="ML model type for training (default: xgboost). Use 'all' to "
+             "train xgboost + random_forest + the ensemble fallback and let "
+             "ml.train_model pick the AUC winner. LogisticRegression was "
+             "removed — see ml/train_model.py comment for rationale.",
+    )
+    parser.add_argument(
+        "--imbalance-method",
+        choices=["smote", "class_weight", "none"],
+        default="smote",
+        help="How ml.train_model handles class imbalance "
+             "(default: smote). Forwarded as --imbalance-method.",
     )
 
     args = parser.parse_args()
@@ -795,6 +900,7 @@ def main():
         steps=steps,
         excel_path=args.excel,
         model_type=args.model_type,
+        imbalance_strategy=args.imbalance_method,
     )
 
     # Print summary

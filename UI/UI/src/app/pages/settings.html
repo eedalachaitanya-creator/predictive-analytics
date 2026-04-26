@@ -16,10 +16,12 @@
         <div><div class="param-label">REPEAT CUSTOMER THRESHOLD</div><div class="param-desc">Minimum completed orders needed to be classified as a repeat customer</div></div>
         <div class="num-pair"><input type="number" [ngModel]="repeatThreshold()" (ngModelChange)="repeatThreshold.set($event)"><span class="unit">or more orders</span></div>
       </div>
-      <div class="param-row">
-        <div><div class="param-label">HIGH VALUE — SPEND PERCENTILE</div><div class="param-desc">Net spend cutoff: customers above this quartile are tagged as High Value</div></div>
-        <div class="num-pair"><input type="number" [ngModel]="highValuePct()" (ngModelChange)="highValuePct.set($event)"><span class="unit">th percentile</span></div>
-      </div>
+      <!--
+        2026-04-25: HIGH VALUE — SPEND PERCENTILE row removed. The
+        is_high_value column it drove was dropped from the MV because
+        it duplicated customer_tier='Platinum'. Tier Threshold Method
+        below is now the single knob for value bucketing.
+      -->
       <div class="param-row">
         <div><div class="param-label">RECENT ORDER GAP WINDOW</div><div class="param-desc">Number of most recent orders used for personal rhythm breach detection</div></div>
         <div class="num-pair"><input type="number" [ngModel]="recentGapWindow()" (ngModelChange)="recentGapWindow.set($event)"><span class="unit">last orders</span></div>
@@ -84,33 +86,25 @@
     </table>
   </div>
 
-  <!-- Value Proposition Rules -->
-  <div class="card mb-20">
-    <div class="card-header"><div class="card-title">🎯 Value Proposition Rules — action templates per Tier × Risk Level</div></div>
-    <table class="data-table">
-      <thead><tr><th>Tier</th><th>Risk Level</th><th>Action Type</th><th>Discount %</th><th>Channel</th><th>Template Preview</th></tr></thead>
-      <tbody>
-        @for (r of vpRules; track $index) {
-          <tr>
-            <td [class]="r.tier.includes('Platinum')?'tier-platinum':r.tier.includes('Gold')?'tier-gold':r.tier.includes('Silver')?'tier-silver':'tier-bronze'">{{r.tier}}</td>
-            <td>{{r.risk}}</td><td>{{r.action}}</td>
-            <td><span class="font-mono" style="color:var(--accent-cyan)">{{r.disc}}</span></td>
-            <td>{{r.ch}}</td>
-            <td style="font-size:11px;color:var(--text-muted)">{{r.tpl}}</td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  </div>
+  <!-- Value Proposition Rules card was removed 2026-04-24:
+       per-tier × per-risk discount templates are owned by the Retention
+       Agent (sidebar → Retention Agent), where outreach with custom
+       discount offers is generated for likely-churn customers. Showing a
+       hardcoded read-only table here was misleading — the discounts on
+       the screen never matched what actually got sent. -->
 
   <!-- Vendor / Client Config -->
   <div class="card mb-20">
     <div class="card-header"><div class="card-title">⚙️ Vendor / Client Config — core pipeline parameters</div></div>
     <table class="data-table">
-      <thead><tr><th>Parameter</th><th>Current Value</th><th>Type</th><th>Description</th></tr></thead>
+      <!-- "Type" column removed 2026-04-24: clients don't need to see
+           internal type info on the business-facing settings view. The
+           v.type field is still on each row object so an admin view
+           could re-expose it later without re-plumbing the data. -->
+      <thead><tr><th>Parameter</th><th>Current Value</th><th>Description</th></tr></thead>
       <tbody>
         @for (v of vendorCfg(); track v.param) {
-          <tr><td>{{v.param}}</td><td><span class="param-value">{{v.val}}</span></td><td><code>{{v.type}}</code></td><td>{{v.desc}}</td></tr>
+          <tr><td>{{v.param}}</td><td><span class="param-value">{{v.val}}</span></td><td>{{v.desc}}</td></tr>
         }
       </tbody>
     </table>
@@ -118,7 +112,11 @@
 
   <div class="flex-row">
     <button class="btn walmart" (click)="save()">💾 Save Settings</button>
-    <button class="btn outline">↩ Reset to Defaults</button>
+    <button class="btn outline"
+            (click)="resetToDefaults()"
+            title="Reload all settings to system defaults. You still need to click Save Settings to persist.">
+      ↩ Reset to Defaults
+    </button>
     @if (saved()) { <span class="badge green" style="font-size:13px;padding:8px 14px">✅ Settings saved!</span> }
   </div>
 

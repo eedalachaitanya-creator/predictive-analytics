@@ -147,7 +147,12 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Column</th><th>Type</th><th>Non-Null</th><th>Unique</th>
+                <!-- "Type" column removed 2026-04-24: clients don't need to
+                     see internal column type info on the validation view.
+                     The c.type field is still on each row object so the
+                     API / dev console can surface it if anyone ever needs
+                     it. -->
+                <th>Column</th><th>Non-Null</th><th>Unique</th>
                 <th>Sample Value</th><th>Required</th><th>Nulls</th><th>Status</th>
               </tr>
             </thead>
@@ -155,7 +160,6 @@
               @for (c of cols(); track c.col) {
                 <tr>
                   <td>{{ c.col }}</td>
-                  <td><code>{{ c.type }}</code></td>
                   <td>{{ c.nonNull }}</td>
                   <td>{{ c.unique }}</td>
                   <td><code>{{ c.sample }}</code></td>

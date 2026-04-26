@@ -161,9 +161,8 @@ function matchMock(method: string, url: string): HttpResponse<unknown> | null {
     summary:{ totalCustomers:200, totalOrders:1894, totalLineItems:5740, churned:88, churnRate:44.0, atRisk:22, highValue:50, repeatCustomers:159, mlFeatures:65, outputSheets:12 }
   });
 
-  // Messages
-  if (method === 'GET'  && path === '/messages/templates') return ok([]);  // triggers fallback to defaults
-  if (method === 'POST' && path === '/messages/templates') return null;    // handled specially
+  // 2026-04-25: Messages mock removed — Analyst Agent retired the
+  // Message Templates page. The Retention Agent owns outreach now.
 
   // Validation
   if (method === 'GET' && path === '/validation') return ok({});
@@ -306,10 +305,8 @@ export const mockInterceptor: HttpInterceptorFn = (req, next) => {
     })).pipe(delay(200));
   }
 
-  // ── Save message templates ──
-  if (method === 'POST' && path === '/messages/templates') {
-    return of(new HttpResponse({ status: 200, body: req.body })).pipe(delay(400));
-  }
+  // 2026-04-25: 'Save message templates' mock removed — Messages page
+  // retired (Retention Agent owns outreach).
 
   // ── Catalogue master data ──
   if (method === 'GET' && path === '/catalogue/categories')         return of(ok(MOCK_CATEGORIES)).pipe(delay(300));

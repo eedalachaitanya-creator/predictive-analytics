@@ -8,6 +8,37 @@ import { TierLabelService } from '../services/tier-label.service';
 import { PipelineService } from '../services/pipeline.service';
 import { PipelineRunRequest } from '../models';
 
+// ─────────────────────────────────────────────────────────────────────────
+// System defaults — single source of truth for "Reset to Defaults".
+// Mirrors the column DEFAULTs in db/walmart_crp_universal.sql for
+// client_config (and login_window_days from migration 2026_04_24). When the
+// schema changes, update both at the same time so a "reset" actually
+// matches what a freshly-created tenant would get.
+//
+// MUST live above @Component — decorators have to be immediately adjacent
+// to the class they decorate, so module-scope constants used inside the
+// class belong before the decorator block.
+// ─────────────────────────────────────────────────────────────────────────
+const DEFAULTS = {
+  churnWindow:        90,
+  loginWindow:        30,
+  repeatThreshold:    2,
+  // 2026-04-25: highValuePct removed — the HIGH VALUE — SPEND PERCENTILE
+  // input was retired because is_high_value duplicated customer_tier.
+  // Platinum tier is now the single source of truth for high-value
+  // bucketing.
+  recentGapWindow:    3,
+  tierMethod:         'quartile' as 'quartile' | 'custom',
+  platMin:            500,
+  goldMin:            250,
+  silverMin:          100,
+  bronzeMin:          0,
+  tierLabelPlatinum:  '💎 Platinum',
+  tierLabelGold:      '🥇 Gold',
+  tierLabelSilver:    '🥈 Silver',
+  tierLabelBronze:    '🥉 Bronze',
+};
+
 @Component({
   selector: 'app-settings',
   standalone: true,
@@ -29,7 +60,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   // both thresholds must be exceeded.
   loginWindow = signal(30);
   repeatThreshold = signal(2);
-  highValuePct = signal(75);
+  // highValuePct signal removed 2026-04-25 (see DEFAULTS comment).
   recentGapWindow = signal(3);
   tierMethod = signal('quartile');
   platMin = signal(500); goldMin = signal(250); silverMin = signal(100); bronzeMin = signal(0);
@@ -57,16 +88,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { name:'Casual Shoppers',cond:'RFM total 6\u201311',   focus:'Seasonal promotions, awareness',       active:true },
   ];
 
-  vpRules = [
-    { tier:'\uD83D\uDC8E Platinum', risk:'At-Risk',    action:'Personalised win-back', disc:'15%', ch:'Email+SMS', tpl:'We miss you, {name}\u2026' },
-    { tier:'\uD83D\uDC8E Platinum', risk:'Returning',  action:'Loyalty reward',        disc:'10%', ch:'Email',     tpl:'Welcome back, {name}!' },
-    { tier:'\uD83E\uDD47 Gold',     risk:'At-Risk',    action:'Discount offer',        disc:'10%', ch:'Email',     tpl:'Special offer for you\u2026' },
-    { tier:'\uD83E\uDD47 Gold',     risk:'Returning',  action:'Cross-sell',            disc:'5%',  ch:'Push',      tpl:'Based on your last buy\u2026' },
-    { tier:'\uD83E\uDD48 Silver',   risk:'At-Risk',    action:'Nudge campaign',        disc:'5%',  ch:'SMS',       tpl:"Don't miss out\u2026" },
-    { tier:'\uD83E\uDD48 Silver',   risk:'New',        action:'Onboarding series',     disc:'0%',  ch:'Email',     tpl:'Getting started with\u2026' },
-    { tier:'\uD83E\uDD49 Bronze',   risk:'Reactivated',action:'Re-engagement',         disc:'8%',  ch:'Email+Push',tpl:'Come back & save\u2026' },
-    { tier:'\uD83E\uDD49 Bronze',   risk:'New',        action:'Welcome offer',         disc:'5%',  ch:'Email',     tpl:"Welcome! Here's 5% off\u2026" },
-  ];
+  // vpRules array removed 2026-04-24 — see settings.html for the full
+  // rationale. Per-tier × per-risk discount templates are now owned by the
+  // Retention Agent and edited there.
 
   // Vendor config (loaded from database)
   vendorCfg = signal<{param: string; val: string; type: string; desc: string}[]>([]);
@@ -108,7 +132,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         this.churnWindow.set(cfg.churn_window_days ?? 90);
         this.loginWindow.set(cfg.login_window_days ?? 30);
         this.repeatThreshold.set(cfg.min_repeat_orders ?? 2);
-        this.highValuePct.set(cfg.high_value_percentile ?? 75);
+        // high_value_percentile no longer returned by /settings (column dropped).
         this.recentGapWindow.set(cfg.recent_order_gap_window ?? 3);
         this.tierMethod.set(cfg.tier_method ?? 'quartile');
         this.platMin.set(cfg.custom_platinum_min ?? 500);
@@ -128,7 +152,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
           { param: 'churn_window_days', val: String(cfg.churn_window_days),      type: 'integer', desc: 'Days since last order before flagging as churned' },
           { param: 'login_window_days', val: String(cfg.login_window_days ?? 30), type: 'integer', desc: 'Days since last login required (alongside churn window) before flagging as churned' },
           { param: 'min_repeat_orders', val: String(cfg.min_repeat_orders),      type: 'integer', desc: 'Min completed orders to qualify as repeat customer' },
-          { param: 'high_value_pct',    val: String(cfg.high_value_percentile),  type: 'integer', desc: 'Percentile cutoff for High Value flag' },
           { param: 'currency',          val: cfg.currency,                       type: 'string',  desc: 'Transaction currency for all monetary columns' },
           { param: 'timezone',          val: cfg.timezone,                       type: 'string',  desc: 'Client timezone for date calculations' },
         ]);
@@ -142,6 +165,35 @@ export class SettingsComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Reset every editable field on the page back to the schema defaults
+   * (see DEFAULTS const above). This is a LOCAL reset — it just rewrites
+   * the form signals, it does NOT call /settings PUT. The user still has
+   * to click "Save Settings" to persist. That keeps the action reversible
+   * (navigate away or change values back) and avoids an irreversible
+   * one-click wipe of carefully-tuned per-tenant config.
+   */
+  resetToDefaults() {
+    this.churnWindow.set(DEFAULTS.churnWindow);
+    this.loginWindow.set(DEFAULTS.loginWindow);
+    this.repeatThreshold.set(DEFAULTS.repeatThreshold);
+    // highValuePct reset removed 2026-04-25 — see DEFAULTS comment.
+    this.recentGapWindow.set(DEFAULTS.recentGapWindow);
+    this.tierMethod.set(DEFAULTS.tierMethod);
+    this.platMin.set(DEFAULTS.platMin);
+    this.goldMin.set(DEFAULTS.goldMin);
+    this.silverMin.set(DEFAULTS.silverMin);
+    this.bronzeMin.set(DEFAULTS.bronzeMin);
+    this.tierLabelPlatinum.set(DEFAULTS.tierLabelPlatinum);
+    this.tierLabelGold.set(    DEFAULTS.tierLabelGold);
+    this.tierLabelSilver.set(  DEFAULTS.tierLabelSilver);
+    this.tierLabelBronze.set(  DEFAULTS.tierLabelBronze);
+    // Clear any prior "Saved!" badge so the user knows these values
+    // haven't been persisted yet — they still need to click Save.
+    this.saved.set(false);
+    this.error.set('');
+  }
+
   save() {
     this.saved.set(false);
     this.error.set('');
@@ -150,7 +202,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       churn_window_days: this.churnWindow(),
       login_window_days: this.loginWindow(),
       min_repeat_orders: this.repeatThreshold(),
-      high_value_percentile: this.highValuePct(),
+      // high_value_percentile removed 2026-04-25 (column dropped backend-side).
       recent_order_gap_window: this.recentGapWindow(),
       tier_method: this.tierMethod(),
       custom_platinum_min: this.platMin(),

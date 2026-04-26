@@ -40,7 +40,11 @@
           @for (a of alerts(); track a.id) {
             <tr [class.unread]="!a.acknowledged">
               <td>{{ changeIcon(a) }}</td>
-              <td><strong>{{ a.product_name }}</strong></td>
+              <!-- Show the scraped technical title (e.g., "Dyson Supersonic
+                   HD08 Hair Dryer Vinca Blue/Rosé") rather than the user's
+                   search query. Falls back to product_name for any old
+                   alerts that don't have a title joined from product_results. -->
+              <td><strong>{{ a.title || a.product_name }}</strong></td>
               <td><span class="badge gray">{{ a.platform }}</span></td>
               <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, currencyFor(a.platform)) : '—' }}</td>
               <td class="font-mono"><strong>{{ fmt(a.new_price, currencyFor(a.platform)) }}</strong></td>
@@ -93,11 +97,17 @@
         <tbody>
           @for (row of products(); track row.product_name) {
             <tr class="clickable" (click)="loadHistory(row.product_name)" [class.selected]="selectedProduct() === row.product_name">
-              <td class="sticky-col"><strong>{{ row.product_name }}</strong></td>
+              <!-- Hovering the canonical name reveals each platform's
+                   technical SKU title via native browser tooltip. -->
+              <td class="sticky-col">
+                <strong [title]="allTitlesFor(row)">{{ row.product_name }}</strong>
+              </td>
               @for (p of platforms(); track p) {
                 <td class="font-mono">
                   @if (row[p]?.price) {
-                    <a [href]="row[p].url" target="_blank" class="price-link" (click)="$event.stopPropagation()">
+                    <a [href]="row[p].url" target="_blank" class="price-link"
+                       [title]="row[p].title || ''"
+                       (click)="$event.stopPropagation()">
                       {{ fmt(row[p].price, row[p].currency) }}
                     </a>
                   } @else {

@@ -111,8 +111,19 @@ export class ScoutChatTab implements AfterViewChecked {
   this.error.set('');
 }
 
+  /**
+   * Quick-suggestion chips on the empty state should fire and forget —
+   * no extra click on Send. We set the input to the suggestion text and
+   * immediately invoke send(), which reads from this.input() and then
+   * clears it. The user perceives one action (click → message sent),
+   * not two (click → text fills → click Send).
+   *
+   * Note: send() is a no-op if already sending() or if the text is empty,
+   * so rapid clicks during a pending request are safely ignored.
+   */
   suggestQuery(q: string) {
     this.input.set(q);
+    this.send();
   }
 
   private generateSessionId(): string {

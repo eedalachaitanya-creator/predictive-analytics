@@ -1118,6 +1118,25 @@ async def resolve_website(name: str) -> dict:
                 logger.info(f"[resolver] ❌ LLM domain rejected: {ai_base}")
                 ai_base = None
 
+        # ── Fix 1: DNS reality check ─────────────────────────────────
+        # Even if SLD matched, verify the FULL domain actually resolves.
+        # LLMs hallucinate .in/.co TLDs for US-only brands (walmart.in bug).
+        # The SLD check alone passes `walmart.in` because walmart==walmart,
+        # but the TLD is a lie — the domain doesn't exist. A quick HTTP probe
+        # catches this deterministically without burning another LLM call.
+        if ai_base:
+            async with httpx.AsyncClient(
+                timeout=5, follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0"}
+            ) as _dns_client:
+                probe_result = await _probe_domain(_dns_client, ai_base)
+            if not probe_result:
+                logger.warning(
+                    f"[resolver] ❌ LLM domain {ai_base} does not resolve — "
+                    f"likely hallucinated (e.g., walmart.in). Rejecting."
+                )
+                ai_base = None
+
     if ai_base:
         ai_parsed = urllib.parse.urlparse(ai_base)
         bare = re.sub(r'^www\.', '', ai_parsed.netloc)
@@ -1139,9 +1158,26 @@ async def resolve_website(name: str) -> dict:
             return discovered
 
     # Step 5: Last resort — OpenAI guesses URL
+    # fallback_base priority:
+    #   1. ai_base — only if it survived all hallucination/DNS checks above
+    #   2. validated_domains[0] — domain is live AND LLM confirmed it matches
+    #   3. live_domains[0] — domain is live but LLM rejected the brand match.
+    #                        We keep this as a last resort because legitimate
+    #                        e-commerce sites (e.g., West LA Mart at wlamart.com)
+    #                        get LLM-rejected when their name doesn't match a
+    #                        well-known brand. Without this fallback they'd be
+    #                        unaddable.
+    #
+    # Critical: if ai_base was set to None by the SLD or DNS check, we MUST
+    # fall through to validated_domains. Never use the hallucinated URL even
+    # indirectly (the walmart.in bug).
     fallback_base = ai_base or (validated_domains[0] if validated_domains else (live_domains[0] if live_domains else None))
     if not fallback_base:
-        raise RuntimeError(f"Could not resolve '{name}' — no live domains found.")
+        raise RuntimeError(
+            f"We couldn't find '{name}' — please check the spelling, "
+            f"or try the full domain (e.g., walmart.com). "
+            f"If this is a real site, it may be blocking automated discovery."
+        )
 
     # Clean the fallback_base: strip any path (e.g., "target.com/in" → "target.com").
     # LLMs sometimes hallucinate region paths. We want just scheme://host as base.
@@ -1164,7 +1200,8 @@ FALLBACK_URL_PATTERNS = [
     "/search?type=product&q={query}",      # Shopify canonical
     "/search/result/?q={query}",           # Nykaa-style
     "/search/result?q={query}",
-    "/catalogsearch/result/?q={query}",    # Magento canonical
+    "/shop/featured/{query}?ss=true",      # Macys (hyphen-slug path)
+    "/catalogsearch/result/?q={query}",  # Magento canonical
     "/products?q={query}",
     "/shop?q={query}",
     "/shop/ols/search?keywords={query}",   # GoDaddy OLS
@@ -1306,7 +1343,11 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
     """
     logger.info(f"[resolver] ⚠️ Last resort: OpenAI URL guess for {fallback_base}")
     if not OPENAI_API_KEY:
-        raise RuntimeError(f"Could not determine search URL for '{name}'")
+        raise RuntimeError(
+            f"We couldn't auto-detect the search URL for '{name}'. "
+            f"Automatic URL detection requires server configuration "
+            f"(OPENAI_API_KEY) — please contact your administrator."
+        )
 
     # Step 1: ask LLM for URL (generic prompt, no site names)
     llm_url = None
@@ -1330,6 +1371,7 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
                         f'- Myntra: /{{query}}?rawQuery={{query}}\n'
                         f'- Nykaa: /search/result/?q={{query}}\n'
                         f'- Walmart: /search?q={{query}}\n'
+                        f'- Macys: /shop/featured/{{query}}?ss=true\n'
                         f'- GoDaddy OLS: /shop/ols/search?keywords={{query}}\n\n'
                         f'Return ONLY JSON (no markdown fences): '
                         f'{{"base_url":"{fallback_base}","search_url":"...","encoding":"plus"}}'}],
@@ -1382,8 +1424,11 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
         if candidate not in [u for _, u in urls_to_try]:
             urls_to_try.append((f"pattern {pattern}", candidate))
 
-    # Step 3: Try each URL by actually fetching it and scoring the response
+    # Step 3: Try each URL by actually fetching it and scoring the response.
+    # We also collect the final URLs (after redirects) so we can try
+    # bot-wall extraction afterwards if everything failed.
     logger.info(f"[resolver] Validating {len(urls_to_try)} URL candidates...")
+    final_urls_seen: list[str] = []  # for bot-wall extraction below
     async with httpx.AsyncClient(
         timeout=10, follow_redirects=True,
         headers={
@@ -1399,6 +1444,7 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
             try:
                 resp = await client.get(test_url, timeout=8)
                 final_url = str(resp.url)
+                final_urls_seen.append(final_url)  # track for bot-wall extraction
                 if resp.status_code != 200:
                     logger.debug(f"[resolver] ✗ {label}: HTTP {resp.status_code}")
                     continue
@@ -1415,18 +1461,132 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
                 logger.debug(f"[resolver] ✗ {label}: {type(e).__name__}")
                 continue
 
-    # Step 4: Nothing validated. Return LLM's guess as best-effort if we have one.
-    if llm_url:
-        logger.warning(
-            f"[resolver] ⚠️ No URL validated; using LLM guess as best-effort: {llm_url}"
+    # ── Step 4 (NEW): Bot-wall extraction fallback ───────────────────
+    # When ALL patterns redirect to a /blocked-style page, the bot wall
+    # often echoes back the URL we were trying to reach via a base64-encoded
+    # parameter. We can decode that to recover the real search URL pattern.
+    #
+    # This is a fallback that runs AFTER the existing pipeline, so:
+    #   - Sites that work normally aren't affected
+    #   - Only Akamai-style bot walls that echo URLs benefit (Walmart)
+    #   - Generic 403s, Cloudflare challenges, PerimeterX captchas → still fail
+    extracted = _extract_url_from_bot_wall(final_urls_seen, base)
+    if extracted:
+        logger.info(
+            f"[resolver] ✅ '{name}' → {extracted} (recovered from bot-wall echo)"
         )
         return {
             "base_url": base,
-            "search_url": llm_url,
-            "encoding": llm_encoding,
+            "search_url": extracted,
+            "encoding": "plus",
         }
 
-    # Absolute last resort
-    generic = f"{base}/search?q={{query}}"
-    logger.warning(f"[resolver] ⚠️ Using absolute fallback: {generic}")
-    return {"base_url": base, "search_url": generic, "encoding": "plus"}
+    # ── Step 5: Loud failure (no more silent best-effort saves) ──────
+    # The walmart.in bug came from saving the LLM's guess unverified.
+    # Refuse to save anything we couldn't validate. Raise a RuntimeError
+    # with a user-friendly message explaining what went wrong.
+    logger.error(
+        f"[resolver] ❌ Could not validate any search URL for '{name}' on {base}. "
+        f"LLM suggested: {llm_url or '(none)'}. "
+        f"Bot-wall extraction also failed. "
+        f"The site may be using non-Akamai bot detection (Cloudflare, PerimeterX, "
+        f"DataDome) that doesn't echo blocked URLs back."
+    )
+    raise RuntimeError(
+        f"We found '{name}' at {base}, but the site is blocking automated "
+        f"discovery of its search URL. This usually means strong bot detection "
+        f"(e.g., Akamai, Cloudflare, PerimeterX). The site may still work if you "
+        f"add it manually with the correct search URL."
+    )
+
+
+# ── Bot-wall URL extraction (fallback for Akamai-protected sites) ─────
+
+def _extract_url_from_bot_wall(final_urls: list[str], base_url: str) -> Optional[str]:
+    """
+    Some bot walls (Akamai with URL echo, used by Walmart) redirect blocked
+    requests to a /blocked page that contains the original URL base64-encoded
+    in a query parameter.
+
+    Example: when we hit https://www.walmart.com/search?q=vitamin+c
+    Akamai redirects to:
+      https://www.walmart.com/blocked?url=L3NlYXJjaD9xPXZpdGFtaW4rYw==&uuid=...
+
+    The base64 payload "L3NlYXJjaD9xPXZpdGFtaW4rYw==" decodes to:
+      /search?q=vitamin+c
+
+    That IS the real search URL pattern — Akamai is literally telling us
+    what we wanted to reach. We can extract it without making the LLM guess.
+
+    Approach:
+      1. Look at all final URLs we saw during validation
+      2. If any contain `/blocked?url=...` or similar, extract the base64
+      3. Decode and check if it contains the test query
+      4. If yes, build a search URL template by replacing the query with {query}
+
+    Returns: search URL template string, or None if no extraction possible.
+    """
+    import base64
+
+    TEST_QUERY = "vitamin+c"
+    TEST_QUERY_DECODED = "vitamin c"
+
+    for final_url in final_urls:
+        try:
+            parsed = urllib.parse.urlparse(final_url)
+            path_lower = parsed.path.lower()
+
+            # Must be a bot-wall page (path contains blocked/captcha/challenge)
+            bot_wall_markers = ["/blocked", "/captcha", "/challenge", "/firewall"]
+            if not any(m in path_lower for m in bot_wall_markers):
+                continue
+
+            # Look for a base64-encoded URL parameter
+            params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            for key, values in params.items():
+                if not values:
+                    continue
+                value = values[0]
+                # Try base64 decode (Akamai uses standard base64 with padding)
+                try:
+                    # base64 may have URL-safe variants and missing padding
+                    padded = value + "=" * (-len(value) % 4)
+                    decoded_bytes = base64.b64decode(padded)
+                    decoded = decoded_bytes.decode("utf-8", errors="ignore")
+                except Exception:
+                    continue
+
+                # Sanity-check: decoded should look like a URL path
+                if not decoded.startswith("/"):
+                    continue
+
+                # Sanity-check: must contain our test query (proves it's the
+                # URL we sent, not something else the bot wall encoded)
+                if TEST_QUERY not in decoded and TEST_QUERY_DECODED not in decoded:
+                    continue
+
+                # Replace the test query with {query} placeholder.
+                # Try both encodings: vitamin+c (plus) and vitamin%20c (percent).
+                pattern = decoded
+                pattern = pattern.replace("vitamin+c", "{query}")
+                pattern = pattern.replace("vitamin%20c", "{query}")
+                pattern = pattern.replace("vitamin c", "{query}")
+                pattern = pattern.replace("vitamin-c", "{query}")
+
+                # Make sure we actually substituted something
+                if "{query}" not in pattern:
+                    continue
+
+                # Build full search URL using the base
+                full_url = f"{base_url.rstrip('/')}{pattern}"
+                logger.info(
+                    f"[resolver] 🔓 Bot-wall echo: decoded '{value[:30]}...' → "
+                    f"recovered pattern '{pattern}'"
+                )
+                return full_url
+
+        except Exception as e:
+            logger.debug(f"[resolver] Bot-wall extraction error on {final_url}: {e}")
+            continue
+
+    return None

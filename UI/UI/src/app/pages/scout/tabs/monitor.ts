@@ -114,6 +114,12 @@ export class ScoutMonitorTab implements OnInit {
               price: listing.price?.value ?? listing.price ?? 0,
               currency: listing.price?.currency ?? 'INR',
               url: listing.url || listing.product_url || '',
+              // Capture the scraped technical title (e.g., "Dyson Supersonic
+              // HD08 Hair Dryer Vinca Blue/Rosé"). The row's product_name is
+              // the user's search query (canonical anchor); per-platform
+              // titles are surfaced via tooltips on the price cells so users
+              // can see exactly which SKU each platform listed.
+              title: listing.title || '',
             };
           }
           return row;
@@ -196,6 +202,29 @@ export class ScoutMonitorTab implements OnInit {
       AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
     };
     return (symbols[cur] || cur + ' ') + val.toLocaleString();
+  }
+
+  /**
+   * Build a multi-line tooltip showing each platform's actual scraped
+   * title for a tracked-products row.
+   *
+   * Example output for a Dyson row:
+   *   amazon.in: Dyson Supersonic HD08 Hair Dryer Vinca Blue/Rosé
+   *   myntra: Dyson Supersonic HD15 Hair Dryer Prussian Blue
+   *   nykaa: Dyson Supersonic Origin HD15 Hair Dryer
+   *
+   * Used as the [title] attribute on the row's product-name cell so users
+   * can hover the canonical name and see the technical SKU per platform.
+   * Falls back to "(no titles available)" if no listing has a title yet
+   * — keeps the tooltip behavior predictable.
+   */
+  allTitlesFor(row: any): string {
+    const lines: string[] = [];
+    for (const p of this.platforms()) {
+      const cell = row[p];
+      if (cell?.title) lines.push(`${p}: ${cell.title}`);
+    }
+    return lines.length ? lines.join('\n') : '(no titles available)';
   }
 
   currencyFor(platform: string): string {

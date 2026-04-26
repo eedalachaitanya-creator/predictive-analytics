@@ -436,6 +436,13 @@ def get_alerts(
         "alerts": [
             {
                 "id": a["id"], "product_name": a["product_name"],
+                # 'title' comes from db.get_alerts() via LEFT JOIN with
+                # product_results. It's the actual scraped product title
+                # (e.g., "Dyson Supersonic HD08 Hair Dryer Vinca Blue/Rosé")
+                # rather than the user's search query stored in product_name.
+                # COALESCE in the SQL falls back to product_name if the
+                # JOIN finds no match, so this key is always present.
+                "title": a.get("title", a["product_name"]),
                 "platform": a["platform"],
                 "old_price":      float(a["old_price"])      if a["old_price"]      is not None else None,
                 "new_price":      float(a["new_price"]),

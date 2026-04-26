@@ -680,21 +680,42 @@ class Database:
         Returns (rows, total_count).
         total_count is the full unpaged size — used by the frontend to render
         "Showing X-Y of N" and determine whether to enable the Next button.
+
+        Each alert row now also includes 'title' — the actual scraped product
+        title from the matching product_results row. Falls back to product_name
+        (the user's search query) if no matching scrape result exists, so the
+        UI never shows blank.
         """
+        # The JOIN gets the scraped title from product_details JSON.
+        # COALESCE falls back to product_name so the UI never shows blank
+        # if the product_results row was deleted or has no title field.
+        select_with_title = """
+            SELECT
+                a.*,
+                COALESCE(
+                    pr.product_details->>'title',
+                    a.product_name
+                ) AS title
+            FROM price_alerts a
+            LEFT JOIN product_results pr
+              ON pr.product_name = a.product_name
+             AND pr.platform     = a.platform
+        """
+
         with self._conn() as conn:
             if unacknowledged_only:
-                rows = self._fetchall(conn, """
-                    SELECT * FROM price_alerts
-                    WHERE acknowledged = FALSE
-                    ORDER BY detected_at DESC
+                rows = self._fetchall(conn, f"""
+                    {select_with_title}
+                    WHERE a.acknowledged = FALSE
+                    ORDER BY a.detected_at DESC
                     LIMIT %s OFFSET %s
                 """, (limit, offset))
                 total_row = self._fetchone(conn,
                     "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE")
             else:
-                rows = self._fetchall(conn, """
-                    SELECT * FROM price_alerts
-                    ORDER BY detected_at DESC
+                rows = self._fetchall(conn, f"""
+                    {select_with_title}
+                    ORDER BY a.detected_at DESC
                     LIMIT %s OFFSET %s
                 """, (limit, offset))
                 total_row = self._fetchone(conn,

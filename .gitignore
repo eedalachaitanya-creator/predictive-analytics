@@ -71,3 +71,6 @@ Thumbs.db
 # ── Claude Code local docs (never commit) ──
 CLAUDE.md
 .claude/
+
+# CTO methodology doc — kept out of git, shared out-of-band
+Churn_Prediction_Methodology.docx

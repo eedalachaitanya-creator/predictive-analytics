@@ -198,6 +198,13 @@ def _assert_required_columns_present(df: pd.DataFrame, master_type: str, filenam
     missing = [c for c in required if c not in file_cols_normalized]
 
     if missing:
+        # 2026-04-27: keep the detailed missing-column list in the SERVER
+        # LOG (so we can debug from the backend console), but show the
+        # SAME generic message to the user as the "wrong file" path
+        # below. Two different rejection messages were confusing — users
+        # didn't know whether they uploaded the wrong file vs the right
+        # file with bad columns. Both cases mean the same thing from
+        # their perspective: "this file doesn't match what we asked for."
         log.warning(
             "Upload rejected for '%s' — missing required column(s): %s | "
             "File had: %s",
@@ -205,10 +212,7 @@ def _assert_required_columns_present(df: pd.DataFrame, master_type: str, filenam
         )
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Missing required column(s): {', '.join(missing)}. "
-                f"Please add this column to your file and re-upload."
-            ),
+            detail="Wrong file uploaded. Please check you uploaded the correct file.",
         )
 
 

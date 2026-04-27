@@ -107,48 +107,12 @@
   }
 }
 
-.tools-grid {
-  display: flex;
-  gap: 0.75rem;
-  margin: 1.25rem 0;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
 /*
- * 2026-04-25: .tool-card became a real <button>, so it gets clickable
- * affordance (cursor, hover, focus) matching .suggestion-chip below.
- * `font-family: inherit` and the explicit color reset prevent the
- * browser's default button styling from hijacking the look.
+ * 2026-04-27: .tools-grid and .tool-card styles removed along with the
+ * four capability cards in chat.html (SQL Queries, ML Predictions,
+ * Customer Profiles, Risk Analysis). Kept this comment as a marker so
+ * future-you doesn't wonder where the styles went.
  */
-.tool-card {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 0.9rem;
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-family: inherit;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.15s;
-
-  .tool-icon { font-size: 1rem; }
-
-  &:hover {
-    background: #eff6ff;
-    border-color: #93c5fd;
-    color: #1d4ed8;
-    transform: translateY(-1px);
-  }
-
-  &:focus-visible {
-    outline: 2px solid #3b82f6;
-    outline-offset: 2px;
-  }
-}
 
 .try-label {
   margin-top: 1.5rem !important;

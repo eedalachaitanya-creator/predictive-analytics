@@ -331,44 +331,53 @@ async def get_product_costs(client_id: str = Query(default="CLT-001")) -> dict:
 
 @router.get(
     "/products",
-    summary="List products with in-stock listings (for UI autocomplete)",
+    summary="List CLIENT'S products from their catalog (for UI autocomplete)",
 )
 async def products(
-    q:     str = Query(default="", description="Optional search filter — matches substring of canonical_name"),
-    limit: int = Query(default=20, le=100),
+    client_id: str = Query(..., description="Client identifier — required."),
+    q:         str = Query(default="", description="Optional search filter — matches substring of product_name"),
+    limit:     int = Query(default=20, le=100),
 ) -> dict:
     """
-    Return product names that have at least one in-stock listing in Scout DB.
-    Used by the Pricing Engine's product-name autocomplete dropdown so users
-    don't need to know the exact scraped canonical_name.
+    Return products from the CLIENT'S OWN CATALOG (public.products table).
+    These are products the client actually sells — not competitor scraped data.
 
-    With `q` empty, returns the 20 most-stocked products.
-    With `q` set, returns up to `limit` products whose canonical_name contains
-    the query string (case-insensitive).
+    The Pricing Engine's product-name autocomplete uses this so the user picks
+    a real Walmart/Costco/Target SKU. Strategist then asks Scout if any
+    competitors carry the same product (matched by name in entity_listings).
+
+    With `q` empty, returns the 20 most-recently-added active products.
+    With `q` set, returns up to `limit` products whose name contains the query.
     """
     try:
-        pool = await get_scout_pool()
+        from strategist.db.connection import get_analyst_pool
+        pool = await get_analyst_pool()
         async with pool.acquire() as conn:
             if q.strip():
-                # Search both canonical_name (full scraped title) AND query
-                # (what the user originally searched). Lets autocomplete find
-                # "Dolo-650..." when the user types "dolo 650".
                 rows = await conn.fetch(
                     """
                     SELECT
-                        e.canonical_name AS name,
-                        COUNT(el.id)     AS listing_count
-                    FROM entities e
-                    JOIN entity_listings el ON el.entity_id = e.id
-                    WHERE el.availability = 'in_stock'
-                      AND (
-                        e.canonical_name ILIKE '%' || $1 || '%'
-                        OR e.query ILIKE '%' || $1 || '%'
-                      )
-                    GROUP BY e.canonical_name
-                    ORDER BY listing_count DESC, e.canonical_name
-                    LIMIT $2
+                        p.product_name AS name,
+                        p.sku          AS sku,
+                        -- Get the single-unit cost, or first non-null cost, or 0
+                        COALESCE(
+                            (SELECT cost_price_usd
+                             FROM product_prices pp
+                             WHERE pp.product_id = p.product_id
+                               AND pp.client_id  = p.client_id
+                               AND pp.cost_price_usd IS NOT NULL
+                             ORDER BY pp.qty_min ASC
+                             LIMIT 1),
+                            0
+                        ) AS saved_cost
+                    FROM products p
+                    WHERE p.client_id = $1
+                      AND p.active = 1
+                      AND p.product_name ILIKE '%' || $2 || '%'
+                    ORDER BY p.product_name
+                    LIMIT $3
                     """,
+                    client_id,
                     q.strip(),
                     limit,
                 )
@@ -376,26 +385,39 @@ async def products(
                 rows = await conn.fetch(
                     """
                     SELECT
-                        e.canonical_name AS name,
-                        COUNT(el.id)     AS listing_count
-                    FROM entities e
-                    JOIN entity_listings el ON el.entity_id = e.id
-                    WHERE el.availability = 'in_stock'
-                    GROUP BY e.canonical_name
-                    ORDER BY listing_count DESC, e.canonical_name
-                    LIMIT $1
+                        p.product_name AS name,
+                        p.sku          AS sku,
+                        COALESCE(
+                            (SELECT cost_price_usd
+                             FROM product_prices pp
+                             WHERE pp.product_id = p.product_id
+                               AND pp.client_id  = p.client_id
+                               AND pp.cost_price_usd IS NOT NULL
+                             ORDER BY pp.qty_min ASC
+                             LIMIT 1),
+                            0
+                        ) AS saved_cost
+                    FROM products p
+                    WHERE p.client_id = $1
+                      AND p.active = 1
+                    ORDER BY p.product_name
+                    LIMIT $2
                     """,
+                    client_id,
                     limit,
                 )
         return {
-            "count": len(rows),
-            "products": [
-                {"name": r["name"], "listing_count": r["listing_count"]}
+            "client_id": client_id,
+            "count":     len(rows),
+            "products":  [
+                {
+                    "name":       r["name"],
+                    "sku":        r["sku"],
+                    "saved_cost": float(r["saved_cost"]) if r["saved_cost"] else 0,
+                }
                 for r in rows
             ],
         }
     except Exception as exc:
-        logger.warning("products endpoint failed: %s", exc)
-        # Graceful degradation: return empty list so the UI shows "no suggestions"
-        # instead of an error banner on every keystroke.
-        return {"count": 0, "products": []}
+        logger.error("GET /products failed for client_id=%s: %s", client_id, exc)
+        return {"client_id": client_id, "count": 0, "products": [], "error": str(exc)}

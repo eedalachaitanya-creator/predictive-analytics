@@ -26,17 +26,17 @@
               (blur)="closeSuggestions()" />
             @if (suggestionsOpen() === i && suggestions()[i]?.length) {
               <div class="autocomplete-dropdown">
-                @for (s of suggestions()[i]; track s.name) {
-                  <div class="autocomplete-item" (mousedown)="pickSuggestion(i, s.name)">
+                @for (s of suggestions()[i]; track s.sku) {
+                  <div class="autocomplete-item" (mousedown)="pickSuggestion(i, s.name, s.saved_cost)">
                     <span class="ac-name">{{ s.name }}</span>
-                    <span class="ac-count">{{ s.listing_count }} listing{{ s.listing_count === 1 ? '' : 's' }}</span>
+                    <span class="ac-sku">{{ s.sku }}</span>
                   </div>
                 }
               </div>
             }
           </div>
           <input class="form-input" type="number"
-            placeholder="Cost price in ₹ (optional — uses saved price if blank)"
+            placeholder="At our expense — optional, uses saved cost if blank"
             [value]="p.cost"
             (input)="updateProduct(i, 'cost', $any($event.target).value)"
             (wheel)="$event.preventDefault()" />
@@ -175,8 +175,8 @@
           </div>
           <div class="price-divider">vs</div>
           <div class="price-col">
-            <div class="price-col-label">Your Cost</div>
-            <div class="price-col-value cost">{{ fmtPrice(getCostPrice(rec.product_name) || rec.our_cost) }}</div>
+            <div class="price-col-label">At our expense</div>
+            <div class="price-col-value cost">{{ fmtPrice(getCostPrice(rec.product_name) || rec.raw_cogs || rec.our_cost) }}</div>
           </div>
           <div class="price-divider">·</div>
           <div class="price-col">
@@ -194,6 +194,28 @@
             <div class="price-col-value">{{ fmtPrice(rec.competitor_max) }}</div>
           </div>
         </div>
+
+        <!-- Per-platform breakdown — shows which website charges what -->
+        @if (rec.platform_breakdown && rec.platform_breakdown.length > 0) {
+          <div class="platform-breakdown">
+            <div class="platform-breakdown-label">Competitor Prices by Platform</div>
+            <div class="platform-list">
+              @for (pl of rec.platform_breakdown; track pl.platform) {
+                <div class="platform-row"
+                     [class.is-lowest]="pl.price === rec.competitor_min"
+                     [class.is-highest]="pl.price === rec.competitor_max">
+                  <span class="platform-name">{{ pl.platform }}</span>
+                  <span class="platform-price">{{ fmtPrice(pl.price) }}</span>
+                  @if (pl.price === rec.competitor_min) {
+                    <span class="platform-badge low">↓ lowest</span>
+                  } @else if (pl.price === rec.competitor_max) {
+                    <span class="platform-badge high">↑ highest</span>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        }
 
         <div class="rec-stats">
           <div class="stat-item">

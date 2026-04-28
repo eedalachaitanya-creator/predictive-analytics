@@ -53,7 +53,7 @@ export class StrategistRecommendTab {
   currencyOptions = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
 
   // Autocomplete state — suggestions[i] = list for product row i
-  suggestions     = signal<Record<number, { name: string; listing_count: number }[]>>({});
+  suggestions     = signal<Record<number, { name: string; sku: string; saved_cost: number }[]>>({});
   suggestionsOpen = signal<number | null>(null);   // which row's dropdown is visible
   private searchTimeouts: Record<number, any> = {};
   // ngOnInit() { this.loadSample(); }
@@ -127,18 +127,20 @@ export class StrategistRecommendTab {
 
     // 250ms debounce — avoid hitting backend on every keystroke
     this.searchTimeouts[i] = setTimeout(() => {
-      this.svc.searchProducts(q.trim()).subscribe(res => {
+      this.svc.searchProducts(this.clientId, q.trim()).subscribe(res => {
         this.suggestions.update(s => ({ ...s, [i]: res.products || [] }));
         this.suggestionsOpen.set(res.products?.length ? i : null);
       });
     }, 250);
   }
 
-  /** User clicked a suggestion — fill the product name and close dropdown */
-  pickSuggestion(i: number, name: string) {
+  /** User clicked a suggestion — fill the product name (and saved cost if any) */
+  pickSuggestion(i: number, name: string, savedCost?: number) {
     this.products.update(p => {
       const updated = [...p];
-      updated[i] = { ...updated[i], name };
+      // Pre-fill saved cost if available and the user hasn't typed one
+      const cost = (savedCost && savedCost > 0 && !updated[i].cost) ? String(savedCost) : updated[i].cost;
+      updated[i] = { ...updated[i], name, cost };
       return updated;
     });
     this.suggestionsOpen.set(null);

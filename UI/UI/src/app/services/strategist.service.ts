@@ -60,6 +60,14 @@ export interface ChurnContext {
   discount_reason:   string;
 }
 
+export interface PlatformPrice {
+  platform:     string;
+  price:        number;
+  availability?: string;
+  confidence?:   number;
+  url?:          string;
+}
+
 export interface PricingRecommendation {
   product_name:        string;
   strategy:            string;
@@ -68,9 +76,12 @@ export interface PricingRecommendation {
   floor_price:         number;
   target_price:        number;
   our_cost:            number;
+  raw_cogs?:           number;
   competitor_min:      number;
   competitor_avg:      number;
   competitor_max:      number;
+  competitor_median?:  number;
+  platform_breakdown?: PlatformPrice[];   // ← per-website prices
   margin_percent:      number;
   market_trend:        string;
   confidence:          string;
@@ -153,9 +164,10 @@ export class StrategistService {
   /** Autocomplete support for the Pricing Engine product input.
    *  Passes the user's current text as `q`; backend does case-insensitive
    *  substring match against canonical_name, ranked by listing count. */
-  searchProducts(q: string): Observable<{ count: number; products: { name: string; listing_count: number }[] }> {
-    const params = q ? `?q=${encodeURIComponent(q)}&limit=10` : `?limit=20`;
-    return this.http.get<any>(`${BASE}/api/db/products${params}`, { headers: headers() })
+  /** Search products in client's catalog for autocomplete */
+  searchProducts(clientId: string, q: string): Observable<{ count: number; products: { name: string; sku: string; saved_cost: number }[] }> {
+    const qPart = q ? `&q=${encodeURIComponent(q)}&limit=10` : `&limit=20`;
+    return this.http.get<any>(`${BASE}/api/db/products?client_id=${clientId}${qPart}`, { headers: headers() })
       .pipe(catchError(() => of({ count: 0, products: [] })));
   }
   /** Fetch client config (incl. preferred currency) for UI prefill */

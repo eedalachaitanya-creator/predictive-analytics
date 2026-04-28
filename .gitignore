@@ -72,5 +72,10 @@ Thumbs.db
 CLAUDE.md
 .claude/
 
-# CTO methodology doc — kept out of git, shared out-of-band
+# CTO methodology docs — kept out of git, shared out-of-band
 Churn_Prediction_Methodology.docx
+Churn_Labeling_and_Model_Features.docx
+Churn_Prediction_System_Documentation.docx
+Churn_Prediction_Methodology.pdf
+Churn_Labeling_and_Model_Features.pdf
+Churn_Prediction_System_Documentation.pdf

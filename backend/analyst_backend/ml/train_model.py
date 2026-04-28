@@ -3,18 +3,17 @@ train_model.py — Analyst Agent | ML Model Training Pipeline
 ===========================================================
 Fully modularized churn prediction model training pipeline.
 
-Reads feature_matrix.csv or directly from PostgreSQL mv_customer_features,
-cleans features (zero-variance, multicollinearity), trains models with
-stratified K-fold cross-validation, tunes hyperparameters, evaluates
-performance, and saves trained models + reports.
+Reads directly from PostgreSQL mv_customer_features, cleans features
+(zero-variance, multicollinearity), trains models with stratified K-fold
+cross-validation, evaluates performance, and saves trained models + reports.
 
 ARCHITECTURE:
     Section 0 — Configuration (constants, paths, defaults)
-    Section 1 — Data Loading (CSV / PostgreSQL)
+    Section 1 — Data Loading (PostgreSQL)
     Section 2 — Feature Cleaning (zero-variance, multicollinearity)
     Section 3 — Preprocessing (scaling, imbalance, feature selection)
     Section 4 — Model Definitions (XGBoost, Random Forest)
-    Section 5 — Cross-Validation & Hyperparameter Tuning
+    Section 5 — Cross-Validation
     Section 6 — Evaluation & Metrics
     Section 7 — Visualization (ROC, confusion matrix, feature importance)
     Section 8 — Reporting (text report, model comparison)
@@ -26,10 +25,8 @@ be added/modified later without changing the overall structure.
 
 Usage:
     # From project root (new_walmart/):
-    python -m analyst_agent.ml.train_model --source csv
-    python -m analyst_agent.ml.train_model --source csv --model-type all
     python -m analyst_agent.ml.train_model --source db
-    python -m analyst_agent.ml.train_model --source csv --model-type xgboost --tune
+    python -m analyst_agent.ml.train_model --source db --model-type all
 
 Output files (saved to ml/output/ and ml/models/):
     - churn_model_[type]_[timestamp].joblib          → Trained model + scaler + metadata
@@ -268,30 +265,9 @@ HIGH_CORR_THRESHOLD = 0.90
 MIN_VARIANCE_THRESHOLD = 0.001
 
 # Plot colors (matching compute_rfm.py palette)
-COLOR_GREEN = '#70AD47'
 COLOR_ORANGE = '#ED7D31'
 COLOR_BLUE = '#2E75B6'
-COLOR_RED = '#C00000'
 COLOR_GRAY = '#808080'
-
-# Default hyperparameter search spaces for tuning
-XGBOOST_PARAM_GRID = {
-    'n_estimators': [50, 100, 200, 300],
-    'max_depth': [3, 5, 7, 10],
-    'learning_rate': [0.01, 0.05, 0.1, 0.2],
-    'subsample': [0.7, 0.8, 0.9, 1.0],
-    'colsample_bytree': [0.7, 0.8, 0.9, 1.0],
-    'min_child_weight': [1, 3, 5],
-    'gamma': [0, 0.1, 0.3],
-}
-
-RF_PARAM_GRID = {
-    'n_estimators': [50, 100, 200, 300],
-    'max_depth': [5, 10, 15, 20, None],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 5],
-    'max_features': ['sqrt', 'log2', None],
-}
 
 # NOTE: Logistic Regression was removed from the supported model set because
 # its sigmoid saturates to exactly 1.000 whenever a leaky feature pushes the
@@ -304,26 +280,6 @@ RF_PARAM_GRID = {
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 1: DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════════
-
-def load_from_csv(csv_path: str) -> pd.DataFrame:
-    """
-    Load feature matrix from CSV file.
-
-    Args:
-        csv_path: Path to the CSV file (relative or absolute)
-
-    Returns:
-        DataFrame with all columns from CSV
-    """
-    log.info("Loading data from CSV: %s", csv_path)
-    if not os.path.exists(csv_path):
-        log.error("CSV file not found: %s", csv_path)
-        raise FileNotFoundError(f"CSV file not found: {csv_path}")
-
-    df = pd.read_csv(csv_path)
-    log.info("  Loaded %d rows x %d columns", df.shape[0], df.shape[1])
-    return df
-
 
 def load_from_database(db_url: str, client_id: str = None) -> pd.DataFrame:
     """
@@ -949,11 +905,6 @@ def build_xgboost(class_weight_ratio: Optional[float] = None, **params) -> Any:
     #   - reg_lambda 1 → 5.0:      L2 — shrinks leaf weights toward 0
     #   - subsample 0.8 → 0.7:     more row noise per tree
     #   - colsample 0.8 → 0.7:     more column noise per tree
-    #
-    # When --tune is passed the RandomizedSearch grid (TUNE_PARAM_GRID
-    # in this file) is consulted instead; these defaults only matter
-    # for the un-tuned path — which is what the pipeline currently
-    # uses.
     defaults = {
         'n_estimators': 100,
         'max_depth': 3,
@@ -1002,11 +953,6 @@ def build_random_forest(class_weight: Optional[str] = None, **params) -> Any:
     #   - min_samples_split 10 → 20: doubles the floor
     #   - n_estimators 100 → 200:   more shallow trees beat fewer deep
     #   - max_features 'sqrt'       (sklearn default but explicit)
-    #
-    # Same RandomizedSearch grid caveat as XGBoost: --tune overrides
-    # these via TUNE_PARAM_GRID. Note the RF tune grid still allows
-    # max_depth=None — that should be tightened separately if --tune
-    # ever lands in the pipeline default.
     defaults = {
         'n_estimators': 200,
         'max_depth': 6,
@@ -1132,64 +1078,6 @@ def cross_validate_model(
             log.warning("  ⚠ Possible overfitting on %s (train-test gap: %.4f)", metric, gap)
 
     return results
-
-
-def tune_hyperparameters(
-    model_type: str,
-    X: pd.DataFrame,
-    y: pd.Series,
-    n_folds: int = N_FOLDS,
-    n_iter: int = 30,
-    scoring: str = 'roc_auc'
-) -> Tuple[Any, Dict[str, Any]]:
-    """
-    Randomized hyperparameter search with stratified K-fold.
-
-    Args:
-        model_type: 'xgboost' or 'random_forest'
-        X: Feature matrix
-        y: Target
-        n_folds: CV folds
-        n_iter: Number of random parameter combinations to try
-        scoring: Optimization metric
-
-    Returns:
-        (best_model, best_params)
-    """
-    from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
-
-    log.info("Tuning hyperparameters for %s (%d iterations, %d-fold CV)...",
-             model_type, n_iter, n_folds)
-
-    # Get base model and param grid
-    base_model = build_model(model_type)
-    if model_type == 'xgboost':
-        param_grid = XGBOOST_PARAM_GRID
-    elif model_type == 'random_forest':
-        param_grid = RF_PARAM_GRID
-    else:
-        raise ValueError(f"No param grid for model type: {model_type}")
-
-    cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=RANDOM_STATE)
-
-    search = RandomizedSearchCV(
-        estimator=base_model,
-        param_distributions=param_grid,
-        n_iter=n_iter,
-        cv=cv,
-        scoring=scoring,
-        random_state=RANDOM_STATE,
-        n_jobs=-1,
-        verbose=0,
-        refit=True,
-    )
-
-    search.fit(X, y)
-
-    log.info("  Best %s score: %.4f", scoring, search.best_score_)
-    log.info("  Best parameters: %s", search.best_params_)
-
-    return search.best_estimator_, search.best_params_
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1624,7 +1512,8 @@ def generate_training_report(
 
 def generate_comparison_report(
     all_results: Dict[str, Dict[str, Any]],
-    output_dir: Path
+    output_dir: Path,
+    client_id: Optional[str] = None,
 ) -> Path:
     """
     Compare multiple models side-by-side and identify the best.
@@ -1660,7 +1549,11 @@ def generate_comparison_report(
     lines.append("=" * 75)
 
     report_text = "\n".join(lines)
-    report_path = output_dir / "model_comparison.txt"
+    # 2026-04-27: include client_id in filename when in per-tenant mode so
+    # each tenant gets its own model_comparison_<client_id>.txt instead of
+    # the second tenant overwriting the first's report.
+    suffix = f"_{client_id}" if client_id else ""
+    report_path = output_dir / f"model_comparison{suffix}.txt"
     with open(report_path, 'w') as f:
         f.write(report_text)
 
@@ -1697,26 +1590,6 @@ def save_model(
     return output_path
 
 
-def load_saved_model(model_path: Path) -> Tuple[Any, Any, List[str], Dict[str, Any]]:
-    """
-    Load a saved model bundle.
-
-    Returns:
-        (model, scaler, feature_names, metadata)
-    """
-    log.info("Loading model from %s", model_path)
-    package = joblib.load(model_path)
-    log.info("  Model type: %s", package['metadata'].get('model_type', 'unknown'))
-    log.info("  Training date: %s", package['metadata'].get('training_date', 'unknown'))
-    log.info("  Features: %d", len(package['feature_names']))
-    return (
-        package['model'],
-        package.get('scaler'),
-        package['feature_names'],
-        package['metadata'],
-    )
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 10: MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1728,17 +1601,13 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m analyst_agent.ml.train_model --source csv
-  python -m analyst_agent.ml.train_model --source csv --model-type all
-  python -m analyst_agent.ml.train_model --source csv --model-type xgboost --tune
+  python -m analyst_agent.ml.train_model --source db
+  python -m analyst_agent.ml.train_model --source db --model-type all
   python -m analyst_agent.ml.train_model --source db --db-url postgresql://user:pass@localhost/db
         """
     )
-    parser.add_argument('--source', choices=['csv', 'db'], default='csv',
-                        help='Data source (default: csv)')
-    parser.add_argument('--csv-path', type=str,
-                        default=str(REPORT_DIR / 'feature_matrix.csv'),
-                        help='Path to CSV file')
+    parser.add_argument('--source', choices=['db'], default='db',
+                        help='Data source (default: db)')
     parser.add_argument('--db-url', type=str,
                         help='PostgreSQL URL (also reads DB_URL from .env)')
     parser.add_argument('--model-type',
@@ -1759,10 +1628,6 @@ Examples:
                         help='Features to keep if using importance/correlation selection')
     parser.add_argument('--skip-cleaning', action='store_true',
                         help='Skip zero-variance and multicollinearity removal')
-    parser.add_argument('--tune', action='store_true',
-                        help='Run hyperparameter tuning (RandomizedSearchCV)')
-    parser.add_argument('--tune-iter', type=int, default=30,
-                        help='Number of tuning iterations (default: 30)')
     parser.add_argument('--no-cv', action='store_true',
                         help='Skip cross-validation')
     parser.add_argument('--no-plots', action='store_true',
@@ -1822,42 +1687,40 @@ def run_pipeline_for_model(
     Returns:
         Dict with 'model', 'metrics', 'cv_results', 'importance_df', 'report_path'
     """
+    # 2026-04-27: per-client filename suffix (Option A — per-tenant training).
+    # `display_name` is used ONLY for output filenames (model.joblib, plots, the
+    # training report). `model_type` continues to drive algorithm selection
+    # (XGBoost vs RandomForest), so the build_model / get_feature_importances
+    # call sites are left unchanged. When --client-id is NOT passed (single-
+    # tenant or global training), display_name == model_type, so old behaviour
+    # is preserved for back-compat.
+    client_suffix = f"_{args.client_id}" if args.client_id else ""
+    display_name = f"{model_type}{client_suffix}"
+
     log.info("")
     log.info("=" * 75)
-    log.info("  TRAINING: %s", model_type.upper())
+    log.info("  TRAINING: %s", display_name.upper())
     log.info("=" * 75)
 
-    # ─ Hyperparameter tuning or default build (builds BASE model)
+    # ─ Build BASE model
     # `base_model` is the uncalibrated tree model. It's what CV scores, what
     # feature importances are extracted from, and what gets wrapped with
     # isotonic calibration below to form the final deployed model.
-    if args.tune:
-        base_model, best_params = tune_hyperparameters(
-            model_type, X_train, y_train,
-            n_iter=args.tune_iter
-        )
-        log.info("  Best params: %s", best_params)
-    else:
-        base_model = build_model(model_type)
-        base_model = train_single_model(base_model, X_train, y_train, model_type)
+    base_model = build_model(model_type)
+    base_model = train_single_model(base_model, X_train, y_train, model_type)
 
     # ─ Cross-validation (same hyperparameters as the deployed model)
     # XGBoost + RandomForest are both scale-invariant trees, so no inner
     # scaler pipeline is required — the same features that went into the
     # held-out fit work unchanged inside each CV fold.
     #
-    # Previously `cv_model = build_model(model_type)` spun up a fresh
-    # DEFAULT model, so when --tune was on, the CV scores in the report
-    # described an untuned model while the test-set scores described the
-    # tuned one — two different configurations being compared side-by-side.
     # `clone()` returns an unfit copy of the actual model with identical
-    # hyperparameters, so CV now measures the real deployed model.
-    # (Audit 2026-04-24 issue #3.)
+    # hyperparameters, so CV measures the real deployed model.
     #
     # CV is deliberately run on the UNCALIBRATED base model so the numbers
-    # remain comparable to earlier runs and describe the raw learner's
-    # discrimination. Calibration is a monotonic transform of predict_proba
-    # and does not change ROC/AUC — the CV AUC is identical either way.
+    # describe the raw learner's discrimination. Calibration is a monotonic
+    # transform of predict_proba and does not change ROC/AUC — the CV AUC
+    # is identical either way.
     from sklearn.base import clone
     cv_results = None
     if not args.no_cv:
@@ -1911,7 +1774,6 @@ def run_pipeline_for_model(
         'n_features': len(feature_names),
         'feature_names': feature_names,
         'cleaning_log': cleaning_log,
-        'tuned': args.tune,
         'calibrated': not args.skip_calibration,
         'calibration_method': 'isotonic' if not args.skip_calibration else None,
         'calibration_cv': 5 if not args.skip_calibration else None,
@@ -1923,19 +1785,23 @@ def run_pipeline_for_model(
             'auc_roc': float(metrics['auc_roc']),
         }
     }
-    model_path = MODEL_DIR / f"churn_model_{model_type}.joblib"
+    # Per-client filename: churn_model_{model_type}_{client_id}.joblib
+    # so the second client's training does NOT overwrite the first's model.
+    model_path = MODEL_DIR / f"churn_model_{display_name}.joblib"
     save_model(model, scaler, feature_names, metadata, model_path)
 
-    # ─ Plots (non-fatal — model is already saved above)
+    # ─ Plots (non-fatal — model is already saved above). Plots use
+    # display_name so per-tenant runs produce per-tenant plot files
+    # (roc_curve_xgboost_CLT-001.png, etc.).
     if not args.no_plots:
         try:
-            generate_all_plots(y_test, metrics, importance_df, cv_results, model_type, PLOT_DIR)
+            generate_all_plots(y_test, metrics, importance_df, cv_results, display_name, PLOT_DIR)
         except Exception as e:
             log.warning("Plot generation failed (non-fatal): %s", e)
 
-    # ─ Training report
+    # ─ Training report (per-tenant filename via display_name)
     report_path = generate_training_report(
-        model_type, metrics, cv_results, importance_df,
+        display_name, metrics, cv_results, importance_df,
         cleaning_log, feature_names, original_shape, REPORT_DIR
     )
 
@@ -1959,14 +1825,11 @@ def main():
     log.info("=" * 75)
 
     # ── Step 1: Load data ──────────────────────────────────────────────────
-    if args.source == 'csv':
-        df = load_from_csv(args.csv_path)
-    else:
-        db_url = args.db_url or os.getenv('DB_URL')
-        if not db_url:
-            log.error("Database URL required. Use --db-url or set DB_URL in .env")
-            sys.exit(1)
-        df = load_from_database(db_url, client_id=args.client_id)
+    db_url = args.db_url or os.getenv('DB_URL')
+    if not db_url:
+        log.error("Database URL required. Use --db-url or set DB_URL in .env")
+        sys.exit(1)
+    df = load_from_database(db_url, client_id=args.client_id)
 
     original_shape = df.shape
 
@@ -2083,7 +1946,8 @@ def main():
     if len(all_results) > 1:
         generate_comparison_report(
             {name: res for name, res in all_results.items()},
-            REPORT_DIR
+            REPORT_DIR,
+            client_id=args.client_id,   # per-tenant filename when set
         )
 
     # ── Done ───────────────────────────────────────────────────────────────

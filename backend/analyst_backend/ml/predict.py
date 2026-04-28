@@ -138,83 +138,158 @@ DEFAULT_API_PORT = 8000
 # SECTION 1: MODEL LOADING
 # ═══════════════════════════════════════════════════════════════════════════
 
-def discover_best_model() -> Path:
+def discover_best_model(client_id: Optional[str] = None) -> Path:
     """
     Auto-discover the best available model in MODEL_DIR.
 
-    Selection order (first match wins):
-      1. evaluation_summary.json — written by ml/evaluate_model.py after
-         comparing all trained models on the held-out test set. Its
-         ``best_model`` field is the one with the highest AUC-ROC. This
-         is the AUC-based winner the pipeline is designed around.
-      2. MODEL_PREFERENCE list — hardcoded fallback for cases where
-         evaluation_summary.json is missing (e.g., fresh install before
-         the first full pipeline run, or manual training outside the
-         pipeline).
-      3. Most recently modified .joblib — last-resort fallback if the
-         evaluation summary points at a model file that no longer exists
-         AND no preference-listed model is present.
+    Per-tenant aware (2026-04-27): when ``client_id`` is provided, only
+    per-tenant model files matching ``churn_model_*_<client_id>.joblib``
+    are considered, and the AUC winner among those is returned. When
+    ``client_id`` is None, the legacy single-global behaviour is used:
+    files matching ``churn_model_<type>.joblib`` (no client suffix) are
+    considered first, falling back to ANY churn_model_*.joblib if no
+    legacy global model exists.
+
+    Selection order WITH client_id:
+      1. Highest-AUC ``churn_model_*_<client_id>.joblib`` file
+         (reads metadata.metrics.auc_roc from each candidate's joblib)
+      2. Raises FileNotFoundError if no per-tenant model exists for
+         this client_id (caller should retrain).
+
+    Selection order WITHOUT client_id (legacy/global):
+      1. evaluation_summary.json — written by ml/evaluate_model.py
+      2. MODEL_PREFERENCE list — hardcoded fallback
+      3. Most recently modified .joblib — last-resort fallback
 
     Returns:
-        Path to the selected model file
+        Path to the selected model file.
     """
     log.info("Auto-discovering best model in %s...", MODEL_DIR)
-    model_files = list(MODEL_DIR.glob("churn_model_*.joblib"))
 
+    # ── Per-tenant path ─────────────────────────────────────────────────────
+    if client_id:
+        candidates = list(MODEL_DIR.glob(f"churn_model_*_{client_id}.joblib"))
+        if not candidates:
+            raise FileNotFoundError(
+                f"No per-tenant model found for client_id={client_id}. "
+                f"Looked for: churn_model_*_{client_id}.joblib in {MODEL_DIR}. "
+                f"Did training fail for this client?"
+            )
+
+        # Pick the highest-AUC candidate by reading each joblib's metadata.
+        best_path = None
+        best_auc = -1.0
+        for p in candidates:
+            try:
+                pkg = joblib.load(p)
+                auc = pkg.get("metadata", {}).get("metrics", {}).get("auc_roc", 0.0)
+                if auc > best_auc:
+                    best_auc = auc
+                    best_path = p
+            except Exception as e:
+                log.warning("  Could not read AUC from %s: %s", p.name, e)
+
+        if best_path is None:
+            # Fall back to most-recently-modified per-tenant file
+            best_path = max(candidates, key=lambda p: p.stat().st_mtime)
+
+        log.info(
+            "  Per-tenant winner for %s: %s (AUC-ROC = %.4f)",
+            client_id, best_path.name, best_auc if best_auc >= 0 else 0.0,
+        )
+        return best_path
+
+    # ── Legacy / global path ────────────────────────────────────────────────
+    model_files = list(MODEL_DIR.glob("churn_model_*.joblib"))
     if not model_files:
         raise FileNotFoundError(f"No model files found in {MODEL_DIR}")
 
-    # 1) Prefer the AUC-winner recorded by evaluate_model.py.
-    #    Shape of evaluation_summary.json:
-    #      { "best_model": "random_forest",
-    #        "all_results": [ {"model_type": "...", "auc_roc": 0.87, ...}, ... ] }
-    summary_path = OUTPUT_DIR / "evaluation_summary.json"
-    if summary_path.exists():
-        try:
-            with summary_path.open("r") as fh:
-                summary = json.load(fh)
-            best_name = summary.get("best_model")
-            if best_name:
-                expected = MODEL_DIR / f"churn_model_{best_name}.joblib"
-                if expected.exists():
-                    log.info(
-                        "  Using AUC-winning model from evaluation_summary.json: %s",
-                        expected.name,
+    # Filter to LEGACY (non-per-tenant) names only — i.e., files of the form
+    # `churn_model_<type>.joblib` where <type> is the algorithm name, not a
+    # client_id. We detect this by counting underscores: legacy filenames
+    # have exactly 2 underscores (churn_model_TYPE.joblib), per-tenant
+    # filenames have 3 (churn_model_TYPE_CLT-XXX.joblib).
+    legacy_files = [p for p in model_files if p.stem.count("_") == 2]
+    if legacy_files:
+        # 1) Prefer the AUC-winner recorded by evaluate_model.py.
+        summary_path = OUTPUT_DIR / "evaluation_summary.json"
+        if summary_path.exists():
+            try:
+                with summary_path.open("r") as fh:
+                    summary = json.load(fh)
+                best_name = summary.get("best_model")
+                if best_name:
+                    expected = MODEL_DIR / f"churn_model_{best_name}.joblib"
+                    if expected.exists():
+                        log.info(
+                            "  Using AUC-winning model from evaluation_summary.json: %s",
+                            expected.name,
+                        )
+                        return expected
+                    log.warning(
+                        "  evaluation_summary.json names '%s' but %s is missing — falling back.",
+                        best_name, expected.name,
                     )
-                    return expected
-                log.warning(
-                    "  evaluation_summary.json names '%s' but %s is missing — falling back.",
-                    best_name, expected.name,
-                )
-        except (json.JSONDecodeError, OSError) as exc:
-            log.warning("  Could not read evaluation_summary.json (%s) — falling back.", exc)
+            except (json.JSONDecodeError, OSError) as exc:
+                log.warning("  Could not read evaluation_summary.json (%s) — falling back.", exc)
 
-    # 2) Preference order (only reached if the summary is absent or stale)
-    for preferred in MODEL_PREFERENCE:
-        for f in model_files:
-            if preferred in f.name:
-                log.info("  Found preferred model: %s", f.name)
-                return f
+        # 2) Preference order (only reached if the summary is absent or stale)
+        for preferred in MODEL_PREFERENCE:
+            for f in legacy_files:
+                if preferred in f.name:
+                    log.info("  Found preferred model: %s", f.name)
+                    return f
 
-    # 3) Last resort: most recently modified .joblib
-    best = max(model_files, key=lambda p: p.stat().st_mtime)
-    log.info("  Using most recent model: %s", best.name)
-    return best
+        # 3) Last resort: most recently modified legacy .joblib
+        best = max(legacy_files, key=lambda p: p.stat().st_mtime)
+        log.info("  Using most recent legacy model: %s", best.name)
+        return best
+
+    # No legacy global model exists — fall back to ANY available model.
+    # This typically means someone has trained per-tenant models but is now
+    # running predict.py without --client-id. Pick the highest-AUC across
+    # all per-tenant files, but warn loudly that this is probably wrong.
+    log.warning(
+        "  No legacy global model found; only per-tenant models exist. "
+        "Picking the highest-AUC across all tenants — but you should "
+        "probably pass --client-id <CLT-XXX> to score one tenant at a time."
+    )
+    best_path = None
+    best_auc = -1.0
+    for p in model_files:
+        try:
+            pkg = joblib.load(p)
+            auc = pkg.get("metadata", {}).get("metrics", {}).get("auc_roc", 0.0)
+            if auc > best_auc:
+                best_auc = auc
+                best_path = p
+        except Exception:
+            continue
+    if best_path is None:
+        best_path = max(model_files, key=lambda p: p.stat().st_mtime)
+    log.info("  Falling back to: %s", best_path.name)
+    return best_path
 
 
-def load_model_bundle(model_path: Optional[str] = None) -> Dict[str, Any]:
+def load_model_bundle(
+    model_path: Optional[str] = None,
+    client_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Load a trained model bundle (.joblib) containing model, scaler,
     feature names, and training metadata.
 
     Args:
-        model_path: Explicit path to .joblib file, or None to auto-discover
+        model_path: Explicit path to .joblib file. If provided, used directly.
+        client_id: When set AND model_path is None, picks the per-tenant
+            AUC-winning model for this client. When both are None, falls
+            back to legacy global discovery.
 
     Returns:
         Dict with keys: 'model', 'scaler', 'feature_names', 'metadata'
     """
     if model_path is None:
-        path = discover_best_model()
+        path = discover_best_model(client_id=client_id)
     else:
         path = Path(model_path)
         if not path.exists():
@@ -1328,8 +1403,9 @@ def run_scoring_pipeline(
     log.info("  ANALYST AGENT — CHURN SCORING PIPELINE")
     log.info("=" * 70)
 
-    # 1. Load model
-    bundle = load_model_bundle(model_path)
+    # 1. Load model — when running per-tenant, pass client_id so
+    # auto-discovery picks the right per-tenant model file.
+    bundle = load_model_bundle(model_path, client_id=client_id)
     model = bundle['model']
     scaler = bundle['scaler']
     feature_names = bundle['feature_names']

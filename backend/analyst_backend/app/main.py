@@ -5,6 +5,11 @@ Sprint 0 | Task 1.3
 from dotenv import load_dotenv
 load_dotenv()  # Load .env BEFORE any other imports read os.getenv()
 
+import sys
+import asyncio
+if sys.platform == "win32":     
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+ 
 import logging
 import time
 from contextlib import asynccontextmanager

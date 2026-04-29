@@ -49,12 +49,38 @@ CLIENT_HIDDEN_FILES = {
     "eda_report.txt",
     "correlation_matrix.csv",
     "class_balance.csv",
+    # 2026-04-29: hide raw model-output / training-internal CSVs from the
+    # client Downloads page. The same data is visualised on the Dashboard
+    # and Churn Scores pages — clients don't need the raw exports.
+    "feature_importance_rfm.csv",
+    "churn_scores.csv",
 }
+
+# Per-tenant report files have a `_<client_id>` suffix appended at write
+# time (e.g. `training_report_xgboost_CLT-001.txt`). Static filename
+# matching can't catch them, so we also filter by prefix. Anything
+# starting with one of these is hidden from the client Downloads UI.
+CLIENT_HIDDEN_PREFIXES = (
+    "training_report_",   # per-model training metrics + feature importance
+    # model_comparison_* stays visible — clients want to see the
+    # AUC-ROC head-to-head when more than one model is trained.
+)
 
 
 def _is_client_visible(filename: str) -> bool:
-    """Return True if a file should appear in the client Downloads UI."""
-    return filename not in CLIENT_HIDDEN_FILES
+    """Return True if a file should appear in the client Downloads UI.
+
+    A file is hidden if EITHER its full name appears in
+    CLIENT_HIDDEN_FILES OR it starts with one of CLIENT_HIDDEN_PREFIXES.
+    The prefix check is what catches per-tenant report files like
+    `training_report_xgboost_CLT-001.txt` — those have variable suffixes
+    so an exact-match list can't cover them.
+    """
+    if filename in CLIENT_HIDDEN_FILES:
+        return False
+    if any(filename.startswith(prefix) for prefix in CLIENT_HIDDEN_PREFIXES):
+        return False
+    return True
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────

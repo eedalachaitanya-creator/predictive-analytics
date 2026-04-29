@@ -58,28 +58,56 @@ export class DownloadsComponent implements OnInit {
       });
   }
 
+  // Audit fix 2026-04-29: download via HttpClient → blob, NOT a raw
+  // <a href> click. Top-level browser navigation does NOT carry the
+  // SPA's Authorization header, so the previous implementation broke
+  // when /api/v1/downloads went behind router-level auth (every link
+  // returned 401 "Authorization required"). HttpClient routes through
+  // the auth interceptor, which attaches the Bearer token, then we
+  // materialise the response as a Blob and trigger the download
+  // through a synthesized object URL. No token-in-URL, no backend
+  // changes, works with HttpOnly cookies if we ever switch.
+  private blobDownload(url: string, downloadName: string, cleanupKey: string) {
+    this.downloading.set(cleanupKey);
+    this.http
+      .get(url, { responseType: 'blob' })
+      .subscribe({
+        next: (blob: Blob) => {
+          const objectUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = objectUrl;
+          a.download = downloadName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          // Free the object URL after the click — browsers keep the
+          // blob alive otherwise (memory leak across many downloads).
+          URL.revokeObjectURL(objectUrl);
+          this.downloading.set(null);
+        },
+        error: (err) => {
+          this.error.set(`Download failed: ${err.status === 401 ? 'session expired — please log in again' : err.message || 'unknown error'}`);
+          this.downloading.set(null);
+        },
+      });
+  }
+
   download(filename: string) {
-    this.downloading.set(filename);
     const cid = this.auth.getClientId();
-    const a = document.createElement('a');
-    a.href = `${this.base}/downloads/${filename}?clientId=${cid}`;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => this.downloading.set(null), 1500);
+    this.blobDownload(
+      `${this.base}/downloads/${filename}?clientId=${cid}`,
+      filename,
+      filename,
+    );
   }
 
   downloadZip() {
-    this.downloading.set('zip');
     const cid = this.auth.getClientId();
-    const a = document.createElement('a');
-    a.href = `${this.base}/downloads/zip/all?clientId=${cid}`;
-    a.download = 'CRP_ML_Reports.zip';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => this.downloading.set(null), 2000);
+    this.blobDownload(
+      `${this.base}/downloads/zip/all?clientId=${cid}`,
+      'CRP_ML_Reports.zip',
+      'zip',
+    );
   }
 
   formatDate(iso: string): string {

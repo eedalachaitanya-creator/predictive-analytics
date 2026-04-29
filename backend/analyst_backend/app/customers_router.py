@@ -10,12 +10,13 @@ parameters, and expects back a JSON object with:
 """
 
 import math
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from app.auth_router import get_current_user
 from sqlalchemy import text
 
 from app.database import engine
 
-router = APIRouter(prefix="/api/v1", tags=["customers"])
+router = APIRouter(prefix="/api/v1", tags=["customers"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 
 
 @router.get("/customers")

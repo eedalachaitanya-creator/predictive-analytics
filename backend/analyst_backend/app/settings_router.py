@@ -21,15 +21,15 @@ or persisted.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
-from app.auth_router import _find_user_by_token
+from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
 
-router = APIRouter(prefix="/api/v1", tags=["settings"])
+router = APIRouter(prefix="/api/v1", tags=["settings"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("settings")
 
 

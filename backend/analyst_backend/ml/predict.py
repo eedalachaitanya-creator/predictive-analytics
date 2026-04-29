@@ -85,12 +85,69 @@ NON_FEATURE_COLS = [
 # Ordinal encoding (must match train_model.py)
 TIER_ORDER = {'Bronze': 1, 'Silver': 2, 'Gold': 3, 'Platinum': 4}
 
-# Risk level thresholds on churn_probability
+# Risk level thresholds on churn_probability — DEFAULTS only.
+# Audit issue #7: per-client thresholds are read from `client_config`
+# at scoring time when columns `risk_high_threshold` /
+# `risk_medium_threshold` exist. The defaults here apply when those
+# columns are absent (older schemas) or NULL for a given tenant.
 RISK_THRESHOLDS = {
     'high': 0.65,     # >= 0.65 → HIGH risk
     'medium': 0.35,   # >= 0.35 → MEDIUM risk
                        # < 0.35  → LOW risk
 }
+
+
+def load_risk_thresholds(
+    db_url: Optional[str],
+    client_id: Optional[str],
+) -> Dict[str, float]:
+    """
+    Resolve per-client risk thresholds, falling back to RISK_THRESHOLDS.
+
+    Audit issue #7: the previous design hard-coded 0.65 / 0.35 globally,
+    so all tenants got the same cutoffs regardless of their churn
+    distribution. This helper reads `risk_high_threshold` and
+    `risk_medium_threshold` from the client_config row when they exist
+    and are non-null.
+
+    Graceful degradation: if the columns don't exist (older schema),
+    the SELECT raises and we fall back to defaults. Same when
+    db_url/client_id is missing or the row isn't found. The fallback
+    means this fix is safe to deploy without a schema migration; the
+    migration just makes the per-client knobs functional.
+    """
+    if not db_url or not client_id:
+        return dict(RISK_THRESHOLDS)
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(db_url, pool_pre_ping=True)
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(text("""
+                    SELECT risk_high_threshold, risk_medium_threshold
+                    FROM client_config
+                    WHERE client_id = :cid
+                """), {"cid": client_id}).fetchone()
+        finally:
+            engine.dispose()
+    except Exception:
+        # Most likely cause: columns don't exist yet. Silently fall
+        # through to defaults — the schema migration introducing those
+        # columns will activate the per-client behaviour automatically.
+        return dict(RISK_THRESHOLDS)
+
+    thresholds = dict(RISK_THRESHOLDS)
+    if row is not None:
+        if row[0] is not None:
+            thresholds['high'] = float(row[0])
+        if row[1] is not None:
+            thresholds['medium'] = float(row[1])
+    if thresholds != RISK_THRESHOLDS:
+        log.info(
+            "  Per-client risk thresholds for %s: high=%.2f medium=%.2f",
+            client_id, thresholds['high'], thresholds['medium'],
+        )
+    return thresholds
 
 # Business tier adjustments — applied AFTER model scoring to prioritize
 # high-value customers. Losing a Platinum customer costs far more than
@@ -317,11 +374,167 @@ def load_model_bundle(
     }
 
 
+# Fields whose drift between training and scoring time changes the
+# meaning of either the LABEL or the feature WINDOWS. If any of these
+# differ from what the model was trained against, scoring with that
+# model is unsound — the customer's features are computed under one
+# definition while the decision boundary the model learned is for
+# another. Treated as a hard error unless --ignore-drift is set.
+LABEL_DEFINING_FREEZE_FIELDS = {
+    'churn_window_days',
+    'login_window_days',
+    'reference_date_mode',
+    'reference_date',
+}
+
+# Non-label fields are softer: a change shifts feature distributions but
+# doesn't move the label boundary. We log a WARNING and continue.
+NON_LABEL_FREEZE_FIELDS = {
+    'min_repeat_orders',
+    'recent_order_gap_window',
+    'tier_method',
+    'custom_platinum_min',
+    'custom_gold_min',
+    'custom_silver_min',
+    'custom_bronze_min',
+}
+
+
+def check_feature_freeze_drift(
+    metadata: Dict[str, Any],
+    db_url: Optional[str],
+    client_id: Optional[str],
+    ignore_drift: bool = False,
+) -> Dict[str, Any]:
+    """
+    Compare the feature_freeze snapshot saved at training time against
+    the live client_config row. Audit issue #3.
+
+    Behavior:
+        - For LABEL_DEFINING_FREEZE_FIELDS that differ → raise unless
+          ignore_drift is True (in which case we log an ERROR and continue).
+        - For NON_LABEL_FREEZE_FIELDS that differ → log a WARNING.
+        - Cross-tenant or older-metadata models (no feature_freeze block)
+          → skip silently; nothing to compare against.
+
+    Returns:
+        Dict describing the comparison so callers / tests can inspect it.
+    """
+    freeze = metadata.get('feature_freeze') or {}
+    if not freeze or freeze.get('mode') != 'per_tenant':
+        # No snapshot to compare against — older models, cross-tenant
+        # training, or a snapshot that errored at training time.
+        log.info("Drift check skipped: no per-tenant feature_freeze in metadata")
+        return {'checked': False, 'reason': 'no_per_tenant_freeze'}
+
+    if not client_id or not db_url:
+        log.info("Drift check skipped: client_id or db_url missing")
+        return {'checked': False, 'reason': 'missing_client_or_db'}
+
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(db_url, pool_pre_ping=True)
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(text("""
+                    SELECT
+                        churn_window_days,
+                        login_window_days,
+                        min_repeat_orders,
+                        recent_order_gap_window,
+                        tier_method,
+                        custom_platinum_min,
+                        custom_gold_min,
+                        custom_silver_min,
+                        custom_bronze_min,
+                        reference_date_mode,
+                        reference_date
+                    FROM client_config
+                    WHERE client_id = :cid
+                """), {"cid": client_id}).fetchone()
+        finally:
+            engine.dispose()
+    except Exception as e:
+        log.warning(
+            "Drift check could not query client_config (%s) — proceeding "
+            "without comparison.", e,
+        )
+        return {'checked': False, 'reason': 'query_failed', 'error': str(e)}
+
+    if row is None:
+        log.warning("Drift check: no client_config row for %s", client_id)
+        return {'checked': False, 'reason': 'no_config_row'}
+
+    live = {
+        'churn_window_days':       int(row[0])   if row[0]  is not None else None,
+        'login_window_days':       int(row[1])   if row[1]  is not None else None,
+        'min_repeat_orders':       int(row[2])   if row[2]  is not None else None,
+        'recent_order_gap_window': int(row[3])   if row[3]  is not None else None,
+        'tier_method':             row[4],
+        'custom_platinum_min':     float(row[5]) if row[5]  is not None else None,
+        'custom_gold_min':         float(row[6]) if row[6]  is not None else None,
+        'custom_silver_min':       float(row[7]) if row[7]  is not None else None,
+        'custom_bronze_min':       float(row[8]) if row[8]  is not None else None,
+        'reference_date_mode':     row[9],
+        'reference_date':          str(row[10]) if row[10] is not None else None,
+    }
+
+    diffs_label: Dict[str, Tuple[Any, Any]] = {}
+    diffs_other: Dict[str, Tuple[Any, Any]] = {}
+    for field, live_value in live.items():
+        train_value = freeze.get(field)
+        if train_value != live_value:
+            slot = diffs_label if field in LABEL_DEFINING_FREEZE_FIELDS else diffs_other
+            slot[field] = (train_value, live_value)
+
+    if not diffs_label and not diffs_other:
+        log.info("Drift check: client_config matches training-time snapshot ✓")
+        return {'checked': True, 'drifted': False, 'live': live, 'training': dict(freeze)}
+
+    if diffs_other:
+        log.warning(
+            "Drift check: %d non-label setting(s) changed since training:",
+            len(diffs_other),
+        )
+        for field, (was, now) in diffs_other.items():
+            log.warning("    %s: %r → %r", field, was, now)
+
+    if diffs_label:
+        msg_lines = [
+            f"  {f}: trained_with={was!r}, live={now!r}"
+            for f, (was, now) in diffs_label.items()
+        ]
+        message = (
+            f"Label-defining settings have drifted since training "
+            f"({len(diffs_label)} field(s)):\n" + "\n".join(msg_lines) +
+            "\n\nThe model was trained against a different label/window "
+            "definition than the live MV uses. Retrain before scoring, "
+            "or pass --ignore-drift to override (predictions will be "
+            "biased)."
+        )
+        if ignore_drift:
+            log.error("DRIFT IGNORED VIA --ignore-drift:\n%s", message)
+        else:
+            raise RuntimeError(message)
+
+    return {
+        'checked': True,
+        'drifted': True,
+        'label_drift': diffs_label,
+        'other_drift': diffs_other,
+        'live': live,
+        'training': dict(freeze),
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 2: DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════════
 
-def load_customers_from_db(db_url: str, client_id: str = None) -> pd.DataFrame:
+def load_customers_from_db(
+    db_url: str,
+    client_id: Optional[str] = None,
+) -> pd.DataFrame:
     """
     Load customer features from mv_customer_features.
 
@@ -335,17 +548,24 @@ def load_customers_from_db(db_url: str, client_id: str = None) -> pd.DataFrame:
     log.info("Loading customers from database...")
     from sqlalchemy import create_engine, text
 
+    # Audit issue #8: dispose the engine even if pd.read_sql raises so
+    # the connection pool isn't leaked.
     engine = create_engine(db_url, pool_pre_ping=True)
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    log.info("  Connected successfully")
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        log.info("  Connected successfully")
 
-    if client_id:
-        log.info("  Filtering by client_id=%s", client_id)
-        df = pd.read_sql(text("SELECT * FROM mv_customer_features WHERE client_id = :cid"), engine, params={"cid": client_id})
-    else:
-        df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
-    engine.dispose()
+        if client_id:
+            log.info("  Filtering by client_id=%s", client_id)
+            df = pd.read_sql(
+                text("SELECT * FROM mv_customer_features WHERE client_id = :cid"),
+                engine, params={"cid": client_id},
+            )
+        else:
+            df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
+    finally:
+        engine.dispose()
     log.info("  Loaded %d customers x %d columns", df.shape[0], df.shape[1])
     return df
 
@@ -372,7 +592,9 @@ def load_customers_from_csv(csv_path: str) -> pd.DataFrame:
 
 def prepare_features_for_scoring(
     df: pd.DataFrame,
-    feature_names: List[str]
+    feature_names: List[str],
+    imputation_values: Optional[Dict[str, float]] = None,
+    allow_missing_features: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Prepare customer data for model scoring.
@@ -381,12 +603,22 @@ def prepare_features_for_scoring(
         1. Extract customer identifiers (client_id, customer_id)
         2. Encode customer_tier → ordinal (matching train_model.py)
         3. Align columns to the exact feature list the model expects
-        4. Fill missing features with 0
-        5. Handle NaN values
+        4. Fill missing features with 0  (or RAISE if allow_missing_features=False)
+        5. Apply training-time imputation values for known semantic-null columns
+        6. Safety-net fillna(0) for any remaining NaN
 
     Args:
         df: Raw customer DataFrame
         feature_names: The exact list of features the model was trained on
+        imputation_values: dict of column → fill-value, sourced from
+            metadata['imputation_values'] saved at training time. Applied
+            BEFORE the safety-net fillna so semantic-null columns
+            (median_days_between_orders, etc.) get the same value here as
+            they did during training. Audit issue #1.
+        allow_missing_features: when False (default), raises if any model
+            feature is absent from the scoring DataFrame. When True, the
+            old behaviour of silently filling with 0 is preserved (debug
+            only). Audit issue #2.
 
     Returns:
         (X_score, customer_info) — features for model + identifiers for output
@@ -407,20 +639,71 @@ def prepare_features_for_scoring(
         log.info("  Encoded customer_tier → customer_tier_encoded (1-4)")
 
     # Align to model features
-    available = [f for f in feature_names if f in df_work.columns]
     missing = [f for f in feature_names if f not in df_work.columns]
 
     if missing:
-        log.warning("  Missing %d features (filling with 0): %s", len(missing), missing)
+        # Audit issue #2: silently filling missing features with 0 produced
+        # nonsense scores when the MV dropped a column the model expected.
+        # Fail loudly by default; --allow-missing-features keeps the old
+        # behaviour for one-off debugging.
+        if not allow_missing_features:
+            raise RuntimeError(
+                f"Model expects {len(feature_names)} features but the input "
+                f"DataFrame is missing {len(missing)}: {missing}. The MV may "
+                "have drifted from the training schema. Re-run the pipeline "
+                "to refresh mv_customer_features, retrain the model, or pass "
+                "--allow-missing-features to fall back to zero-fill (NOT "
+                "recommended for production scoring)."
+            )
+        log.warning(
+            "  --allow-missing-features set: filling %d missing model "
+            "feature(s) with 0 — predictions will be unreliable: %s",
+            len(missing), missing,
+        )
         for feat in missing:
             df_work[feat] = 0
 
     X_score = df_work[feature_names].copy()
 
-    # Handle NaN
-    nan_count = X_score.isna().sum().sum()
-    if nan_count > 0:
-        log.warning("  Found %d NaN values — filling with 0", nan_count)
+    # ── Apply training-time imputation (audit issue #1) ─────────────────────
+    # Older models without imputation_values in metadata get an empty dict
+    # here, so the safety-net fillna(0) below behaves exactly as it did
+    # before this fix. New models capture median_days_between_orders /
+    # order_gap_mean_median_diff at training time so scoring uses the
+    # same value, eliminating train/predict skew on semantic-null columns.
+    if imputation_values:
+        applied = 0
+        for col, value in imputation_values.items():
+            if col in X_score.columns and X_score[col].isna().any():
+                n = int(X_score[col].isna().sum())
+                X_score[col] = X_score[col].fillna(value)
+                applied += n
+                log.info(
+                    "  Imputed %d NULL(s) in '%s' with training-time value %.4f",
+                    n, col, float(value),
+                )
+        if applied == 0 and imputation_values:
+            log.info(
+                "  Training metadata carried %d imputation value(s) but no "
+                "matching NULLs at scoring time — nothing to apply",
+                len(imputation_values),
+            )
+
+    # Safety-net: any remaining NaN columns get zero-filled. This handles
+    # columns that legitimately mean zero when null (e.g., counts), and
+    # preserves backward compatibility with older models that don't have
+    # imputation_values in their metadata.
+    per_col_nan = X_score.isna().sum()
+    nan_cols = per_col_nan[per_col_nan > 0]
+    if not nan_cols.empty:
+        log.warning(
+            "  Filling NaN with 0 across %d column(s) (total %d cells). "
+            "If a column is semantic-null (\"unknown\" rather than \"zero\"), "
+            "add it to the explicit-imputation block in train_model.py.",
+            len(nan_cols), int(nan_cols.sum()),
+        )
+        for col, count in nan_cols.items():
+            log.warning("    %-40s  %d NaN", col, int(count))
         X_score = X_score.fillna(0)
 
     log.info("  Scoring matrix: %d customers x %d features", X_score.shape[0], X_score.shape[1])
@@ -551,7 +834,18 @@ def apply_tier_weighting(
         Adjusted probabilities (same length, in the open interval (0, 1))
     """
     if 'customer_tier' not in original_df.columns:
-        log.warning("  No customer_tier column found — skipping tier adjustment")
+        # Audit issue #11: bumped from WARNING → ERROR. Skipping tier
+        # weighting silently gives every customer the same global risk
+        # threshold, which collapses the Platinum-prioritization the
+        # business depends on. Including the batch size makes the
+        # impact obvious in production logs.
+        log.error(
+            "No customer_tier column found in input (batch size: %d) — "
+            "tier-weighting skipped for ALL customers. Platinum/Gold "
+            "boost and Bronze damping will not apply. Add customer_tier "
+            "to your data source (CSV header or MV column).",
+            len(original_df),
+        )
         return probabilities
 
     log.info("Applying business-tier log-odds shift...")
@@ -631,7 +925,9 @@ def _unwrap_calibrated(model: Any) -> Any:
 def compute_churn_drivers(
     model: Any,
     X_score: pd.DataFrame,
-    top_n: int = 3
+    top_n: int = 3,
+    probabilities: Optional[np.ndarray] = None,
+    low_risk_cutoff: float = 0.0,
 ) -> pd.DataFrame:
     """
     Identify the top N churn drivers per customer using SHAP values.
@@ -662,10 +958,20 @@ def compute_churn_drivers(
         model: Trained classifier (XGBoost or RandomForest)
         X_score: Scaled feature matrix (customers × features)
         top_n: Number of top drivers to extract (default: 3)
+        probabilities: Optional per-customer churn probabilities. When
+            provided alongside ``low_risk_cutoff > 0``, customers whose
+            probability is below the cutoff get None drivers regardless
+            of which SHAP path is taken — the heuristic fallback would
+            otherwise emit "drivers" even for low-risk rows. Audit
+            issue #9.
+        low_risk_cutoff: Probability threshold below which drivers are
+            suppressed. Set to MEDIUM threshold by callers so the UI
+            doesn't show driver attribution for LOW-risk customers.
 
     Returns:
         DataFrame with columns: driver_1, driver_2, ..., driver_N.
-        Entries are None when no feature pushed the customer toward churn.
+        Entries are None when no feature pushed the customer toward
+        churn or the customer is below the low-risk cutoff.
     """
     log.info("Computing per-customer churn drivers (SHAP)...")
 
@@ -792,7 +1098,20 @@ def compute_churn_drivers(
     # ── 2. For each customer, keep only features that pushed TOWARD churn ──
     driver_cols = {f'driver_{i+1}': [] for i in range(top_n)}
 
+    # Audit issue #9: suppress driver attribution for LOW-risk
+    # customers. Without this, the heuristic fallback emits a top-N
+    # list for every row, including customers with probability ≈ 0.05,
+    # and the UI shows "this 5%-churn customer's #1 driver is X".
+    suppress_low_risk = (
+        probabilities is not None and low_risk_cutoff > 0.0
+    )
+
     for row_idx in range(n_customers):
+        if suppress_low_risk and probabilities[row_idx] < low_risk_cutoff:
+            for rank in range(top_n):
+                driver_cols[f'driver_{rank + 1}'].append(None)
+            continue
+
         row_shap = shap_values[row_idx]
 
         # Zero out protective features (negative SHAP) so they are never
@@ -852,7 +1171,11 @@ def build_score_table(
     log.info("Building score table...")
 
     score_df = customer_info.copy()
-    score_df['churn_probability'] = np.round(probabilities, 4)
+    # Audit issue #10: keep full precision in the score table. The
+    # display layer (CSV / report / UI) is free to round when
+    # rendering, but persisting a 4-dp value loses information for
+    # downstream calibration / AUC-recompute / archival use.
+    score_df['churn_probability'] = probabilities.astype(float)
     score_df['risk_level'] = risk_levels
 
     # Add context columns for the strategist agent.
@@ -924,7 +1247,11 @@ def save_scores_json(score_df: pd.DataFrame, output_path: Optional[Path] = None)
     return output_path
 
 
-def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
+def save_scores_to_db(
+    score_df: pd.DataFrame,
+    db_url: str,
+    model_version: str = 'unknown',
+) -> int:
     """
     Save scoring results to PostgreSQL churn_scores table.
 
@@ -932,6 +1259,12 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
         score_id (serial PK), client_id, customer_id, scored_at,
         churn_probability, risk_tier, churn_label_simulated,
         model_version, batch_run_id
+
+    `model_version` is now derived from the training metadata (audit
+    issue #4) instead of being hardcoded — every row is tagged with
+    the model_type / training_date / AUC of the model that produced
+    it, so a downstream auditor can reconstruct which trained model
+    each prediction came from.
 
     We map our DataFrame columns to match this schema, then clear
     only the client(s) in this batch (NOT TRUNCATE) to preserve both
@@ -941,72 +1274,108 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
     from sqlalchemy import create_engine, text, inspect
     from datetime import datetime
 
+    # Audit issue #8: wrap the engine lifecycle in try/finally so the
+    # connection pool is released even when something below raises.
     engine = create_engine(db_url, pool_pre_ping=True)
-    inspector = inspect(engine)
+    try:
+        inspector = inspect(engine)
 
-    if 'churn_scores' in inspector.get_table_names():
+        if 'churn_scores' not in inspector.get_table_names():
+            # Audit issue #5: previously we silently created a malformed
+            # `churn_scores` table with whatever columns score_df happened
+            # to have, breaking the FK from retention_interventions and
+            # the UNIQUE (client_id, customer_id) constraint that the rest
+            # of the application relies on. Fail loudly instead so the
+            # operator runs the missing migration.
+            raise RuntimeError(
+                "churn_scores table is missing. The application schema "
+                "(and the FK from retention_interventions) require it. "
+                "Run db/schema_postgresql.sql plus "
+                "migration_churn_scores_unique.sql before scoring."
+            )
+
         # Table exists with teammate's schema — clear only this run's
         # clients, then insert matching rows.
         #
         # WHY per-client DELETE instead of TRUNCATE:
         #   The schema is multi-tenant. TRUNCATE wipes every client's
-        #   scores, so scoring CLT-001 alone would wipe CLT-002's predictions.
-        #   We restrict the delete to clients present in the current batch.
+        #   scores, so scoring CLT-001 alone would wipe CLT-002's
+        #   predictions. We restrict the delete to clients present in
+        #   the current batch.
         #
         # WHY one transaction (engine.begin) around DELETE + INSERT:
-        #   Previously the DELETE committed on one connection and the INSERT
-        #   ran on a second connection. Two overlapping pipeline runs for
-        #   the same client could both DELETE (each seeing the other's
-        #   already-deleted table), then both INSERT — producing 2× rows
-        #   per customer. Inside a single engine.begin() the DELETE holds
-        #   row locks until the INSERT is committed, so a concurrent run
-        #   blocks until this one finishes, then overwrites cleanly.
-        #   Belt-and-braces: the churn_scores (client_id, customer_id)
-        #   UNIQUE constraint (migration_churn_scores_unique.sql) makes a
-        #   duplicate INSERT fail loudly rather than silently duplicating.
+        #   Previously the DELETE committed on one connection and the
+        #   INSERT ran on a second connection. Two overlapping pipeline
+        #   runs for the same client could both DELETE (each seeing the
+        #   other's already-deleted table), then both INSERT — producing
+        #   2× rows per customer. Inside a single engine.begin() the
+        #   DELETE holds row locks until the INSERT is committed, so a
+        #   concurrent run blocks until this one finishes, then
+        #   overwrites cleanly. Belt-and-braces: the churn_scores
+        #   (client_id, customer_id) UNIQUE constraint
+        #   (migration_churn_scores_unique.sql) makes a duplicate INSERT
+        #   fail loudly rather than silently duplicating.
         clients_in_batch = score_df['client_id'].dropna().unique().tolist()
         log.info("  Clearing existing churn_scores for %d client(s): %s",
                  len(clients_in_batch), clients_in_batch)
 
-        # Map our columns to the teammate's schema BEFORE opening the txn
-        # so any conversion error aborts without holding DB locks.
+        # Map our columns to the teammate's schema BEFORE opening the
+        # transaction so any conversion error aborts without holding DB
+        # locks.
         db_df = pd.DataFrame()
         db_df['client_id'] = score_df['client_id']
         db_df['customer_id'] = score_df['customer_id']
         db_df['scored_at'] = datetime.now()
         db_df['churn_probability'] = score_df['churn_probability']
-        # Map risk_level → risk_tier (teammate uses risk_tier)
         db_df['risk_tier'] = score_df['risk_level'].map({
             'HIGH': 'HIGH', 'MEDIUM': 'MEDIUM', 'LOW': 'LOW'
         }).fillna('LOW')
-        db_df['churn_label_simulated'] = (score_df['churn_probability'] >= 0.5)
-        # Add churn drivers (top 3 features contributing to this customer's score)
+        # Audit issue #6: align churn_label_simulated with the risk_tier
+        # boundary instead of using a separate 0.5 cutoff. Previously a
+        # customer at probability 0.55 was risk_tier='MEDIUM' but
+        # churn_label_simulated=True — joining the two columns produced
+        # garbage. Now the simulated label is True iff the customer is
+        # in the HIGH risk tier (probability >= RISK_THRESHOLDS['high']).
+        db_df['churn_label_simulated'] = (score_df['risk_level'] == 'HIGH')
+        # Top 3 features contributing to this customer's score
         db_df['driver_1'] = score_df.get('driver_1')
         db_df['driver_2'] = score_df.get('driver_2')
         db_df['driver_3'] = score_df.get('driver_3')
-        db_df['model_version'] = 'v1.0'
-        db_df['batch_run_id'] = f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Audit issue #4: derive model_version from training metadata so
+        # every row is traceable back to the trained model that produced
+        # it. Format: <model_type>_<yyyy-mm-dd>_auc<auc>. Caller passes
+        # 'unknown' if the model lacks metadata (older bundles).
+        db_df['model_version'] = model_version
+        db_df['batch_run_id'] = (
+            f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
 
         # Defensive: even if score_df somehow carries duplicates for a
-        # (client_id, customer_id) pair, keep only the first. Without this
-        # the INSERT would itself violate the UNIQUE constraint.
+        # (client_id, customer_id) pair, keep only the first. Without
+        # this the INSERT would itself violate the UNIQUE constraint.
         before_dedupe = len(db_df)
-        db_df = db_df.drop_duplicates(subset=['client_id', 'customer_id'], keep='first')
+        db_df = db_df.drop_duplicates(
+            subset=['client_id', 'customer_id'], keep='first'
+        )
         if len(db_df) != before_dedupe:
-            log.warning("  Dropped %d duplicate (client_id, customer_id) rows "
-                        "from score_df before insert", before_dedupe - len(db_df))
+            log.warning(
+                "  Dropped %d duplicate (client_id, customer_id) rows "
+                "from score_df before insert",
+                before_dedupe - len(db_df),
+            )
 
         # engine.begin() = single transactional scope. DELETE + INSERT
-        # commit together at the end of the with-block; if anything raises,
-        # the whole thing rolls back and the table is left untouched.
+        # commit together at the end of the with-block; if anything
+        # raises, the whole thing rolls back and the table is untouched.
         with engine.begin() as conn:
             if clients_in_batch:
-                # First null out any retention_interventions FK pointing at
-                # the rows we're about to delete — the FK has no ON DELETE
-                # action so PG would otherwise raise 23503.
+                # First null out any retention_interventions FK pointing
+                # at the rows we're about to delete — the FK has no
+                # ON DELETE action so PG would otherwise raise 23503.
                 conn.execute(
                     text(
-                        "UPDATE retention_interventions SET churn_score_id = NULL "
+                        "UPDATE retention_interventions "
+                        "SET churn_score_id = NULL "
                         "WHERE churn_score_id IN ("
                         "  SELECT score_id FROM churn_scores "
                         "  WHERE client_id = ANY(:cids)"
@@ -1015,23 +1384,28 @@ def save_scores_to_db(score_df: pd.DataFrame, db_url: str) -> int:
                     {"cids": clients_in_batch},
                 )
                 conn.execute(
-                    text("DELETE FROM churn_scores WHERE client_id = ANY(:cids)"),
+                    text(
+                        "DELETE FROM churn_scores "
+                        "WHERE client_id = ANY(:cids)"
+                    ),
                     {"cids": clients_in_batch},
                 )
             else:
-                log.warning("  No client_id values in score_df — skipping delete")
+                log.warning(
+                    "  No client_id values in score_df — skipping delete"
+                )
 
-            # Pass the live connection into pandas so the INSERT joins the
-            # same transaction instead of grabbing a fresh pooled connection.
-            db_df.to_sql('churn_scores', conn, if_exists='append', index=False)
-    else:
-        # Table doesn't exist — create fresh with our data
-        score_df.to_sql('churn_scores', engine, if_exists='replace', index=False)
+            # Pass the live connection into pandas so the INSERT joins
+            # the same transaction instead of grabbing a fresh pooled
+            # connection.
+            db_df.to_sql(
+                'churn_scores', conn, if_exists='append', index=False
+            )
 
-    engine.dispose()
-
-    log.info("  Inserted %d rows into churn_scores", len(score_df))
-    return len(score_df)
+        log.info("  Inserted %d rows into churn_scores", len(score_df))
+        return len(score_df)
+    finally:
+        engine.dispose()
 
 
 def generate_risk_report(score_df: pd.DataFrame) -> Dict[str, Any]:
@@ -1382,7 +1756,9 @@ def run_scoring_pipeline(
     model_path: Optional[str] = None,
     output_mode: str = 'csv',
     top_n: int = 10,
-    client_id: str = None,
+    client_id: Optional[str] = None,
+    allow_missing_features: bool = False,
+    ignore_drift: bool = False,
 ) -> Dict[str, Any]:
     """
     End-to-end batch scoring pipeline (CLI mode).
@@ -1409,6 +1785,20 @@ def run_scoring_pipeline(
     model = bundle['model']
     scaler = bundle['scaler']
     feature_names = bundle['feature_names']
+    metadata = bundle['metadata']
+    imputation_values = metadata.get('imputation_values', {})  # audit #1
+
+    # 1b. Drift check (audit issue #3) — compare the live client_config
+    # against the snapshot saved in metadata at training time. Aborts on
+    # label-defining drift unless --ignore-drift is set.
+    if source == 'db':
+        effective_db_url = db_url or os.getenv('DB_URL')
+        check_feature_freeze_drift(
+            metadata,
+            db_url=effective_db_url,
+            client_id=client_id,
+            ignore_drift=ignore_drift,
+        )
 
     # 2. Load data
     if source == 'db':
@@ -1430,8 +1820,12 @@ def run_scoring_pipeline(
                 raise FileNotFoundError("No CSV found. Run compute_rfm.py first.")
         df = load_customers_from_csv(csv_path)
 
-    # 3. Prepare features
-    X_score, customer_info = prepare_features_for_scoring(df, feature_names)
+    # 3. Prepare features (audit fixes #1, #2)
+    X_score, customer_info = prepare_features_for_scoring(
+        df, feature_names,
+        imputation_values=imputation_values,
+        allow_missing_features=allow_missing_features,
+    )
 
     # 4. Scale
     X_scaled = scale_for_scoring(X_score, scaler)
@@ -1442,11 +1836,24 @@ def run_scoring_pipeline(
     # 5b. Apply business-tier weighting (Platinum/Gold get boosted)
     probabilities = apply_tier_weighting(raw_probabilities, df)
 
-    # 6. Risk levels (based on tier-adjusted probabilities)
-    risk_levels = assign_risk_levels(probabilities)
+    # 6. Risk levels (based on tier-adjusted probabilities). Audit
+    # issue #7: thresholds are resolved per-client when client_config
+    # carries risk_high_threshold / risk_medium_threshold; otherwise
+    # fall back to the global RISK_THRESHOLDS defaults.
+    effective_db_url = db_url or os.getenv('DB_URL')
+    risk_thresholds = load_risk_thresholds(
+        db_url=effective_db_url, client_id=client_id,
+    )
+    risk_levels = assign_risk_levels(probabilities, thresholds=risk_thresholds)
 
-    # 6b. Compute per-customer churn drivers (top 3 features)
-    drivers_df = compute_churn_drivers(model, X_scaled, top_n=3)
+    # 6b. Compute per-customer churn drivers (top 3 features). Audit
+    # issue #9: pass probabilities + the medium cutoff so LOW-risk
+    # customers get None drivers instead of a misleading top-3 list.
+    drivers_df = compute_churn_drivers(
+        model, X_scaled, top_n=3,
+        probabilities=probabilities,
+        low_risk_cutoff=risk_thresholds['medium'],
+    )
 
     # 7. Score table
     score_df = build_score_table(customer_info, probabilities, risk_levels, df, drivers_df)
@@ -1466,7 +1873,18 @@ def run_scoring_pipeline(
         if not db_url:
             log.warning("  No db_url — skipping database save")
         else:
-            rows = save_scores_to_db(score_df, db_url)
+            # Audit issue #4: build a traceable version string from the
+            # training metadata so every row in churn_scores can be tied
+            # back to the trained model that produced it.
+            metrics = metadata.get('metrics', {})
+            training_date = (metadata.get('training_date') or 'unknown')[:10]
+            auc = metrics.get('auc_roc')
+            auc_str = f"{auc:.3f}" if isinstance(auc, (int, float)) else 'na'
+            model_version = (
+                f"{metadata.get('model_type', 'unknown')}_"
+                f"{training_date}_auc{auc_str}"
+            )
+            rows = save_scores_to_db(score_df, db_url, model_version=model_version)
             output_files['db_rows'] = rows
 
     # 9. Risk report
@@ -1523,6 +1941,15 @@ Examples:
                         help='API server host (default: 0.0.0.0)')
     parser.add_argument('--client-id', type=str, default=None,
                         help='Filter data by client_id (e.g., CLT-002)')
+    parser.add_argument('--allow-missing-features', action='store_true',
+                        help='Fall back to zero-filling features the model '
+                             'expects but the input data lacks. NOT '
+                             'recommended for production. Audit issue #2.')
+    parser.add_argument('--ignore-drift', action='store_true',
+                        help='Skip the abort when client_config has drifted '
+                             'from the training-time snapshot. Predictions '
+                             'will be biased — use only for debugging. '
+                             'Audit issue #3.')
     return parser.parse_args()
 
 
@@ -1556,6 +1983,8 @@ def main():
             model_path=args.model_path,
             output_mode=args.output,
             client_id=args.client_id,
+            allow_missing_features=args.allow_missing_features,
+            ignore_drift=args.ignore_drift,
         )
         sys.exit(0 if result.get('summary') else 1)
 

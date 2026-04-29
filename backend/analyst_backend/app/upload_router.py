@@ -26,18 +26,62 @@ HOW IT WORKS (NEW BATCH FLOW):
 
 import os
 import io
+import re
 import uuid
 import logging
 from datetime import datetime
 
 import pandas as pd
 from sqlalchemy import text
-from fastapi import APIRouter, File, Form, UploadFile, Query, HTTPException, Header, Request
+from fastapi import APIRouter, File, Form, UploadFile, Query, HTTPException, Header, Request, Depends
 from typing import Optional
 
 from app.database import engine
-from app.auth_router import _find_user_by_token
+from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
+
+
+# Audit fix 2026-04-29 (#1): centralized tenant access check for every
+# endpoint in this router. Same pattern used in chat_router. super_admin
+# (clientAccess == ['*']) bypasses the per-tenant check. Anyone else
+# must have the requested client_id in their clientAccess list.
+def _require_client_access(user: dict, client_id: str) -> None:
+    if user.get("role") == "super_admin" or "*" in (user.get("clientAccess") or []):
+        return
+    if client_id not in (user.get("clientAccess") or []):
+        raise HTTPException(
+            status_code=403,
+            detail=f"You do not have access to client {client_id}",
+        )
+
+
+# Audit fix 2026-04-29 (#2): sanitize filenames before they hit disk.
+# os.path.join doesn't reject `../` segments, so a raw UploadFile.filename
+# can escape UPLOAD_DIR and write arbitrary paths. We strip everything
+# that isn't a basic ASCII letter/digit/dash/underscore/dot, and then
+# take basename() as belt-and-braces. Audit-relevant filenames get
+# normalised to a safe slug; the original value is logged separately.
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _sanitize_filename(raw: str) -> str:
+    """Return a path-traversal-safe filename derived from a user-supplied one."""
+    if not raw:
+        return "upload.dat"
+    # basename() drops any leading path segments before the final /,
+    # then we kill any remaining unsafe character.
+    cleaned = _SAFE_FILENAME_RE.sub("_", os.path.basename(str(raw)))
+    # Reject empty / dot-only results that would still be problematic.
+    if not cleaned or cleaned in (".", ".."):
+        return "upload.dat"
+    return cleaned[:200]  # cap length so we can't blow path-name limits
+
+
+# Audit fix 2026-04-29 (#3): cap file size at 50 MB to prevent OOM via
+# pathological multi-GB uploads. The Excel files our pipeline expects
+# are well under 5 MB; 50 MB is a generous ceiling. Override via env
+# var if a tenant ever needs it raised.
+MAX_UPLOAD_BYTES = int(os.environ.get("CRP_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 router = APIRouter(prefix="/api/v1", tags=["uploads"])
 log = logging.getLogger("upload")
@@ -685,7 +729,11 @@ def _read_file_to_df(file_bytes: bytes, filename: str, master_type: str = None) 
 # master_type="commit" and get rejected. Declaring literals first fixes that.
 
 @router.post("/uploads/commit")
-def commit_batch(clientId: str = Query(...)):
+def commit_batch(
+    request: Request,
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),  # Audit fix #1
+):
     """
     Validate + commit the pending batch to real tables.
 
@@ -696,6 +744,7 @@ def commit_batch(clientId: str = Query(...)):
     If anything fails, staging data is preserved and the user can fix and
     retry. On success, staging is cleared and the batch is marked committed.
     """
+    _require_client_access(user, clientId)
     with engine.begin() as conn:
         batch_id = _get_pending_batch_id(conn, clientId)
         if not batch_id:
@@ -732,6 +781,22 @@ def commit_batch(clientId: str = Query(...)):
             # Don't fail the whole commit — MV can be refreshed manually.
             result["mvRefreshWarning"] = str(e)
 
+    # Audit fix #4: record the successful commit so the audit log can
+    # reconstruct who promoted which batch into the real tables.
+    total_rows = sum(result["perTypeRows"].values())
+    log_audit_event(
+        request,
+        action_type="batch_commit",
+        details=(
+            f"batch={batch_id} · {total_rows:,} rows committed across "
+            f"{len([k for k, v in result['perTypeRows'].items() if v > 0])} table(s)"
+        ),
+        client_id=clientId,
+        user_id=user.get("id"),
+        user_email=user.get("email"),
+        outcome="success",
+    )
+
     return {
         "committed": True,
         "batchId": batch_id,
@@ -741,11 +806,16 @@ def commit_batch(clientId: str = Query(...)):
 
 
 @router.post("/uploads/discard")
-def discard_batch(clientId: str = Query(...)):
+def discard_batch(
+    request: Request,
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),  # Audit fix #1
+):
     """
     Throw away the pending batch. Deletes all its staging rows and marks
     the batch 'discarded'. Uploaded files on disk are also deleted.
     """
+    _require_client_access(user, clientId)
     with engine.begin() as conn:
         batch_id = _get_pending_batch_id(conn, clientId)
         if not batch_id:
@@ -775,6 +845,17 @@ def discard_batch(clientId: str = Query(...)):
     except Exception:
         pass
 
+    # Audit fix #4: every batch discard leaves a tamper-resistant trail.
+    log_audit_event(
+        request,
+        action_type="batch_discard",
+        details=f"batch={batch_id} · {total_deleted:,} staging rows deleted",
+        client_id=clientId,
+        user_id=user.get("id"),
+        user_email=user.get("email"),
+        outcome="success",
+    )
+
     return {
         "discarded": True,
         "batchId": batch_id,
@@ -790,6 +871,7 @@ async def upload_file(
     clientId: str = Form(None),             # NOW OPTIONAL — auto-detected from token
     masterType: str = Form(None),
     authorization: Optional[str] = Header(default=None),
+    user: dict = Depends(get_current_user),  # Audit fix #1 — require auth
 ):
     """
     Upload a CSV or Excel file for a specific master type.
@@ -816,17 +898,10 @@ async def upload_file(
         )
 
     # ── Auto-detect client_id if not provided ─────────────────────────
+    # `user` is now provided by Depends(get_current_user) above (audit #1
+    # — auth was previously skipped when clientId was supplied in the
+    # form, so anyone could upload to any tenant).
     if not clientId:
-        if not authorization:
-            raise HTTPException(
-                status_code=400,
-                detail="Either provide clientId in the form, or include an Authorization header",
-            )
-        token = authorization.replace("Bearer ", "")
-        user = _find_user_by_token(token)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-
         client_access = user.get("clientAccess", [])
 
         if "*" in client_access:
@@ -838,7 +913,7 @@ async def upload_file(
         elif len(client_access) == 1:
             # User has access to exactly one client → auto-detect!
             clientId = client_access[0]
-            log.info("Auto-detected client_id=%s from user %s", clientId, user["email"])
+            log.info("Auto-detected client_id=%s from user %s", clientId, user.get("email"))
         elif len(client_access) > 1:
             # User has access to multiple clients → they need to pick one
             raise HTTPException(
@@ -848,11 +923,44 @@ async def upload_file(
             )
         else:
             raise HTTPException(status_code=403, detail="You don't have access to any clients")
+    else:
+        # Caller supplied a clientId — verify they actually have access
+        # to it (audit #1 — previously trusted the form value blindly).
+        _require_client_access(user, clientId)
 
-    # Read the file
+    # ── File size guard (audit fix #3) ────────────────────────────────
+    # Reject before reading the body into memory. Some clients send
+    # Content-Length; FastAPI exposes it as file.size when set.
+    declared_size = getattr(file, "size", None)
+    if declared_size is not None and declared_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {declared_size:,} bytes exceeds the "
+                   f"{MAX_UPLOAD_BYTES:,}-byte cap. Override with the "
+                   f"CRP_MAX_UPLOAD_BYTES env var if your dataset legitimately "
+                   f"needs more.",
+        )
+
+    # Read the file. Even if the client lied about Content-Length, we
+    # check the actual buffered size again before staging.
     file_bytes = await file.read()
     file_size = len(file_bytes)
-    filename = file.filename or f"{master_type}.csv"
+    if file_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {file_size:,} bytes exceeds the "
+                   f"{MAX_UPLOAD_BYTES:,}-byte cap.",
+        )
+    # Audit fix #2: sanitize the user-supplied filename before we do
+    # ANYTHING with it on disk. Path traversal via `../` would otherwise
+    # let a malicious upload write outside UPLOAD_DIR.
+    raw_filename = file.filename or f"{master_type}.csv"
+    filename = _sanitize_filename(raw_filename)
+    if filename != raw_filename:
+        log.info(
+            "Sanitized upload filename %r → %r (client=%s, master_type=%s)",
+            raw_filename, filename, clientId, master_type,
+        )
 
     # Validate by reading with pandas
     try:
@@ -903,16 +1011,16 @@ async def upload_file(
 
     # ── Audit the successful upload ─────────────────────────────────
     # The UI's "File Upload" row in the audit log comes from here.
-    audit_user = None
-    if authorization:
-        audit_user = _find_user_by_token(authorization.replace("Bearer ", ""))
+    # `user` is the authenticated identity from Depends — no need to
+    # re-resolve from the token (the previous code did, but now that
+    # auth is required up front the user is always present).
     log_audit_event(
         request,
         action_type="file_upload",
         details=f"{master_type} · {filename} · {row_count:,} rows",
         client_id=clientId,
-        user_id=audit_user["id"] if audit_user else None,
-        user_email=audit_user["email"] if audit_user else None,
+        user_id=user.get("id"),
+        user_email=user.get("email"),
         outcome="success",
     )
 
@@ -931,7 +1039,10 @@ async def upload_file(
 
 
 @router.get("/uploads")
-def list_uploads(clientId: str = Query(...)):
+def list_uploads(
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),  # Audit fix #1
+):
     """
     List staged files in the client's PENDING batch.
 
@@ -941,6 +1052,7 @@ def list_uploads(clientId: str = Query(...)):
 
     If there is no pending batch, returns an empty list.
     """
+    _require_client_access(user, clientId)
     with engine.begin() as conn:
         batch_id = _get_pending_batch_id(conn, clientId)
         if not batch_id:
@@ -967,13 +1079,17 @@ def list_uploads(clientId: str = Query(...)):
 
 
 @router.get("/uploads/batch")
-def get_pending_batch(clientId: str = Query(...)):
+def get_pending_batch(
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),  # Audit fix #1
+):
     """
     Return the pending batch summary for a client (or null if none).
 
     Use this on the Upload page to show "You have N files staged. Ready
     to commit?" before the user clicks the Commit button.
     """
+    _require_client_access(user, clientId)
     with engine.begin() as conn:
         row = conn.execute(
             text("SELECT batch_id::text, created_at, status "
@@ -1015,7 +1131,9 @@ def get_pending_batch(clientId: str = Query(...)):
 @router.delete("/uploads/{master_type}")
 def delete_upload(
     master_type: str,
+    request: Request,
     clientId: str = Query(...),
+    user: dict = Depends(get_current_user),  # Audit fix #1
 ):
     """
     Remove a single master_type's rows from the pending batch.
@@ -1023,6 +1141,7 @@ def delete_upload(
     Useful if the user staged the wrong file and wants to redo just that
     one. If no pending batch exists, this is a no-op.
     """
+    _require_client_access(user, clientId)
     if master_type not in VALID_MASTER_TYPES:
         raise HTTPException(
             status_code=400,
@@ -1056,6 +1175,18 @@ def delete_upload(
                 os.remove(os.path.join(UPLOAD_DIR, f))
     except Exception:
         pass
+
+    # Audit fix #4: log the staging-row delete so we can trace
+    # "user X removed Y master from pending batch Z" later.
+    log_audit_event(
+        request,
+        action_type="batch_file_remove",
+        details=f"batch={batch_id} · {master_type} · {deleted:,} rows removed",
+        client_id=clientId,
+        user_id=user.get("id"),
+        user_email=user.get("email"),
+        outcome="success",
+    )
 
     return {
         "deleted": deleted,

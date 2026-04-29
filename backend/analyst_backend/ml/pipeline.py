@@ -35,6 +35,7 @@ import sys
 import argparse
 import logging
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -165,14 +166,32 @@ class PipelineStatus:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+@contextmanager
 def connect_db(db_url: str):
-    """Create SQLAlchemy engine and verify connection."""
+    """
+    Yield a verified SQLAlchemy engine that is always disposed on exit.
+
+    Audit issue #5 (2026-04-28) — previously this returned a bare engine
+    and every caller was responsible for calling .dispose() afterward.
+    Several call sites disposed only on the success path, so any
+    exception between connect_db() and dispose() leaked the connection
+    pool. As a context manager, dispose runs in `finally` regardless of
+    how the with-block exits.
+
+    Usage:
+        with connect_db(db_url) as engine:
+            with engine.connect() as conn:
+                rows = conn.execute(text("SELECT ...")).fetchall()
+    """
     log.info("Connecting to database...")
     engine = create_engine(db_url, pool_pre_ping=True)
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    log.info("  Connected successfully.")
-    return engine
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        log.info("  Connected successfully.")
+        yield engine
+    finally:
+        engine.dispose()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -186,48 +205,36 @@ def step_load_data(
     mode: str = "full",
 ) -> Dict:
     """
-    Load customer data from Excel into PostgreSQL.
+    Loud-fail stub — there is no in-process Excel→DB loader on this code
+    path. Audit issue #1 (2026-04-28).
 
-    This step calls logic from db/load_data.py internally.
+    The original implementation here was a placeholder that returned
+    `{"rows_loaded": 0, "message": "Data loading would be performed
+    here"}` and let `execute_pipeline` mark the step COMPLETED.
+    Operators running `--steps load --excel data.xlsx` got a green
+    pipeline status with no data actually loaded; downstream steps then
+    ran on stale features.
 
-    Args:
-        db_url: Database URL
-        excel_path: Path to Excel file (required)
-        mode: 'full' (truncate+reload) or 'append' (insert new only)
+    Real loading happens via:
+      * The UI: backend/analyst_backend/app/upload_router.py (preferred —
+        validates rows, surfaces per-row errors, audit-logs the upload).
+      * The CLI: backend/analyst_backend/db/load_data.py functions called
+        directly from a custom script that handles workbook iteration.
 
-    Returns:
-        Dictionary with status and summary
+    Wiring db/load_data.py into a single in-process call here would
+    duplicate hundreds of lines of orchestration and validation that
+    upload_router.py already does. We refuse instead so the failure is
+    visible and the operator goes through the right entry point.
     """
-    try:
-        log.info("Step 1: LOAD DATA")
-        log.info("-" * 70)
-
-        if not excel_path:
-            raise ValueError("--excel path is required for load step")
-
-        excel_file = Path(excel_path)
-        if not excel_file.exists():
-            raise FileNotFoundError(f"Excel file not found: {excel_path}")
-
-        log.info(f"  Loading from: {excel_file.name}")
-        log.info(f"  Mode: {mode}")
-
-        # In a real implementation, import and call load_data functions
-        # from db.load_data module
-        # For now, we'll return a placeholder
-        result = {
-            "file": str(excel_file),
-            "mode": mode,
-            "rows_loaded": 0,
-            "message": "Data loading would be performed here",
-        }
-
-        log.info(f"  Result: {result['message']}")
-        return result
-
-    except Exception as e:
-        log.error(f"  Failed: {e}")
-        raise
+    log.info("Step 1: LOAD DATA")
+    log.info("-" * 70)
+    raise NotImplementedError(
+        "ml.pipeline does not load Excel files in-process. Use the UI "
+        "Upload page (upload_router.py) for validated batch loading, "
+        "or call db/load_data.py functions from a custom script. The "
+        f"placeholder that previously accepted --excel={excel_path!r} "
+        "and reported success without doing anything has been removed."
+    )
 
 
 def step_refresh_view(db_url: str) -> Dict:
@@ -244,27 +251,43 @@ def step_refresh_view(db_url: str) -> Dict:
         log.info("Step 2: REFRESH MATERIALIZED VIEW")
         log.info("-" * 70)
 
-        engine = connect_db(db_url)
+        # Audit issue #2 + #5 (2026-04-28):
+        #   - Connection pool now disposed via context manager.
+        #   - Catch only the "view does not exist" case (first-run on a
+        #     fresh DB). Every other exception propagates so callers
+        #     can't silently score against stale features.
+        from sqlalchemy.exc import ProgrammingError
 
-        with engine.connect() as conn:
-            log.info("  Refreshing mv_customer_features...")
-            try:
-                conn.execute(text("REFRESH MATERIALIZED VIEW mv_customer_features;"))
-                conn.commit()
-            except Exception:
-                # View might not exist yet or might require CONCURRENTLY
-                log.warning("  Could not refresh materialized view")
+        refreshed = False
+        with connect_db(db_url) as engine:
+            with engine.connect() as conn:
+                log.info("  Refreshing mv_customer_features...")
+                try:
+                    conn.execute(text("REFRESH MATERIALIZED VIEW mv_customer_features;"))
+                    conn.commit()
+                    refreshed = True
+                except ProgrammingError as e:
+                    if 'does not exist' in str(e).lower():
+                        log.warning(
+                            "  mv_customer_features does not exist yet — "
+                            "skipping refresh (first run on a fresh DB?)"
+                        )
+                    else:
+                        # Re-raise: permission denied, lock conflict, etc.
+                        raise
 
-            # Get row count
-            result = conn.execute(
-                text("SELECT COUNT(*) FROM mv_customer_features;")
-            )
-            row_count = result.fetchone()[0]
+                # Get row count (may be zero if the view was just created
+                # on this run; will raise if the view truly doesn't exist).
+                result = conn.execute(
+                    text("SELECT COUNT(*) FROM mv_customer_features;")
+                )
+                row_count = result.fetchone()[0]
 
-        engine.dispose()
-
-        log.info(f"  Refreshed successfully: {row_count:,} customers")
-        return {"row_count": row_count}
+        if refreshed:
+            log.info(f"  Refreshed successfully: {row_count:,} customers")
+        else:
+            log.info(f"  View not refreshed; current row count: {row_count:,}")
+        return {"row_count": row_count, "refreshed": refreshed}
 
     except Exception as e:
         log.error(f"  Failed: {e}")
@@ -285,12 +308,10 @@ def step_extract_features(db_url: str) -> Dict:
         log.info("Step 3: EXTRACT FEATURES")
         log.info("-" * 70)
 
-        engine = connect_db(db_url)
-
-        log.info("  Reading mv_customer_features...")
-        df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
-
-        engine.dispose()
+        # Audit issue #5: connection pool disposed via context manager.
+        with connect_db(db_url) as engine:
+            log.info("  Reading mv_customer_features...")
+            df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
 
         log.info(f"  Extracted: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
@@ -318,6 +339,24 @@ def step_extract_features(db_url: str) -> Dict:
         log.info(f"  Saved feature matrix  to {feature_path.name}")
         log.info(f"  Saved customer features to {customer_path.name}")
 
+        # Audit issue #10 (2026-04-28): the CSVs above contain rows from
+        # ALL tenants concatenated. If anyone runs `predict.py --source
+        # csv` against these files in a multi-tenant deployment, every
+        # tenant's rows get scored by whichever model was loaded — the
+        # auto-discovery in predict.py picks ONE model and applies it
+        # uniformly. Warn loudly when the export crosses tenants so
+        # CSV-mode invocations are visible.
+        if 'client_id' in df.columns:
+            n_tenants = int(df['client_id'].nunique())
+            if n_tenants > 1:
+                log.warning(
+                    "  CSVs above contain rows from %d tenants. CSV-mode "
+                    "scoring (predict.py --source csv) cannot per-tenant "
+                    "filter; use --source db --client-id <CLT-XXX> for "
+                    "correct per-tenant scoring.",
+                    n_tenants,
+                )
+
         # Generate basic statistics
         result = {
             "total_rows": len(df),
@@ -334,15 +373,19 @@ def step_extract_features(db_url: str) -> Dict:
         raise
 
 
-def step_run_eda(db_url: str, skip_plots: bool = False) -> Dict:
+def step_run_eda(db_url: str) -> Dict:
     """
     Run Exploratory Data Analysis.
 
-    This step calls logic from compute_rfm.py internally.
+    Currently this writes a text report (eda_report.txt) with row /
+    column counts and the churn-label distribution. Audit issue #9
+    (2026-04-28): the previous signature included `skip_plots: bool =
+    False` but the function never produced any plots, so the parameter
+    was decorative. Removed to stop the API from lying about what it
+    does. If/when plotting is added back, the parameter can come back.
 
     Args:
         db_url: Database URL
-        skip_plots: Skip visualization generation
 
     Returns:
         Dictionary with EDA results
@@ -351,12 +394,10 @@ def step_run_eda(db_url: str, skip_plots: bool = False) -> Dict:
         log.info("Step 4: RUN EDA")
         log.info("-" * 70)
 
-        engine = connect_db(db_url)
-
-        log.info("  Reading features for EDA...")
-        df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
-
-        engine.dispose()
+        # Audit issue #5: connection pool disposed via context manager.
+        with connect_db(db_url) as engine:
+            log.info("  Reading features for EDA...")
+            df = pd.read_sql("SELECT * FROM mv_customer_features;", engine)
 
         log.info(f"  Analyzing {len(df):,} customers...")
 
@@ -404,7 +445,6 @@ def step_run_eda(db_url: str, skip_plots: bool = False) -> Dict:
         return {
             "summary_stats": summary_stats,
             "report_path": str(report_path),
-            "skip_plots": skip_plots,
         }
 
     except Exception as e:
@@ -421,19 +461,19 @@ def _discover_client_ids(db_url: str) -> List[str]:
     that match its own client_config (churn_window_days, login_window_days)
     instead of being confused by mixed labels from a global pool.
     """
-    engine = connect_db(db_url)
-    with engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT DISTINCT client_id FROM mv_customer_features ORDER BY client_id"
-        )).fetchall()
-    engine.dispose()
+    # Audit issue #5: connection pool disposed via context manager.
+    with connect_db(db_url) as engine:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT DISTINCT client_id FROM mv_customer_features ORDER BY client_id"
+            )).fetchall()
     return [r[0] for r in rows]
 
 
 def step_train_model(
     db_url: str,
     model_type: str = "xgboost",
-    imbalance_strategy: str = "smote",
+    imbalance_strategy: str = "none",
 ) -> Dict:
     """
     Train one churn-prediction model PER CLIENT_ID.
@@ -526,9 +566,15 @@ def step_train_model(
             if result.stdout:
                 for line in result.stdout.rstrip().splitlines():
                     log.info(f"    [train {cid}] {line}")
+            # Audit issue #6: route stderr at ERROR level when the
+            # subprocess failed so the actual traceback isn't buried in
+            # INFO output. Successful runs may also emit some stderr
+            # (sklearn warnings) — keep that at INFO so it doesn't trip
+            # log-level dashboards.
             if result.stderr:
+                stderr_level = log.error if result.returncode != 0 else log.info
                 for line in result.stderr.rstrip().splitlines():
-                    log.info(f"    [train {cid}] {line}")
+                    stderr_level(f"    [train {cid}] {line}")
             if result.returncode != 0:
                 # Don't bail on the whole pipeline if one client fails (e.g.,
                 # CLT with too few customers for a stratified split). Log,
@@ -697,6 +743,19 @@ def step_predict(
                 "to refresh the MV?"
             )
 
+        # Audit issue #12 (2026-04-28): warn loudly when a caller passes
+        # model_path AND there is more than one tenant — the same model
+        # file will be used to score every tenant's customers, which
+        # is almost never what they want in a per-tenant deployment.
+        if model_path and len(client_ids) > 1:
+            log.warning(
+                "  model_path override is set: ALL %d tenants will be "
+                "scored by the same model (%s). Per-tenant model "
+                "discovery is bypassed. Pass model_path=None for "
+                "correct per-tenant scoring.",
+                len(client_ids), model_path,
+            )
+
         per_client_summaries: Dict[str, Dict] = {}
         total_scored_all = 0
         all_output_files = {}
@@ -782,70 +841,21 @@ def step_predict(
         raise
 
 
-def step_full_pipeline(
-    db_url: str,
-    excel_path: Optional[str] = None,
-    model_type: str = "xgboost",
-) -> Dict:
-    """
-    Run complete end-to-end pipeline.
-
-    Args:
-        db_url: Database URL
-        excel_path: Path to Excel file (for load step)
-        model_type: ML model type to train
-
-    Returns:
-        Dictionary with pipeline results
-    """
-    log.info("RUNNING FULL PIPELINE")
-
-    results = {}
-
-    try:
-        # Load data
-        results["load"] = step_load_data(db_url, excel_path, mode="full")
-    except Exception as e:
-        log.warning(f"  Load step skipped: {e}")
-        results["load"] = {"skipped": True, "reason": str(e)}
-
-    try:
-        # Refresh view
-        results["refresh"] = step_refresh_view(db_url)
-    except Exception as e:
-        log.warning(f"  Refresh step skipped: {e}")
-        results["refresh"] = {"skipped": True, "reason": str(e)}
-
-    try:
-        # Extract features
-        results["extract"] = step_extract_features(db_url)
-    except Exception as e:
-        log.error(f"  Extract step failed: {e}")
-        raise
-
-    try:
-        # Run EDA
-        results["eda"] = step_run_eda(db_url)
-    except Exception as e:
-        log.warning(f"  EDA step skipped: {e}")
-        results["eda"] = {"skipped": True, "reason": str(e)}
-
-    try:
-        # Train model
-        results["train"] = step_train_model(db_url, model_type=model_type)
-    except Exception as e:
-        log.error(f"  Train step failed: {e}")
-        raise
-
-    try:
-        # Predict
-        model_path = results["train"].get("model_path")
-        results["predict"] = step_predict(db_url, model_path=model_path)
-    except Exception as e:
-        log.error(f"  Predict step failed: {e}")
-        raise
-
-    return results
+# step_full_pipeline was removed 2026-04-28 (audit issues #3 + #7).
+# It was unreachable — execute_pipeline below is the single end-to-end
+# entry point — and it carried two bugs that nothing was catching:
+#   1. It read `results["train"].get("model_path")` even though the
+#      per-tenant rewrite stopped putting that key in the train result.
+#      The .get() returned None silently and step_predict's fallback
+#      auto-discovery worked by accident.
+#   2. Each step was wrapped in try/except that downgraded failures to
+#      {"skipped": True, "reason": ...} regardless of severity, which
+#      diverged from execute_pipeline's stricter policy of aborting on
+#      load/refresh/extract/train failures. Two divergent error-handling
+#      contracts for the same set of steps.
+# If anyone needs an in-process "run everything" helper, call
+# execute_pipeline(steps=["load", "refresh", "extract", "eda",
+# "train", "predict"]) — that's the canonical path.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -858,7 +868,7 @@ def execute_pipeline(
     steps: List[str],
     excel_path: Optional[str] = None,
     model_type: str = "xgboost",
-    imbalance_strategy: str = "smote",
+    imbalance_strategy: str = "none",
 ) -> Tuple[bool, PipelineStatus]:
     """
     Execute specified pipeline steps in order.
@@ -874,8 +884,14 @@ def execute_pipeline(
     Returns:
         Tuple of (success, status)
     """
-    # Initialize status tracking
-    pipeline_id = datetime.now().strftime("pipeline_%Y%m%d_%H%M%S")
+    # Initialize status tracking. Audit issue #8: include microseconds
+    # and the process id so two pipeline runs starting in the same
+    # second (CI cron + UI trigger overlap) don't collide on the same
+    # pipeline_id and overwrite each other's status JSON.
+    pipeline_id = (
+        datetime.now().strftime("pipeline_%Y%m%d_%H%M%S_%f")
+        + f"_pid{os.getpid()}"
+    )
     status = PipelineStatus(
         pipeline_id=pipeline_id,
         start_time=datetime.now(),
@@ -945,21 +961,27 @@ def execute_pipeline(
 
 def print_pipeline_summary(status: PipelineStatus) -> None:
     """
-    Print formatted pipeline summary report.
+    Log formatted pipeline summary report.
+
+    Audit issue #11 (2026-04-28): switched from raw print() to log.info
+    so the summary lands in the same stream as the rest of the pipeline
+    log. Operators redirecting logs to a file no longer see the summary
+    appear only on stdout.
 
     Args:
         status: PipelineStatus object
     """
-    print("\n" + "=" * 70)
-    print("PIPELINE EXECUTION SUMMARY")
-    print("=" * 70)
-    print(f"Pipeline ID: {status.pipeline_id}")
-    print(f"Overall Status: {status.overall_status.upper()}")
-    print(f"Total Duration: {status.total_duration:.1f}s")
-    print()
+    log.info("")
+    log.info("=" * 70)
+    log.info("PIPELINE EXECUTION SUMMARY")
+    log.info("=" * 70)
+    log.info(f"Pipeline ID: {status.pipeline_id}")
+    log.info(f"Overall Status: {status.overall_status.upper()}")
+    log.info(f"Total Duration: {status.total_duration:.1f}s")
+    log.info("")
 
-    print("Step Results:")
-    print("-" * 70)
+    log.info("Step Results:")
+    log.info("-" * 70)
     for step_name, step_status in status.steps.items():
         status_icon = {
             "completed": "✓",
@@ -968,24 +990,24 @@ def print_pipeline_summary(status: PipelineStatus) -> None:
             "running": "⟳",
         }.get(step_status.status, "?")
 
-        print(
+        log.info(
             f"  {status_icon} {step_name.ljust(12)} | "
             f"Status: {step_status.status.ljust(10)} | "
             f"Duration: {step_status.duration:6.1f}s"
         )
 
         if step_status.error:
-            print(f"      Error: {step_status.error}")
+            log.info(f"      Error: {step_status.error}")
 
     if status.errors:
-        print()
-        print("Errors:")
-        print("-" * 70)
+        log.info("")
+        log.info("Errors:")
+        log.info("-" * 70)
         for error in status.errors:
-            print(f"  - {error}")
+            log.info(f"  - {error}")
 
-    print()
-    print("=" * 70 + "\n")
+    log.info("")
+    log.info("=" * 70)
 
 
 def save_pipeline_status_to_file(status: PipelineStatus, output_dir: Path = DATA_DIR) -> Path:
@@ -1049,9 +1071,12 @@ def main():
     parser.add_argument(
         "--imbalance-method",
         choices=["smote", "class_weight", "none"],
-        default="smote",
+        default="none",
         help="How ml.train_model handles class imbalance "
-             "(default: smote). Forwarded as --imbalance-method.",
+             "(default: none — matches train_model.py's own default; the "
+             "dataset is well-balanced at ratio≈0.88). Use 'smote' only "
+             "if you confirm severe imbalance for a specific tenant. "
+             "Forwarded as --imbalance-method. Audit issue #4.",
     )
 
     args = parser.parse_args()

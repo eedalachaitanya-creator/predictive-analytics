@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.auth_router import get_current_user
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -29,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 
 log = logging.getLogger("crp_api.messages")
-router = APIRouter(prefix="/api/v1", tags=["messages"])
+router = APIRouter(prefix="/api/v1", tags=["messages"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 
 
 # ═══════════════════════════════════════════════════════════════════════════

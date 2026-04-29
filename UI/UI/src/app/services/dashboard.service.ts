@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
-import { DashboardData, OrderRow } from '../models';
+import { DashboardData } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
@@ -22,9 +22,9 @@ export class DashboardService {
     );
   }
 
-  loadOrders(clientId: string, page: number, tab: string): Observable<{ orders: OrderRow[]; total: number; pages: number }> {
-    return this.api.get(`/dashboard/orders?clientId=${clientId}&page=${page}&tab=${tab}`);
-  }
+  // loadOrders / OrderRow removed 2026-04-29 along with the
+  // /dashboard/orders endpoint and the dashboard's Detail Data Tabs
+  // section. Restore from git history if those drilldowns return.
 
   // pageSize default bumped 10 → 100 per CTO direction: the segment
   // drill-down on the Dashboard now shows 100 customers per page and

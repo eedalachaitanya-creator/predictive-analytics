@@ -291,8 +291,12 @@ CREATE TABLE IF NOT EXISTS churn_scores (
     driver_1               VARCHAR(100),
     driver_2               VARCHAR(100),
     driver_3               VARCHAR(100),
-    model_version          VARCHAR(20)  DEFAULT 'v1.0',
-    batch_run_id           VARCHAR(50),
+    -- Widened 2026-04-29: predict.py auto-generates model_version
+    -- strings like "xgboost_2026-04-28_auc0.880" (~30 chars). The
+    -- prior VARCHAR(20) caused StringDataRightTruncation on insert
+    -- and rolled back the entire scoring transaction.
+    model_version          VARCHAR(80),
+    batch_run_id           VARCHAR(80),
     FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id),
     CONSTRAINT churn_scores_client_customer_unique UNIQUE (client_id, customer_id)
 );

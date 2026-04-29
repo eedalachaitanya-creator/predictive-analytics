@@ -435,19 +435,9 @@ export interface TierDistribution {
   color: string;    // UI-only
 }
 
-// Derived from orders (joined with customers) for dashboard table
-export interface OrderRow {
-  orderId: string;               // = order_id
-  customer: string;              // = customer_name (joined)
-  date: string;                  // = order_date
-  items: number;                 // = order_item_count
-  gross: number;                 // = order_value_usd
-  discount: number;              // = discount_usd
-  net: number;                   // derived: order_value_usd - discount_usd
-  status: string;                // = order_status (normalised to lower-case by API)
-  couponCode?: string | null;    // = coupon_code
-  paymentMethod?: string;        // = payment_method
-}
+// OrderRow type removed 2026-04-29 along with the /dashboard/orders
+// endpoint and recentOrders payload field. Restore from git history
+// if the dashboard's Detail Data Tabs ever return.
 
 export interface DashboardData {
   kpis: DashboardKpis;
@@ -455,8 +445,6 @@ export interface DashboardData {
   churnBreakdown: SegmentDistribution[];
   tiers: TierDistribution[];
   repeatVsOneTime: { repeat: number; oneTime: number; total: number };
-  recentOrders: OrderRow[];
-  totalOrderPages: number;
 }
 
 

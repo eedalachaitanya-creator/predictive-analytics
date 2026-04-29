@@ -47,14 +47,7 @@ const MOCK_DASHBOARD = {
     { label:'🥈 Silver (50–75%)',    count:50, pct:25 }, { label:'🥉 Bronze (Bottom)', count:50, pct:25 },
   ],
   repeatVsOneTime: { repeat:159, oneTime:41, total:200 },
-  recentOrders: [
-    { orderId:'ORD-18940', customer:'Sarah Johnson',   date:'2026-03-10', items:4, gross:142.80, discount:12.00, net:130.80, status:'completed' },
-    { orderId:'ORD-18939', customer:'Olivia Martinez', date:'2026-03-12', items:2, gross:89.50,  discount:0,     net:89.50,  status:'completed' },
-    { orderId:'ORD-18938', customer:'Michael Brown',   date:'2026-02-28', items:6, gross:230.10, discount:23.01, net:207.09, status:'completed' },
-    { orderId:'ORD-18937', customer:'Emma Wilson',     date:'2025-12-15', items:1, gross:45.00,  discount:4.50,  net:40.50,  status:'returned'  },
-    { orderId:'ORD-18936', customer:'William Taylor',  date:'2026-03-01', items:3, gross:112.40, discount:0,     net:112.40, status:'completed' },
-  ],
-  totalOrderPages: 379,
+  // recentOrders / totalOrderPages removed 2026-04-29 (see DashboardData type).
 };
 
 // Mock kept in sync with AnalyticsData in models/index.ts. Pipeline-run
@@ -119,7 +112,8 @@ function matchMock(method: string, url: string): HttpResponse<unknown> | null {
 
   // Dashboard
   if (method === 'GET' && path === '/dashboard') return ok(MOCK_DASHBOARD);
-  if (method === 'GET' && path === '/dashboard/orders') return ok({ orders: MOCK_DASHBOARD.recentOrders, total:1894, pages:379 });
+  // /dashboard/orders mock removed 2026-04-29 along with the endpoint
+  // and the Detail Data Tabs UI section.
 
   // Analytics
   if (method === 'GET' && path === '/analytics') return ok(MOCK_ANALYTICS);

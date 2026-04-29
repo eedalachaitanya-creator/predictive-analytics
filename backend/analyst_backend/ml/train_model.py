@@ -313,7 +313,110 @@ def load_from_database(db_url: str, client_id: str = None) -> pd.DataFrame:
     return df
 
 
-def prepare_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+def load_feature_freeze(db_url: str, client_id: Optional[str]) -> Dict[str, Any]:
+    """
+    Snapshot the `client_config` values that define the churn LABEL and the
+    feature WINDOWS at training time. Saved into model metadata so we can
+    later detect drift between the model's training-time assumptions and
+    the live MV state at inference.
+
+    Why this matters (audit 2026-04-28 issue #4):
+        The materialized view computes every windowed feature against
+        `ref_date` (either client_config.reference_date when mode='fixed',
+        or NOW() when mode='auto') and the churn label is defined by
+        churn_window_days + login_window_days. If any of these flips
+        between training day and scoring day, the feature distribution
+        and label boundary both shift under the model — silently. We can't
+        prevent that here, but we record what was true at training time so
+        a drift check (in predict.py or an audit script) is possible.
+
+    Cross-tenant runs (--client-id not set) train on every client's rows
+    at once, so there's no single config to snapshot. We record that fact
+    explicitly rather than picking an arbitrary tenant's settings.
+
+    Returns a dict that always carries `mode` and `snapshot_taken_at`,
+    plus the per-tenant config when applicable.
+    """
+    snapshot: Dict[str, Any] = {
+        'snapshot_taken_at': datetime.now().isoformat(),
+    }
+    if client_id is None:
+        snapshot['mode'] = 'cross_tenant'
+        snapshot['note'] = ('No per-client config snapshot — model trained '
+                            'across all clients. Drift detection is per-tenant '
+                            'only and not applicable for cross-tenant models.')
+        return snapshot
+
+    snapshot['mode'] = 'per_tenant'
+    snapshot['client_id'] = client_id
+
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(db_url, pool_pre_ping=True)
+        with engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT
+                    churn_window_days,
+                    login_window_days,
+                    min_repeat_orders,
+                    recent_order_gap_window,
+                    tier_method,
+                    custom_platinum_min,
+                    custom_gold_min,
+                    custom_silver_min,
+                    custom_bronze_min,
+                    reference_date_mode,
+                    reference_date
+                FROM client_config
+                WHERE client_id = :cid
+            """), {"cid": client_id}).fetchone()
+    except Exception as e:
+        # An older tenant DB may not yet have login_window_days (added
+        # 2026-04-24). Don't fail training over a missing audit field —
+        # log it and persist what we know.
+        log.warning(
+            "  Feature-freeze snapshot failed (%s) — saving partial info only. "
+            "This usually means client_config is on an older schema; consider "
+            "running the latest migrations.", e,
+        )
+        snapshot['error'] = str(e)
+        return snapshot
+
+    if row is None:
+        snapshot['error'] = f'no client_config row for {client_id}'
+        return snapshot
+
+    snapshot.update({
+        'churn_window_days':       int(row[0])   if row[0] is not None else None,
+        'login_window_days':       int(row[1])   if row[1] is not None else None,
+        'min_repeat_orders':       int(row[2])   if row[2] is not None else None,
+        'recent_order_gap_window': int(row[3])   if row[3] is not None else None,
+        'tier_method':             row[4],
+        'custom_platinum_min':     float(row[5]) if row[5] is not None else None,
+        'custom_gold_min':         float(row[6]) if row[6] is not None else None,
+        'custom_silver_min':       float(row[7]) if row[7] is not None else None,
+        'custom_bronze_min':       float(row[8]) if row[8] is not None else None,
+        'reference_date_mode':     row[9],
+        # reference_date is a date/datetime — str() makes it JSON-safe for
+        # the metadata bundle without depending on isoformat() on a possibly
+        # None value.
+        'reference_date':          str(row[10]) if row[10] is not None else None,
+    })
+    log.info(
+        "  Feature-freeze: client=%s, churn_window=%s, login_window=%s, "
+        "ref_mode=%s, tier_method=%s",
+        client_id,
+        snapshot.get('churn_window_days'),
+        snapshot.get('login_window_days'),
+        snapshot.get('reference_date_mode'),
+        snapshot.get('tier_method'),
+    )
+    return snapshot
+
+
+def prepare_features(
+    df: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.Series, Dict[str, float]]:
     """
     Convert raw DataFrame into (X, y) for modeling.
 
@@ -325,9 +428,17 @@ def prepare_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
         5. Fill remaining NaN with 0
 
     Returns:
-        (X, y) — feature matrix and target series
+        (X, y, imputation_values) — feature matrix, target series, and a
+        mapping of column → imputation value for any column that received
+        an explicit (non-zero) fill. Saved into model metadata so
+        predict.py can apply the same imputation at scoring time and
+        avoid train/predict skew on semantic-null columns. Audit issue #1.
     """
     log.info("Preparing features...")
+    # Track explicit imputations so predict.py can mirror them. Columns
+    # not in this dict fall through to the safety-net fillna(0) at both
+    # training and scoring time (consistent behaviour for true-zero NULLs).
+    imputation_values: Dict[str, float] = {}
     df_copy = df.copy()
 
     # Encode customer_tier if present (raw string form from database)
@@ -350,7 +461,19 @@ def prepare_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     y = df_copy[TARGET_COL].copy()
     X = df_copy.drop(columns=[TARGET_COL])
 
-    # Keep only numeric
+    # ── Keep only numeric columns (audit 2026-04-28 issue #6) ──────────────
+    # select_dtypes silently drops object/string/bool columns. If the MV
+    # ever grows a useful low-cardinality categorical (payment_method,
+    # country_code, etc.) and someone forgets to encode it, it disappears
+    # here without any signal. Log the dropped names so the regression
+    # is visible in the training output.
+    non_numeric = X.select_dtypes(exclude=[np.number]).columns.tolist()
+    if non_numeric:
+        log.warning(
+            "  Dropping %d non-numeric column(s) — these never reach the model. "
+            "Encode them upstream if you want them as features: %s",
+            len(non_numeric), non_numeric,
+        )
     X = X.select_dtypes(include=[np.number])
 
     # ── Impute columns that carry intentional NULLs ─────────────────────────
@@ -378,20 +501,37 @@ def prepare_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
                 )
                 pop_median = 0.0
             X[col] = X[col].fillna(pop_median)
+            imputation_values[col] = float(pop_median)
             log.info(
                 "  Imputed %d NULLs in '%s' with population median = %.2f",
                 n_missing, col, float(pop_median),
             )
 
-    # Fill NaN (remaining columns default to 0)
-    nan_count = X.isna().sum().sum()
-    if nan_count > 0:
-        log.warning("  Found %d NaN values — filling with 0", nan_count)
+    # ── Safety-net fillna(0) for any remaining columns ─────────────────────
+    # The explicit-imputation block above only handles columns we know carry
+    # *semantic* NULLs (e.g., "no cadence yet" for short-history customers).
+    # If a future MV migration adds another semantic-null column and we
+    # forget to extend the explicit block, that column will silently land
+    # here and get a 0 — recreating the exact bug the explicit block was
+    # written to prevent. So we log per-column NaN counts (not just a total)
+    # to make any new offender obvious in the training log. Audit issue #5.
+    per_col_nan = X.isna().sum()
+    nan_cols = per_col_nan[per_col_nan > 0]
+    if not nan_cols.empty:
+        log.warning(
+            "  Filling NaN with 0 across %d column(s) (total %d cells). "
+            "Each named column should be reviewed: a 0 here means \"value "
+            "unknown\" and may mislead the model if the column is "
+            "semantic-null. Add an explicit imputation rule above if so.",
+            len(nan_cols), int(nan_cols.sum()),
+        )
+        for col, count in nan_cols.items():
+            log.warning("    %-40s  %d NaN", col, int(count))
         X = X.fillna(0)
 
     log.info("  Feature matrix: %d rows x %d features", X.shape[0], X.shape[1])
     log.info("  Target distribution: %s", y.value_counts().to_dict())
-    return X, y
+    return X, y, imputation_values
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -468,18 +608,27 @@ def drop_zero_variance_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, List[str
 
 def drop_highly_correlated_features(
     X: pd.DataFrame,
-    threshold: float = HIGH_CORR_THRESHOLD
+    threshold: float = HIGH_CORR_THRESHOLD,
+    y: Optional[pd.Series] = None,
 ) -> Tuple[pd.DataFrame, List[str]]:
     """
     Remove redundant features using pairwise correlation.
 
-    When two features have |r| > threshold, the one with lower
-    average correlation to the target-adjacent features is dropped.
-    This reduces multicollinearity without losing signal.
+    Tie-break rule when two features have |r| > threshold:
+        - If y is provided (default in main): keep the feature with HIGHER
+          |corr(feature, y)|. The other one is redundant for prediction.
+        - If y is None (legacy fallback): keep the feature with LOWER mean
+          correlation to other features (less inter-feature redundancy).
+
+    Audit issue #7 — previously this function was target-blind, so it
+    could drop the more predictive of two correlated features purely
+    based on inter-feature correlation. Now we prefer to keep the
+    feature with stronger target signal.
 
     Args:
         X: Feature matrix
         threshold: Correlation cutoff (default 0.90)
+        y: Target series. When provided, used for the tie-break above.
 
     Returns:
         (X_cleaned, dropped_columns)
@@ -487,21 +636,47 @@ def drop_highly_correlated_features(
     log.info("Checking for highly correlated features (threshold=%.2f)...", threshold)
     corr_matrix = X.corr().abs()
 
+    # Pre-compute |corr(feature, y)| once if y is available — used as the
+    # primary tie-break score in the loop below.
+    if y is not None:
+        target_corr = X.corrwith(y).abs().fillna(0.0)
+        log.info("  Using target correlation for tie-break (target-aware mode)")
+    else:
+        target_corr = None
+        log.info("  Target unavailable → using inter-feature correlation tie-break")
+
     # Upper triangle only (avoid double counting)
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 
-    # Find columns to drop — for each correlated pair, drop the one with
-    # higher mean correlation to all other features (more redundant)
+    # Find columns to drop. For each correlated pair (col, corr_col) we
+    # decide which to discard:
+    #   - target-aware: drop the one with the SMALLER |corr(_, y)|.
+    #     Ties broken by the legacy inter-feature criterion below.
+    #   - target-blind: drop the one with the LARGER mean correlation to
+    #     all other features (more redundant).
     to_drop = set()
     for col in upper.columns:
         correlated_cols = upper.index[upper[col] > threshold].tolist()
         for corr_col in correlated_cols:
-            if col not in to_drop and corr_col not in to_drop:
-                # Keep the one with lower average correlation to others
-                avg_corr_col = corr_matrix[col].drop([col, corr_col], errors='ignore').mean()
-                avg_corr_other = corr_matrix[corr_col].drop([col, corr_col], errors='ignore').mean()
-                drop_candidate = corr_col if avg_corr_other >= avg_corr_col else col
-                to_drop.add(drop_candidate)
+            if col in to_drop or corr_col in to_drop:
+                continue
+
+            if target_corr is not None:
+                tcorr_col   = float(target_corr.get(col,      0.0))
+                tcorr_other = float(target_corr.get(corr_col, 0.0))
+                if tcorr_col != tcorr_other:
+                    drop_candidate = corr_col if tcorr_col > tcorr_other else col
+                    to_drop.add(drop_candidate)
+                    continue
+                # Exact tie on target correlation → fall through to the
+                # inter-feature tie-break.
+
+            # Legacy / fallback: drop the one with HIGHER inter-feature
+            # mean correlation (i.e., more redundant with the rest).
+            avg_corr_col   = corr_matrix[col].drop([col, corr_col],     errors='ignore').mean()
+            avg_corr_other = corr_matrix[corr_col].drop([col, corr_col], errors='ignore').mean()
+            drop_candidate = corr_col if avg_corr_other >= avg_corr_col else col
+            to_drop.add(drop_candidate)
 
     dropped = sorted(to_drop)
     if dropped:
@@ -514,9 +689,16 @@ def drop_highly_correlated_features(
     return X, dropped
 
 
-def clean_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
+def clean_features(
+    X: pd.DataFrame,
+    y: Optional[pd.Series] = None,
+) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
     """
     Run all feature cleaning steps in sequence.
+
+    `y` is forwarded to drop_highly_correlated_features for target-aware
+    tie-breaking when two features are highly correlated (audit issue #7).
+    It is not used by the leaky/review/zero-variance steps.
 
     Returns:
         (X_cleaned, cleaning_log) where cleaning_log records what was removed
@@ -539,7 +721,7 @@ def clean_features(X: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]]]
     cleaning_log['zero_variance_dropped'] = zero_var_dropped
     total_removed += len(zero_var_dropped)
 
-    X, corr_dropped = drop_highly_correlated_features(X)
+    X, corr_dropped = drop_highly_correlated_features(X, y=y)
     cleaning_log['high_correlation_dropped'] = corr_dropped
     total_removed += len(corr_dropped)
 
@@ -916,6 +1098,10 @@ def build_xgboost(class_weight_ratio: Optional[float] = None, **params) -> Any:
         'colsample_bytree': 0.7,
         'random_state': RANDOM_STATE,
         'n_jobs': -1,
+        # Constructor-level verbosity replaces the deprecated `verbose`
+        # kwarg on .fit() (audit issue #9). 0 = silent, our `log.info`
+        # already prints the high-level training timeline.
+        'verbosity': 0,
     }
     # eval_metric supported in XGBoost >= 1.3
     try:
@@ -1009,10 +1195,12 @@ def train_single_model(
         Fitted model
     """
     log.info("Training %s model...", model_type)
-    if model_type == 'xgboost':
-        model.fit(X_train, y_train, verbose=False)
-    else:
-        model.fit(X_train, y_train)
+    # Quietness for XGBoost is now controlled via constructor-level
+    # `verbosity=0` in build_xgboost (audit issue #9). The old
+    # `model.fit(..., verbose=False)` kwarg is deprecated in newer
+    # XGBoost releases, and without an `eval_set` it had no effect
+    # anyway — dropping it removes a future DeprecationWarning.
+    model.fit(X_train, y_train)
     log.info("  %s trained successfully", model_type)
     return model
 
@@ -1111,7 +1299,11 @@ def evaluate_model(
         'recall': recall_score(y_test, y_pred, zero_division=0),
         'f1': f1_score(y_test, y_pred, zero_division=0),
         'auc_roc': roc_auc_score(y_test, y_pred_proba),
-        'confusion_matrix': confusion_matrix(y_test, y_pred),
+        # labels=[0, 1] forces a 2x2 matrix even when the test set or
+        # prediction set happens to contain only one class — stops the
+        # training report from crashing on cm[1][0] indexing for tiny
+        # per-tenant datasets with extreme imbalance. Audit issue #8.
+        'confusion_matrix': confusion_matrix(y_test, y_pred, labels=[0, 1]),
         'classification_report': classification_report(y_test, y_pred),
         'y_pred': y_pred,
         'y_pred_proba': y_pred_proba,
@@ -1210,7 +1402,7 @@ def plot_confusion_matrix(
         import seaborn as sns
         from sklearn.metrics import confusion_matrix
 
-        cm = confusion_matrix(y_test, y_pred)
+        cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
 
         fig, ax = plt.subplots(figsize=(7, 6))
         sns.heatmap(
@@ -1679,6 +1871,8 @@ def run_pipeline_for_model(
     original_shape: Tuple[int, int],
     scaler: Any,
     args: argparse.Namespace,
+    feature_freeze: Dict[str, Any],
+    imputation_values: Dict[str, float],
 ) -> Dict[str, Any]:
     """
     Train, evaluate, and save a single model. This is the inner loop
@@ -1706,10 +1900,44 @@ def run_pipeline_for_model(
     # `base_model` is the uncalibrated tree model. It's what CV scores, what
     # feature importances are extracted from, and what gets wrapped with
     # isotonic calibration below to form the final deployed model.
-    base_model = build_model(model_type)
+    #
+    # Wire up --imbalance-method class_weight here. Each model needs a
+    # different parameter:
+    #   - random_forest → class_weight='balanced' (sklearn convention)
+    #   - xgboost       → scale_pos_weight = n_negative / n_positive
+    # We compute the ratio from y_train *after* gray-zone exclusion so the
+    # weight reflects the actual training distribution. Previously this
+    # CLI flag was a silent no-op (handle_class_imbalance returned the
+    # data unchanged for 'class_weight' but nothing ever propagated to
+    # the model).
+    class_weight_kwargs: Dict[str, Any] = {}
+    if args.imbalance_method == 'class_weight':
+        if model_type == 'xgboost':
+            n_pos = int((y_train == 1).sum())
+            n_neg = int((y_train == 0).sum())
+            if n_pos > 0:
+                ratio = n_neg / n_pos
+                class_weight_kwargs['scale_pos_weight'] = ratio
+                log.info(
+                    "  --imbalance-method class_weight → scale_pos_weight=%.3f "
+                    "(n_neg=%d / n_pos=%d)", ratio, n_neg, n_pos,
+                )
+            else:
+                log.warning(
+                    "  --imbalance-method class_weight: y_train has no positive "
+                    "samples; cannot set scale_pos_weight"
+                )
+        else:  # random_forest (and any future sklearn estimator)
+            class_weight_kwargs['class_weight'] = 'balanced'
+            log.info(
+                "  --imbalance-method class_weight → class_weight='balanced' "
+                "applied to %s", model_type,
+            )
+
+    base_model = build_model(model_type, **class_weight_kwargs)
     base_model = train_single_model(base_model, X_train, y_train, model_type)
 
-    # ─ Cross-validation (same hyperparameters as the deployed model)
+    # ─ Cross-validation (same topology as the deployed model)
     # XGBoost + RandomForest are both scale-invariant trees, so no inner
     # scaler pipeline is required — the same features that went into the
     # held-out fit work unchanged inside each CV fold.
@@ -1717,14 +1945,31 @@ def run_pipeline_for_model(
     # `clone()` returns an unfit copy of the actual model with identical
     # hyperparameters, so CV measures the real deployed model.
     #
-    # CV is deliberately run on the UNCALIBRATED base model so the numbers
-    # describe the raw learner's discrimination. Calibration is a monotonic
-    # transform of predict_proba and does not change ROC/AUC — the CV AUC
-    # is identical either way.
+    # IMPORTANT — calibration coupling (audit 2026-04-28 issue #3):
+    # If we deploy a CalibratedClassifierCV wrapper, CV must measure that
+    # same wrapper. AUC is invariant under monotonic calibration, but
+    # accuracy/precision/recall/F1 are NOT — they're computed at the 0.5
+    # default threshold via predict(), and isotonic calibration can move
+    # samples across that threshold. Running CV on the bare base model
+    # would report metrics for a model topology we don't ship, silently
+    # misleading anyone reading the training report. So we mirror the
+    # calibration decision here. Cost: cv=5 outer × cv=5 inner = 25 fits
+    # per metric per outer fold, but on this 200-row dataset each tree
+    # model trains in well under a second.
     from sklearn.base import clone
     cv_results = None
     if not args.no_cv:
-        cv_model = clone(base_model)
+        if not args.skip_calibration:
+            from sklearn.calibration import CalibratedClassifierCV
+            cv_model = CalibratedClassifierCV(
+                clone(base_model),
+                method='isotonic',
+                cv=5,
+            )
+            log.info("CV will run against the calibrated wrapper "
+                     "(matches deployed model topology)")
+        else:
+            cv_model = clone(base_model)
         cv_results = cross_validate_model(cv_model, X_full, y_full)
 
     # ─ Probability calibration (audit 2026-04-24 issue #7)
@@ -1777,6 +2022,16 @@ def run_pipeline_for_model(
         'calibrated': not args.skip_calibration,
         'calibration_method': 'isotonic' if not args.skip_calibration else None,
         'calibration_cv': 5 if not args.skip_calibration else None,
+        # Snapshot of the client_config rows that defined the LABEL and
+        # feature WINDOWS at training time. predict.py / an audit script
+        # can compare this against the live config to detect drift
+        # (e.g., reference_date_mode flipped, churn_window_days changed).
+        'feature_freeze': feature_freeze,
+        # Per-column imputation values used at training time. predict.py
+        # applies these BEFORE its own fillna(0) so semantic-null columns
+        # like median_days_between_orders carry the same value at scoring
+        # time as they did at training. Audit issue #1.
+        'imputation_values': imputation_values,
         'metrics': {
             'accuracy': float(metrics['accuracy']),
             'precision': float(metrics['precision']),
@@ -1831,15 +2086,37 @@ def main():
         sys.exit(1)
     df = load_from_database(db_url, client_id=args.client_id)
 
+    # Snapshot the client_config row(s) that define the label / windows.
+    # Saved into model metadata so a later run can detect drift.
+    feature_freeze = load_feature_freeze(db_url, client_id=args.client_id)
+
     original_shape = df.shape
 
     # ── Step 2: Prepare features ───────────────────────────────────────────
-    X, y = prepare_features(df)
+    X, y, imputation_values = prepare_features(df)
 
     # ── Step 3: Clean features ─────────────────────────────────────────────
     cleaning_log = {'zero_variance_dropped': [], 'high_correlation_dropped': []}
     if not args.skip_cleaning:
-        X, cleaning_log = clean_features(X)
+        # Pass `y` so the correlation-pruner can prefer the more
+        # target-predictive feature in each correlated pair (audit
+        # issue #7). Cleaning runs on the FULL X/y here — that's fine
+        # because we only use y for tie-breaking in correlation pruning,
+        # not for any importance-based selection that would leak the
+        # test-set distribution.
+        X, cleaning_log = clean_features(X, y=y)
+    else:
+        # --skip-cleaning bypasses zero-variance and multicollinearity removal,
+        # but NEVER the leak / review guards. Those define the target's
+        # information boundary; skipping them re-introduces churn-label
+        # columns (DSLO, RFM-recency, last-login, etc.) and produces
+        # AUC ≈ 1.0 nonsense. Always run them.
+        log.info("--skip-cleaning set: skipping zero-variance and correlation steps")
+        log.info("  (leak / review-feature removal still runs to protect the label)")
+        X, leaky_dropped = drop_leaky_features(X)
+        X, review_dropped = drop_review_features(X)
+        cleaning_log['leaky_dropped'] = leaky_dropped
+        cleaning_log['review_dropped'] = review_dropped
 
     # ── Step 4: Train/test split ───────────────────────────────────────────
     # Split FIRST, BEFORE feature selection. Previously feature importance
@@ -1935,6 +2212,8 @@ def main():
                 original_shape=original_shape,
                 scaler=scaler,
                 args=args,
+                feature_freeze=feature_freeze,
+                imputation_values=imputation_values,
             )
             all_results[model_type] = result
         except Exception as e:

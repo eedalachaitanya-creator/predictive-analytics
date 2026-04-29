@@ -306,8 +306,10 @@ CREATE TABLE IF NOT EXISTS churn_scores (
     driver_1               VARCHAR(100),
     driver_2               VARCHAR(100),
     driver_3               VARCHAR(100),
-    model_version          VARCHAR(20)  DEFAULT 'v1.0',
-    batch_run_id           VARCHAR(50),
+    -- Widened 2026-04-29: see schema_postgresql.sql for context.
+    -- Auto-generated model_version strings exceeded the prior 20 chars.
+    model_version          VARCHAR(80),
+    batch_run_id           VARCHAR(80),
     FOREIGN KEY (client_id, customer_id) REFERENCES customers(client_id, customer_id)
 );
 

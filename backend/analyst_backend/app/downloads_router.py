@@ -16,7 +16,8 @@ import zipfile
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.auth_router import get_current_user
 from fastapi.responses import FileResponse, StreamingResponse, Response
 
 from app.database import engine
@@ -26,7 +27,7 @@ from db.pipeline_outputs_store import (
     ensure_table,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["downloads"])
+router = APIRouter(prefix="/api/v1", tags=["downloads"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("downloads")
 
 # ── Disk fallback directory ────────────────────────────────────────────

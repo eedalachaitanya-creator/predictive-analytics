@@ -134,17 +134,35 @@ def _compute_derived_columns(engine, df):
       top_category           → query line_items + categories for most-purchased category
       discount_dependency_pct→ (orders_with_discount / total_orders) × 100
       total_items_purchased  → query line_items for total quantity per customer
+
+    Audit fix 2026-04-29: each SQL helper below now restricts its scan
+    to the client_id(s) actually present in the input df. Previously
+    these queries scanned every tenant's orders / line_items / products
+    even when the caller passed --client-id, then relied on the merge
+    to filter — wasted I/O on a multi-tenant DB.
     """
     log.info("  Computing derived columns for customer_rfm_features ...")
 
+    # Pull the client_id filter from the input df once. When df has
+    # multiple clients, the helpers fall back to the multi-tenant scan
+    # (still correct via the merge below). When df has exactly one
+    # client_id, the queries are scoped to that tenant.
+    client_ids = df['client_id'].dropna().unique().tolist()
+    cid_filter_sql = ""
+    cid_params: dict = {}
+    if client_ids:
+        cid_filter_sql = "WHERE client_id = ANY(:cids)"
+        cid_params = {"cids": client_ids}
+
     # ── 1. last_order_status: status of each customer's most recent order ──
     try:
-        status_df = pd.read_sql(text("""
+        status_df = pd.read_sql(text(f"""
             SELECT DISTINCT ON (client_id, customer_id)
                    client_id, customer_id, order_status AS last_order_status
             FROM orders
+            {cid_filter_sql}
             ORDER BY client_id, customer_id, order_date DESC
-        """), engine)
+        """), engine, params=cid_params)
         df = df.merge(status_df, on=['client_id', 'customer_id'], how='left')
     except Exception as e:
         log.warning("  Could not fetch last_order_status: %s", e)
@@ -219,23 +237,28 @@ def _compute_derived_columns(engine, df):
     df['rfm_segment'] = df.apply(_rfm_segment, axis=1)
 
     # ── 6. top_category: most purchased category per customer ──
+    # Audit fix 2026-04-29: added `, product_id ASC` tiebreaker so the
+    # picked product is deterministic when two products tie on
+    # buy_count. Previously the choice was driven by physical row
+    # order in line_items and could flip between pipeline runs.
     try:
-        top_cat_df = pd.read_sql(text("""
+        top_cat_df = pd.read_sql(text(f"""
             SELECT li.client_id, li.customer_id, c.category_name AS top_category
             FROM (
                 SELECT client_id, customer_id, product_id,
                        COUNT(*) AS buy_count,
                        ROW_NUMBER() OVER (
                            PARTITION BY client_id, customer_id
-                           ORDER BY COUNT(*) DESC
+                           ORDER BY COUNT(*) DESC, product_id ASC
                        ) AS rn
                 FROM line_items
+                {cid_filter_sql}
                 GROUP BY client_id, customer_id, product_id
             ) li
             JOIN products p ON li.client_id = p.client_id AND li.product_id = p.product_id
             JOIN categories c ON p.client_id = c.client_id AND p.category_id = c.category_id
             WHERE li.rn = 1
-        """), engine)
+        """), engine, params=cid_params)
         df = df.merge(top_cat_df, on=['client_id', 'customer_id'], how='left')
     except Exception as e:
         log.warning("  Could not fetch top_category: %s", e)
@@ -248,11 +271,12 @@ def _compute_derived_columns(engine, df):
 
     # ── 8. total_items_purchased ──
     try:
-        items_df = pd.read_sql(text("""
+        items_df = pd.read_sql(text(f"""
             SELECT client_id, customer_id, COALESCE(SUM(quantity), 0)::INT AS total_items_purchased
             FROM line_items
+            {cid_filter_sql}
             GROUP BY client_id, customer_id
-        """), engine)
+        """), engine, params=cid_params)
         df = df.merge(items_df, on=['client_id', 'customer_id'], how='left')
     except Exception as e:
         log.warning("  Could not fetch total_items_purchased: %s", e)
@@ -321,12 +345,23 @@ def save_rfm_to_db(engine, df):
     log.info("  Saving %d rows to customer_rfm_features (%d columns) ...",
              len(db_df), len(db_df.columns))
 
-    # Step 3: Per-client DELETE + bulk INSERT
+    # Step 3: Per-client DELETE + bulk INSERT in a SINGLE transaction
     #
     # WHY per-client and not TRUNCATE:
     #   The schema is multi-tenant. TRUNCATE wipes ALL clients' rows, so
     #   running this for CLT-001 would delete CLT-002's RFM data too.
     #   We only clear the client(s) we're about to re-insert.
+    #
+    # WHY one transaction (engine.begin) around DELETE + INSERT (audit
+    # fix 2026-04-29): the previous implementation closed the engine.begin
+    # block right after DELETE, then ran to_sql with the engine (which
+    # grabs a fresh connection from the pool). Two concurrent runs for
+    # the same client could interleave as:
+    #     A.DELETE → A.COMMIT → A.INSERT → A.COMMIT
+    #     → B.DELETE wipes A's rows → B.INSERT
+    # so A's results were silently lost. Single transaction holds the
+    # row locks across both statements so a second run blocks until the
+    # first finishes. Same fix we applied to predict.py:save_scores_to_db.
     clients_in_batch = db_df['client_id'].dropna().unique().tolist()
     log.info("  Clearing existing rows for %d client(s): %s",
              len(clients_in_batch), clients_in_batch)
@@ -343,13 +378,15 @@ def save_rfm_to_db(engine, df):
             # with no client_id at all, leave the table untouched.
             log.warning("  No client_id values found in batch — skipping delete")
 
-    db_df.to_sql(
-        'customer_rfm_features',
-        engine,
-        if_exists='append',
-        index=False,
-        method='multi',
-    )
+        # Pass the live connection into pandas so the INSERT joins the
+        # same transaction instead of grabbing a fresh pooled connection.
+        db_df.to_sql(
+            'customer_rfm_features',
+            conn,
+            if_exists='append',
+            index=False,
+            method='multi',
+        )
 
     log.info("  ✓ customer_rfm_features table populated: %d rows", len(db_df))
 

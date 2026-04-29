@@ -12,13 +12,13 @@ top 3 drivers, RFM scores, total orders, and total spend.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy import text
 
 from app.database import engine
-from app.auth_router import _find_user_by_token
+from app.auth_router import _find_user_by_token, get_current_user
 
-router = APIRouter(prefix="/api/v1", tags=["churn"])
+router = APIRouter(prefix="/api/v1", tags=["churn"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("churn")
 
 

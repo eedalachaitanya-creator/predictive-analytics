@@ -29,20 +29,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
 from app.audit_logger import log_audit_event
-from app.auth_router import _find_user_by_token
+from app.auth_router import _find_user_by_token, get_current_user
 
 log = logging.getLogger("crp_api.pipeline")
 
 # ── Get the real DB URL (str(engine.url) masks passwords with ***) ──
 _DB_URL = engine.url.render_as_string(hide_password=False)
 
-router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
+router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 
 # ── Paths ──
 BASE_DIR = Path(__file__).parent.parent
@@ -50,6 +50,18 @@ ML_DIR = BASE_DIR / "ml"
 
 # ── In-memory job store (production would use Redis) ──
 _jobs: dict = {}
+
+# Audit fix (2026-04-29): bumped from 300s → 900s. The 5-minute cap
+# was tight for 700-customer datasets running --model-type all (XGBoost
+# + RandomForest + isotonic calibration with cv=5). Configurable via
+# the ML_STAGE_TIMEOUT_SECS env var so ops can override without a code
+# change.
+_STAGE_TIMEOUT_SECS = int(os.environ.get("ML_STAGE_TIMEOUT_SECS", "900"))
+
+# Cap to bound _jobs growth across long uptimes. Old completed/failed
+# jobs are evicted FIFO once we exceed this. 200 keeps a few weeks of
+# history at typical "a handful of runs per day" cadence.
+_JOBS_MAX_SIZE = 200
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -134,7 +146,17 @@ def _update_stage(job: dict, stage_idx: int, status: str, message: str = ""):
 
 
 def _run_python_module(module: str, args: list[str] = None) -> tuple[bool, str]:
-    """Run a Python module as a subprocess and return (success, output)."""
+    """Run a Python module as a subprocess and return (success, output).
+
+    Audit fix 2026-04-29: when the subprocess exits non-zero, every line
+    of its stderr is logged at ERROR level via the uvicorn logger.
+    Previously the stderr was captured silently and only surfaced in
+    the job-status JSON's stage `message` field (truncated to 200
+    chars) — which the UI doesn't render as an error block. Operators
+    tailing the uvicorn console got zero signal that a stage failed.
+    Now the actual traceback shows up directly in the server log, with
+    the `[module]` prefix so it's traceable to which subprocess.
+    """
     cmd = [sys.executable, "-m", module] + (args or [])
     # Pass parent environment + DB_URL so subprocesses can connect on all OS
     env = {**os.environ, "DB_URL": _DB_URL, "DATABASE_URL": _DB_URL}
@@ -143,16 +165,33 @@ def _run_python_module(module: str, args: list[str] = None) -> tuple[bool, str]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,  # 5 min max per stage
+            timeout=_STAGE_TIMEOUT_SECS,  # configurable via env (default 900s)
             cwd=str(BASE_DIR),
             env=env,
         )
         if result.returncode == 0:
             return True, result.stdout[-500:] if result.stdout else "OK"
+
+        # Subprocess failed — surface the full stderr at ERROR level so
+        # it's immediately visible in the uvicorn console. Cap to last
+        # 100 lines so we don't spam the log if a runaway script
+        # produced megabytes of output.
+        log.error(
+            "Subprocess [%s] exited %d — see stderr below",
+            module, result.returncode,
+        )
+        if result.stderr:
+            for line in result.stderr.rstrip().splitlines()[-100:]:
+                log.error("  [%s] %s", module, line)
+        else:
+            log.error("  [%s] (no stderr captured)", module)
+
         return False, result.stderr[-500:] if result.stderr else f"Exit code: {result.returncode}"
     except subprocess.TimeoutExpired:
-        return False, "Stage timed out after 5 minutes"
+        log.error("Subprocess [%s] timed out after %ds", module, _STAGE_TIMEOUT_SECS)
+        return False, f"Stage timed out after {_STAGE_TIMEOUT_SECS}s"
     except Exception as e:
+        log.error("Subprocess [%s] launch failed: %s", module, e)
         return False, str(e)
 
 
@@ -164,10 +203,15 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
 
     try:
         # ── Clear old output + model files before starting ────────────
-        # This prevents stale files from a previous client's run from
-        # being saved under the current client's ID in Stage 10,
-        # and prevents old models from being evaluated against new data.
-        import shutil
+        # Output files (csv/json/txt reports) aren't per-tenant-named, so
+        # wiping them all at the start is fine — Stage 7+ rewrites them
+        # for the current tenant in this run.
+        #
+        # Model files ARE per-tenant after the train_model.py 2026-04-27
+        # rewrite (churn_model_<type>_<client_id>.joblib). Audit fix
+        # (2026-04-29): scope the model cleanup to the current
+        # client_id so concurrent runs / sequential per-tenant runs
+        # don't destroy each other's saved models.
         output_path = ML_DIR / "output"
         if output_path.is_dir():
             for f in output_path.iterdir():
@@ -177,10 +221,24 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
 
         models_path = ML_DIR / "models"
         if models_path.is_dir():
-            for f in models_path.iterdir():
-                if f.is_file() and f.suffix == ".joblib":
-                    f.unlink()
-            log.info("Cleared old model files from %s", models_path)
+            # Match per-tenant filenames first; fall back to legacy
+            # un-suffixed names (churn_model_xgboost.joblib) for old
+            # bundles that haven't been retrained per-tenant yet.
+            patterns = [
+                f"churn_model_*_{client_id}.joblib",
+                f"churn_model_{client_id}.joblib",
+            ]
+            removed = 0
+            for pat in patterns:
+                for f in models_path.glob(pat):
+                    if f.is_file():
+                        f.unlink()
+                        removed += 1
+            log.info(
+                "Cleared %d old model file(s) for client_id=%s "
+                "(other tenants' models preserved)",
+                removed, client_id,
+            )
 
         # Stage 1: Validate DB connection
         _update_stage(job, 0, "running", "Checking database...")
@@ -199,15 +257,35 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         _update_stage(job, 1, "done" if ok else "error", msg[:200])
 
         # Stage 3: Refresh materialized view
+        # Audit fix (2026-04-29): the previous implementation marked the
+        # stage 'error' and IMMEDIATELY overwrote it with 'done', silently
+        # swallowing real refresh failures (permission denied, lock
+        # conflict, schema mismatch). Now we narrow the lenient branch
+        # to the only case it was meant to handle — the view truly
+        # not existing yet on a brand-new DB — and let every other
+        # error mark the stage as failed so downstream stages don't run
+        # against stale features.
+        from sqlalchemy.exc import ProgrammingError
         _update_stage(job, 2, "running", "Refreshing mv_customer_features...")
         try:
             with engine.connect() as conn:
                 conn.execute(text("REFRESH MATERIALIZED VIEW mv_customer_features"))
                 conn.commit()
             _update_stage(job, 2, "done", "Materialized view refreshed")
+        except ProgrammingError as e:
+            if 'does not exist' in str(e).lower():
+                _update_stage(
+                    job, 2, "done",
+                    "MV does not exist yet (first-run on a fresh DB)",
+                )
+            else:
+                _update_stage(job, 2, "error", f"View refresh failed: {str(e)[:120]}")
+                job["status"] = "failed"
+                return
         except Exception as e:
-            _update_stage(job, 2, "error", f"View refresh failed: {str(e)[:100]}")
-            _update_stage(job, 2, "done", f"Using existing view data (refresh skipped)")
+            _update_stage(job, 2, "error", f"View refresh failed: {str(e)[:120]}")
+            job["status"] = "failed"
+            return
 
         # Stage 4: Compute RFM features
         _update_stage(job, 3, "running", f"Computing RFM features for {client_id}...")
@@ -217,12 +295,15 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         _update_stage(job, 3, "done" if ok else "error", msg[:200])
 
         # Stage 5: Train ML models
-        # --model-type all trains XGBoost, Random Forest, and Logistic Regression
-        # on the same feature set. Stage 6 (evaluate_model) then picks the
-        # winner by AUC-ROC and writes evaluation_summary.json, which Stage 7
-        # (predict) reads to load the best model. Without --model-type all,
-        # only XGBoost would train (train_model.py's argparse default) and
-        # the AUC-based selection degenerates to "pick the only model trained."
+        # --model-type all trains BOTH XGBoost and Random Forest on the
+        # same feature set, then train_model.py picks the AUC-winner per
+        # tenant (per-tenant filenames since the 2026-04-27 rewrite).
+        # Logistic Regression was removed from train_model.py because its
+        # sigmoid saturated to exactly 1.000 under leaky features —
+        # see ml/train_model.py around line 280 for the rationale.
+        # Without --model-type all, only XGBoost would train (the argparse
+        # default) and the AUC selection degenerates to "pick the only
+        # model trained."
         _update_stage(job, 4, "running", f"Training models for {client_id}...")
         ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id, "--model-type", "all"])
         if not ok:
@@ -357,10 +438,14 @@ def _build_summary(client_id: str) -> dict:
                     col = "risk_tier" if "risk_tier" in df.columns else "risk_level"
                     summary.atRisk = int((df[col] == "HIGH").sum())
 
-            # High value + repeat (derived from rfm_total_score and total_orders)
+            # High value + repeat. Audit fix (2026-04-29): high-value
+            # now keys on `customer_tier = 'Platinum'` to match the
+            # Dashboard's High Value tile. The previous heuristic
+            # `rfm_total_score >= 12` was retired when is_high_value
+            # was dropped from the MV (2026-04-25).
             r = conn.execute(text("""
-                SELECT COUNT(*) FILTER (WHERE rfm_total_score >= 12) AS hv,
-                       COUNT(*) FILTER (WHERE total_orders >= 2) AS repeat
+                SELECT COUNT(*) FILTER (WHERE customer_tier = 'Platinum') AS hv,
+                       COUNT(*) FILTER (WHERE total_orders >= 2)          AS repeat
                 FROM mv_customer_features WHERE client_id = :cid
             """), {"cid": client_id})
             row = r.fetchone()
@@ -422,6 +507,18 @@ def run_pipeline(
         "summary": None,
     }
     _jobs[job_id] = job
+
+    # Audit fix (2026-04-29): cap _jobs growth. Once we exceed the cap,
+    # evict the oldest *completed/failed* job. Running/queued jobs are
+    # never evicted so an active poll never returns 404 for an
+    # in-progress run. Python dicts preserve insertion order (3.7+),
+    # so iterating keys gives oldest-first.
+    if len(_jobs) > _JOBS_MAX_SIZE:
+        for old_id in list(_jobs.keys()):
+            if _jobs[old_id]["status"] in ("complete", "failed"):
+                del _jobs[old_id]
+                if len(_jobs) <= _JOBS_MAX_SIZE:
+                    break
 
     # Run in background thread
     thread = threading.Thread(

@@ -19,12 +19,13 @@ pipeline-run tracking table, those metrics can come back as genuine
 aggregates.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.auth_router import get_current_user
 from sqlalchemy import text
 
 from app.database import engine
 
-router = APIRouter(prefix="/api/v1", tags=["analytics"])
+router = APIRouter(prefix="/api/v1", tags=["analytics"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 
 
 @router.get("/analytics")

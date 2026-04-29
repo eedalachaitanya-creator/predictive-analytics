@@ -147,8 +147,10 @@ CREATE TABLE public.churn_scores (
     driver_1 character varying(100),
     driver_2 character varying(100),
     driver_3 character varying(100),
-    model_version character varying(20) DEFAULT 'v1.0'::character varying,
-    batch_run_id character varying(50)
+    -- Widened 2026-04-29: see schema_postgresql.sql for context.
+    -- Auto-generated model_version strings exceeded the prior 20 chars.
+    model_version character varying(80),
+    batch_run_id character varying(80)
 );
 
 

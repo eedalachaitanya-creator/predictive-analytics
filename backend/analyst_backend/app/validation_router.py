@@ -13,13 +13,29 @@ The validation runs LIVE against the actual database — not cached or static.
 """
 
 import logging
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy import text
 
 from app.database import engine
+from app.auth_router import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["validation"])
 log = logging.getLogger("validation")
+
+
+# Audit fix 2026-04-29 (#1): tenant-access check identical to the
+# pattern used in chat_router and upload_router. Without it, the
+# validation endpoints leaked PII (customer emails, names, addresses)
+# 50 chars at a time via the column-detail "sample" field for any
+# tenant the caller named in the query string — no auth required.
+def _require_client_access(user: dict, client_id: str) -> None:
+    if user.get("role") == "super_admin" or "*" in (user.get("clientAccess") or []):
+        return
+    if client_id not in (user.get("clientAccess") or []):
+        raise HTTPException(
+            status_code=403,
+            detail=f"You do not have access to client {client_id}",
+        )
 
 
 # ── Validation config per master type ──────────────────────────────────────
@@ -166,21 +182,36 @@ VALIDATION_CONFIG = {
 
 
 def _safe_query(conn, sql_str: str, params: dict | None = None):
-    """Execute a query and return the scalar result, defaulting to 0 on error."""
+    """Execute a query and return the scalar result, defaulting to 0 on error.
+
+    Audit fix 2026-04-29 (#3): failures now log at ERROR (was WARNING)
+    with the FULL SQL and params. Previously a missing table or syntax
+    error silently returned 0, making the validation page show clean
+    "OK" rows for tables that don't exist. Returning 0 is still the
+    fallback so the page renders, but operators now see the failure
+    in production logs at a visible level.
+    """
     try:
         result = conn.execute(text(sql_str), params or {})
         return result.scalar() or 0
     except Exception as e:
-        log.warning("Validation query failed: %s — %s", sql_str[:80], e)
+        log.error(
+            "Validation query failed | SQL: %s | params: %s | error: %s",
+            sql_str.replace("\n", " ").strip(), params, e,
+        )
         return 0
 
 
 @router.get("/validation")
-def get_validation(clientId: str = Query(default="CLT-001")):
+def get_validation(
+    clientId: str = Query(default="CLT-001"),
+    user: dict = Depends(get_current_user),  # Audit fix #1
+):
     """
     Run live validation checks on all database tables for a given client.
     Returns summary stats + per-file validation results.
     """
+    _require_client_access(user, clientId)
     results = []
 
     with engine.connect() as conn:
@@ -331,12 +362,14 @@ def get_validation(clientId: str = Query(default="CLT-001")):
 def get_validation_detail(
     master_type: str,
     clientId: str = Query(default="CLT-001"),
+    user: dict = Depends(get_current_user),  # Audit fix #1
 ):
     """
     Column-level validation detail for a specific master type.
     Returns each column's data type, non-null count, unique count, sample value,
     whether it's required, and status (ok/warn).
     """
+    _require_client_access(user, clientId)
     if master_type not in VALIDATION_CONFIG:
         raise HTTPException(status_code=404, detail=f"Unknown master type: {master_type}")
 

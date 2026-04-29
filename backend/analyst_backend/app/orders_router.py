@@ -10,12 +10,13 @@ parameters, and expects back:
 """
 
 import math
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from app.auth_router import get_current_user
 from sqlalchemy import text
 
 from app.database import engine
 
-router = APIRouter(prefix="/api/v1", tags=["orders"])
+router = APIRouter(prefix="/api/v1", tags=["orders"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 
 
 @router.get("/orders")

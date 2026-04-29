@@ -16,15 +16,15 @@ when they import the database dump.
 
 import logging
 import uuid
-import threading
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
 from app.auth_router import get_current_user
+from app.audit_logger import log_audit_event
 
 log = logging.getLogger("crp_api.chat")
 
@@ -37,13 +37,33 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS chat_messages (
     id              SERIAL PRIMARY KEY,
-    client_id       VARCHAR(20) NOT NULL DEFAULT 'CLT-001',
+    -- Audit fix 2026-04-29: NO `DEFAULT 'CLT-001'` — every INSERT must
+    -- supply client_id explicitly so the application's tenant-scoping
+    -- can't be silently bypassed. The matching ALTER on the live DB
+    -- happened in 2026_04_29_schema_audit_fixes.sql.
+    client_id       VARCHAR(20) NOT NULL,
     conversation_id VARCHAR(50) NOT NULL,
     role            VARCHAR(10) NOT NULL CHECK (role IN ('user', 'assistant')),
     content         TEXT NOT NULL,
     tokens_used     INT DEFAULT 0,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Audit fix 2026-04-29: enforce tenant referential integrity. Without
+-- this FK, deleting a client_config row leaves orphan chat_messages
+-- and accepting a typo client_id silently writes "free-text" rows.
+-- The constraint is added by 2026_04_29_schema_audit_fixes.sql on
+-- existing deployments; this DO block makes fresh installs self-heal.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_chat_messages_client'
+    ) THEN
+        ALTER TABLE chat_messages
+            ADD CONSTRAINT fk_chat_messages_client
+            FOREIGN KEY (client_id) REFERENCES client_config(client_id);
+    END IF;
+END$$;
 
 CREATE INDEX IF NOT EXISTS idx_chat_conv ON chat_messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_client ON chat_messages(client_id, created_at DESC);
@@ -92,7 +112,14 @@ class ChatResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _save_message(client_id: str, conversation_id: str, role: str, content: str):
-    """Save a single message to the database."""
+    """Save a single message to the database.
+
+    Audit fix 2026-04-29: failures now log at ERROR (was WARNING) and
+    include client_id / conversation_id / role for traceability. Still
+    swallowed so a transient DB hiccup doesn't kill the request — the
+    user still gets the agent's answer back — but the failure is now
+    loud enough to spot in production logs.
+    """
     try:
         with engine.begin() as conn:
             conn.execute(text("""
@@ -105,24 +132,51 @@ def _save_message(client_id: str, conversation_id: str, role: str, content: str)
                 "content": content,
             })
     except Exception as e:
-        log.warning("Failed to save chat message: %s", e)
+        log.error(
+            "Failed to save chat message (client=%s conv=%s role=%s): %s",
+            client_id, conversation_id, role, e,
+        )
+
+
+# Cap the number of messages we ever pull for a single conversation.
+# Anything beyond this is older than the LLM ever sees (we slice further
+# down to MAX_HISTORY_MESSAGES) and longer than any UI scrollback the
+# product cares about. Bounds memory + payload size for runaway sessions.
+DB_HISTORY_FETCH_CAP = 200
 
 
 def _get_history(client_id: str, conversation_id: str) -> list[dict]:
-    """Get conversation history from the database."""
+    """Get conversation history from the database.
+
+    Audit fix 2026-04-29:
+      * SELECT now LIMIT'ed to DB_HISTORY_FETCH_CAP rows so a misbehaving
+        conversation can't pull thousands of messages into memory. The
+        ORDER BY DESC + reverse keeps the MOST RECENT N rows (older
+        context is dropped, mirroring what the LLM actually sees).
+      * DB errors log at ERROR with context instead of being silently
+        swallowed. Returns [] on failure (consumers already handle that
+        as "no history") but the operator now knows.
+    """
     try:
         with engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT id, role, content, created_at
                 FROM chat_messages
                 WHERE client_id = :client_id AND conversation_id = :conversation_id
-                ORDER BY created_at ASC
+                ORDER BY created_at DESC
+                LIMIT :cap
             """), {
                 "client_id": client_id,
                 "conversation_id": conversation_id,
+                "cap": DB_HISTORY_FETCH_CAP,
             }).mappings().all()
-        return [dict(r) for r in rows]
-    except Exception:
+        # Reverse so the caller still sees rows in chronological order.
+        return [dict(r) for r in reversed(rows)]
+    except Exception as e:
+        log.error(
+            "Failed to load chat history (client=%s conv=%s): %s",
+            client_id, conversation_id, e,
+        )
         return []
 
 
@@ -259,12 +313,12 @@ def get_chat_history(
     conversationId: str = Query(None),
     user: dict = Depends(get_current_user),
 ):
-    _require_client_access(user, clientId)
     """
     Get chat history.
     - If conversationId is given, returns that conversation's messages.
     - If not, returns a list of all conversations with their latest message.
     """
+    _require_client_access(user, clientId)
     if conversationId:
         rows = _get_history(clientId, conversationId)
         return {
@@ -313,27 +367,56 @@ def get_chat_history(
 
 @router.post("/clear")
 def clear_history(
+    request: Request,
     clientId: str = Query("CLT-001"),
     conversationId: str = Query(None),
     user: dict = Depends(get_current_user),
 ):
+    """Clear chat history for a conversation or all conversations.
+
+    Audit fix 2026-04-29:
+      * Docstring moved before the access check so it survives in
+        function.__doc__ and FastAPI /docs.
+      * Destructive DELETEs are now audit-logged with row count so a
+        bulk "wipe-all-conversations" call leaves a trail.
+      * RETURNING returns the deleted-row count so the UI / caller can
+        confirm scope ("X messages cleared") and detect no-op calls.
+    """
     _require_client_access(user, clientId)
-    """Clear chat history for a conversation or all conversations."""
     try:
         with engine.begin() as conn:
             if conversationId:
-                conn.execute(text("""
+                deleted = conn.execute(text("""
                     DELETE FROM chat_messages
                     WHERE client_id = :client_id AND conversation_id = :conversation_id
+                    RETURNING id
                 """), {"client_id": clientId, "conversation_id": conversationId})
+                row_count = len(deleted.fetchall())
+                scope = f"conversation_id={conversationId}"
             else:
-                conn.execute(text("""
+                deleted = conn.execute(text("""
                     DELETE FROM chat_messages WHERE client_id = :client_id
+                    RETURNING id
                 """), {"client_id": clientId})
-        return {"status": "cleared"}
+                row_count = len(deleted.fetchall())
+                scope = "ALL conversations for tenant"
     except Exception as e:
         log.error("Failed to clear history: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+    # Persist a tamper-resistant audit record for this destructive op.
+    # Always run, even when row_count == 0, so we capture the *intent*
+    # (someone asked to wipe history) not just successful deletions.
+    log_audit_event(
+        request,
+        action_type="chat_history_clear",
+        details=f"{scope} · {row_count} messages deleted",
+        client_id=clientId,
+        user_id=user.get("id"),
+        user_email=user.get("email"),
+        outcome="success",
+    )
+    return {"status": "cleared", "rows_deleted": row_count}
 
 
 @router.get("/suggestions")

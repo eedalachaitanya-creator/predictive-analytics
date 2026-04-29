@@ -24,10 +24,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 
-from app.auth_router import _find_user_by_token
+from app.auth_router import _find_user_by_token, get_current_user
 from app.database import engine
 
-router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
+router = APIRouter(prefix="/api/v1/audit", tags=["audit"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 
 
 # ─── Auth dependency (super_admin only) ────────────────────────────────

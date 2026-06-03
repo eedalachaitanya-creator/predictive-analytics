@@ -43,36 +43,19 @@ _analyst_pool: Optional[asyncpg.Pool] = None
 
 
 def _build_dsn(env_key: str, fallback_key: Optional[str] = None) -> str:
-    """
-    Resolve a DB connection string from environment variables.
-
-    Priority:
-      1. env_key value  (e.g. SCOUT_DB_URL)
-      2. fallback_key   (e.g. DATABASE_URL)
-      3. Assembled from individual host/port/name/user/password vars
-
-    Always returns an asyncpg-compatible DSN (postgresql:// prefix).
-    """
     url = os.getenv(env_key, "").strip()
 
     if not url and fallback_key:
         url = os.getenv(fallback_key, "").strip()
 
-    if url:
-        # Normalise SQLAlchemy's async prefix → plain asyncpg prefix
-        url = url.replace("postgresql+asyncpg://", "postgresql://")
-        url = url.replace("postgres://", "postgresql://")
-        return url
+    if not url:
+        raise RuntimeError(
+            f"No database URL found. Set {env_key} or {fallback_key} in .env"
+        )
 
-    # Fallback: assemble from individual variables
-    # Prefix is derived from env_key: "SCOUT_DB_URL" → "SCOUT"
-    prefix = env_key.replace("_DB_URL", "").replace("_URL", "")
-    host = os.getenv(f"{prefix}_HOST", os.getenv("DB_HOST", "localhost"))
-    port = os.getenv(f"{prefix}_PORT", os.getenv("DB_PORT", "5432"))
-    name = os.getenv(f"{prefix}_NAME", os.getenv("DB_NAME", "retention"))
-    user = os.getenv(f"{prefix}_USER", os.getenv("DB_USER", "postgres"))
-    pw   = os.getenv(f"{prefix}_PASSWORD", os.getenv("DB_PASSWORD", ""))
-    return f"postgresql://{user}:{pw}@{host}:{port}/{name}"
+    url = url.replace("postgresql+asyncpg://", "postgresql://")
+    url = url.replace("postgres://", "postgresql://")
+    return url
 
 
 async def create_pools() -> None:

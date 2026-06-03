@@ -355,7 +355,7 @@ class SelfRegisterRequest(BaseModel):
     password: str          # their chosen password
 
 
-@router.post("/clients/self-register")
+@router.post("/clients/self-register", dependencies=[])
 def self_register(req: SelfRegisterRequest):
     """
     PUBLIC endpoint — new clients register themselves.

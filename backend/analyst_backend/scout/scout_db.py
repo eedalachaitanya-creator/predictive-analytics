@@ -30,11 +30,10 @@ import psycopg2.extras
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────
+from dotenv import load_dotenv
+load_dotenv()
 
-DATABASE_URL: str = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5433/scout",
-)
+_DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
 # ── Database class ────────────────────────────────────────────────────
@@ -53,7 +52,7 @@ class Database:
 
     @contextmanager
     def _conn(self) -> Generator:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(dsn=_DATABASE_URL)
         conn.autocommit = False
         try:
             yield conn

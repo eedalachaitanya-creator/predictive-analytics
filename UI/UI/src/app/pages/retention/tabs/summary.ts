@@ -26,7 +26,6 @@ export class RetentionSummaryTab implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.load();
-    // Reload whenever user navigates back to this page
     this.routerSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
       .subscribe(e => {
@@ -36,20 +35,16 @@ export class RetentionSummaryTab implements OnInit, OnDestroy {
       });
   }
 
-  ngOnDestroy() {
-    this.routerSub?.unsubscribe();
-  }
+  ngOnDestroy() { this.routerSub?.unsubscribe(); }
 
   load() {
     this.loading.set(true);
-    this.error.set('');   // clear stale error so a successful retry doesn't leave red banner
+    this.error.set('');
     this.svc.getSummary(this.clientId).subscribe({
       next: (res) => { this.data.set(res); this.loading.set(false); },
       error: () => { this.error.set('Failed to load summary.'); this.loading.set(false); }
     });
   }
 
-  fmtPct(n: number)      { return (n || 0).toFixed(1) + '%'; }
-  fmtRevenue(n: number)  { return '$' + (n || 0).toFixed(2); }
-  conversionWidth(n: number) { return Math.min(n, 100).toFixed(0) + '%'; }
+  fmtPct(n: any) { return (parseFloat(n) || 0).toFixed(1) + '%'; }
 }

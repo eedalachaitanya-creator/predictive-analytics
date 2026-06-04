@@ -421,3 +421,39 @@ async def products(
     except Exception as exc:
         logger.error("GET /products failed for client_id=%s: %s", client_id, exc)
         return {"client_id": client_id, "count": 0, "products": [], "error": str(exc)}
+    
+
+@router.get("/scout-products", summary="Search Scout entity names for Pricing Engine autocomplete")
+async def scout_products(
+    q:     str = Query(default="", description="Search filter"),
+    limit: int = Query(default=20, le=100),
+) -> dict:
+    """Search entity names from Scout DB for the Pricing Engine autocomplete."""
+    try:
+        from strategist.db.connection import get_scout_pool
+        pool = await get_scout_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT e.canonical_name AS name, e.query
+                FROM entities e
+                JOIN entity_listings el ON el.entity_id = e.id
+                WHERE el.price > 0
+                  AND ($1 = '' OR LOWER(e.canonical_name) LIKE '%' || LOWER($1) || '%'
+                               OR LOWER(e.query)          LIKE '%' || LOWER($1) || '%')
+                ORDER BY e.canonical_name
+                LIMIT $2
+                """,
+                q.strip(), limit,
+            )
+        return {
+            "count":    len(rows),
+            "products": [
+                {"name": r["name"], "sku": r["query"] or "", "saved_cost": 0}
+                for r in rows
+            ],
+        }
+    except Exception as exc:
+        logger.error("GET /scout-products failed: %s", exc)
+        return {"count": 0, "products": [], "error": str(exc)}
+    

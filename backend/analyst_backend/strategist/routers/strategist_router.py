@@ -89,8 +89,6 @@ async def recommend(
     # pricing engine → charm pricing → churn routing → DB persistence
     import time as _time
     _t0 = _time.perf_counter()
-    import time as _time
-    _t0 = _time.perf_counter()
     try:
         recommendations, run_id = await run_strategist_graph(request)
     except ValueError as exc:

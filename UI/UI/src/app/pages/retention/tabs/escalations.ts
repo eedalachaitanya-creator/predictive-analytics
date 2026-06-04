@@ -48,9 +48,9 @@ export class RetentionEscalationsTab implements OnInit, OnDestroy {
     });
   }
 
-  fmtProb(n: number)  { return (n * 100).toFixed(1) + '%'; }
-  fmtLtv(n: number)   { return '$' + (n || 0).toFixed(2); }
-  fmtPct(n: number)   { return (n || 0).toFixed(1) + '%'; }
+  fmtProb(n: any)  { return ((parseFloat(n) || 0) * 100).toFixed(1) + '%'; }
+  fmtLtv(n: any)   { return '$' + (parseFloat(n) || 0).toFixed(2); }
+  fmtPct(n: any)   { return (parseFloat(n) || 0).toFixed(1) + '%'; }
   fmtDate(d: string)  { return d ? new Date(d).toLocaleString() : '—'; }
   tierColor(t: string){ return t === 'Platinum' ? 'purple' : t === 'Gold' ? 'yellow' : t === 'Silver' ? 'gray' : 'orange'; }
 }

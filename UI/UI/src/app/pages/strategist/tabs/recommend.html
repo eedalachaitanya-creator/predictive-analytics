@@ -23,14 +23,13 @@
             <input class="form-input" placeholder="Product name (start typing to search)"
               [value]="p.name"
               (input)="updateProduct(i, 'name', $any($event.target).value)"
-              (blur)="closeSuggestions()" />
+              (blur)="onNameBlur()" />
             @if (suggestionsOpen() === i && suggestions()[i]?.length) {
               <div class="autocomplete-dropdown">
-                @for (s of suggestions()[i]; track s.sku) {
+                @for (s of suggestions()[i]; track s.name) {
                   <div class="autocomplete-item" (mousedown)="pickSuggestion(i, s.name, s.saved_cost)">
-                    <span class="ac-name">{{ s.name }}</span>
-                    <span class="ac-sku">{{ s.sku }}</span>
-                  </div>
+                  <span class="ac-name">{{ s.name }}</span>
+                </div>
                 }
               </div>
             }

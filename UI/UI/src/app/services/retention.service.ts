@@ -97,7 +97,7 @@ export class RetentionService {
   }
 
   getInterventions(clientId: string): Observable<any> {
-    return this.http.get<any>(`${BASE}/api/db/interventions?client_id=${clientId}`, { headers: headers() })
+    return this.http.get<any>(`${BASE}/api/db/interventions?client_id=${clientId}&limit=200`, { headers: headers() })
       .pipe(catchError(e => throwError(() => e)));
   }
 }

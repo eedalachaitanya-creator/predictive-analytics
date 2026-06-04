@@ -128,8 +128,10 @@ export class StrategistRecommendTab {
     // 250ms debounce — avoid hitting backend on every keystroke
     this.searchTimeouts[i] = setTimeout(() => {
       this.svc.searchProducts(this.clientId, q.trim()).subscribe(res => {
+        console.log('autocomplete res:', res);
         this.suggestions.update(s => ({ ...s, [i]: res.products || [] }));
         this.suggestionsOpen.set(res.products?.length ? i : null);
+        console.log('suggestionsOpen set to:', res.products?.length ? i : null);
       });
     }, 250);
   }
@@ -147,9 +149,11 @@ export class StrategistRecommendTab {
   }
 
   /** Close dropdown when user tabs/clicks away */
-  closeSuggestions() {
-    // Small timeout so click on suggestion fires BEFORE blur hides it
-    setTimeout(() => this.suggestionsOpen.set(null), 150);
+  closeSuggestions() { this.suggestionsOpen.set(null); }
+
+  onNameBlur() {
+    // Delay close by 200ms so mousedown on suggestion fires first
+    setTimeout(() => this.suggestionsOpen.set(null), 200);
   }
 
   run() {

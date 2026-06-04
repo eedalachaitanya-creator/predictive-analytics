@@ -364,7 +364,7 @@ class ChurnScoresRepo:
                 COALESCE(mv.avg_rating,            0)     AS avg_rating,
                 COALESCE(mv.days_since_last_order,
                          rf.days_since_last_order, 0)     AS days_since_last_order,
-                COALESCE(mv.is_high_value,         0)     AS is_high_value,
+                0                                          AS is_high_value,
                 COALESCE(mv.rfm_total_score,
                          rf.rfm_total_score,       0)     AS rfm_total_score
             FROM churn_scores cs

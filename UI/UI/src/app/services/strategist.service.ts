@@ -167,8 +167,8 @@ export class StrategistService {
    *  substring match against canonical_name, ranked by listing count. */
   /** Search products in client's catalog for autocomplete */
   searchProducts(clientId: string, q: string): Observable<{ count: number; products: { name: string; sku: string; saved_cost: number }[] }> {
-    const qPart = q ? `&q=${encodeURIComponent(q)}&limit=10` : `&limit=20`;
-    return this.http.get<any>(`${BASE}/api/db/products?client_id=${clientId}${qPart}`, { headers: headers() })
+    const qPart = q ? `?q=${encodeURIComponent(q)}&limit=10` : `?limit=20`;
+    return this.http.get<any>(`${BASE}/api/db/scout-products${qPart}`, { headers: headers() })
       .pipe(catchError(() => of({ count: 0, products: [] })));
   }
   /** Fetch client config (incl. preferred currency) for UI prefill */

@@ -20,17 +20,49 @@
         Add Website
       }
     </button>
+    @if (adding()) {
+      <button class="btn danger" (click)="cancelAdd()" [disabled]="cancelling()" title="Stop and discard">
+        @if (cancelling()) {
+          <span class="spinner"></span> Cancelling…
+        } @else {
+          Cancel
+        }
+      </button>
+    }
   </div>
 
   @if (adding()) {
     <div class="notice info" style="margin: 0 20px 16px">
-      🔍 Searching..
+      @if (cancelling()) {
+        🛑 Cancelling
+      } @else {
+        🔍 Searching...
+      }
     </div>
   }
 </div>
 
 <!-- Messages -->
-@if (error()) { <div class="notice warning mb-16">⚠️ {{ error() }}</div> }
+@if (error()) {
+  <!-- Error notice has a manual dismiss button because addWebsite errors
+       persist (don't auto-clear). The flex layout pushes the × to the
+       right edge while keeping the message left-aligned. clearMessages()
+       can't be called from the template directly, but error.set('') is
+       all clearMessages() does for the error part — same effect. -->
+  <div class="notice warning mb-16" style="display: flex; align-items: center; gap: 8px">
+    <span style="flex: 1">⚠️ {{ error() }}</span>
+    <button
+      type="button"
+      (click)="error.set('')"
+      title="Dismiss"
+      aria-label="Dismiss error"
+      style="background: transparent; border: none; cursor: pointer;
+             font-size: 18px; line-height: 1; padding: 2px 8px;
+             color: inherit; opacity: 0.6">
+      ×
+    </button>
+  </div>
+}
 @if (success()) { <div class="notice success mb-16">✅ {{ success() }}</div> }
 
 <!-- Websites Table -->

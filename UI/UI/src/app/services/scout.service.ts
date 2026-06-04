@@ -157,9 +157,21 @@ export class ScoutService {
   }
 
 
-  searchProducts(name: string, platforms: string[] = [], forceRefresh = false): Observable<SearchResponse> {
+  searchProducts(
+    name: string,
+    platforms: string[] = [],
+    forceRefresh = false,
+    requestId?: string,
+  ): Observable<SearchResponse> {
+    // request_id flows from the Search component's UUID → backend's
+    // cancellation registry. When the user clicks Cancel, the frontend
+    // calls cancelSearch(requestId) and the backend's scraper checkpoints
+    // bail out fast.
     return this.http.post<SearchResponse>(`${SCOUT_API}/search/products`, {
-      name, platforms, force_refresh: forceRefresh
+      name,
+      platforms,
+      force_refresh: forceRefresh,
+      request_id: requestId,
     }).pipe(catchError(this.handleError));
   }
 
@@ -169,14 +181,32 @@ export class ScoutService {
     }).pipe(catchError(this.handleError));
   }
 
-  uploadBulk(file: File, platforms: string[] = []): Observable<SearchResponse> {
+  uploadBulk(file: File, platforms: string[] = [], requestId?: string): Observable<SearchResponse> {
     const formData = new FormData();
     formData.append('file', file);
     if (platforms.length) {
       formData.append('platforms', platforms.join(','));
     }
+    if (requestId) {
+      // The /upload/file endpoint accepts request_id as a Form field
+      // (the upload uses multipart, not JSON, so we can't put it in body).
+      formData.append('request_id', requestId);
+    }
     return this.http.post<SearchResponse>(`${SCOUT_API}/upload/file`, formData)
       .pipe(catchError(this.handleError));
+  }
+
+  /**
+   * Cancel an in-flight search by request_id.
+   * Returns immediately — does not wait for the scraper to actually stop.
+   * The scraper polls a cancellation event at safe checkpoints; expect
+   * 1-3 seconds between Cancel click and the search HTTP request resolving.
+   */
+  cancelSearch(requestId: string): Observable<{ status: string; cancelled: boolean; request_id: string }> {
+    return this.http.post<{ status: string; cancelled: boolean; request_id: string }>(
+      `${SCOUT_API}/search/cancel/${encodeURIComponent(requestId)}`,
+      {}
+    ).pipe(catchError(this.handleError));
   }
 
   // ── Compare ─────────────────────────────────────────────────────
@@ -230,13 +260,38 @@ export class ScoutService {
       .pipe(catchError(this.handleError));
   }
 
-  addWebsite(name: string): Observable<{ data: Website }> {
-    return this.http.post<{ data: Website }>(`${SCOUT_API}/websites`, { name }).pipe(
+  addWebsite(name: string, requestId?: string): Observable<{ data: Website | null; status?: string }> {
+    // request_id flows from the Platforms component's UUID → backend's
+    // cancellation registry. Same pattern as searchProducts above.
+    // The backend returns one of two shapes:
+    //   success:   { data: Website }
+    //   cancelled: { status: 'cancelled', data: null, request_id: '...' }
+    // We only refresh platforms on success — refreshing on cancel would be
+    // a wasted network call (nothing was added).
+    return this.http.post<{ data: Website | null; status?: string }>(
+      `${SCOUT_API}/websites`,
+      { name, request_id: requestId },
+    ).pipe(
       catchError(this.handleError),
-      // Refresh the shared signal on success so all components see the new
-      // platform appear immediately.
-      tap(() => this.refreshPlatforms()),
+      tap(res => {
+        if (res?.status !== 'cancelled' && res?.data) {
+          this.refreshPlatforms();
+        }
+      }),
     );
+  }
+
+  /**
+   * Cancel an in-flight add-website operation by request_id.
+   * Mirrors cancelSearch — does not wait for the resolver to actually stop.
+   * Worst-case latency is one Playwright iteration (~5-10s) because the
+   * resolver checks for cancellation between phases, not inside browser calls.
+   */
+  cancelAddWebsite(requestId: string): Observable<{ status: string; cancelled: boolean; request_id: string }> {
+    return this.http.post<{ status: string; cancelled: boolean; request_id: string }>(
+      `${SCOUT_API}/websites/cancel/${encodeURIComponent(requestId)}`,
+      {}
+    ).pipe(catchError(this.handleError));
   }
 
   updateWebsite(payload: Partial<Website> & { name: string }): Observable<{ data: Website }> {

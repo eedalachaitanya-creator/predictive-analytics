@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
 import { ScoutService, Listing, SearchResult } from '../../../services/scout.service';
 
 @Component({
@@ -31,6 +32,18 @@ export class ScoutSearchTab implements OnInit {
   // platforms resolves to a non-empty list. After that, user's chip toggles
   // are preserved even when new platforms appear.
   private initialized = false;
+
+  // ── Cancellation state ──────────────────────────────────────────
+  // currentRequestId is the UUID we sent with the in-flight search.
+  // currentSubscription is the RxJS subscription so we can also abort
+  // the HTTP wait on the frontend (otherwise the browser would still
+  // wait for the response we no longer care about).
+  private currentRequestId: string | null = null;
+  private currentSubscription: Subscription | null = null;
+  // Set to true *only* when the user clicked Cancel. Used to suppress
+  // the noisy error toast that would otherwise show when the HTTP
+  // request gets aborted.
+  private wasCancelled = false;
 
   constructor() {
     // Reactively keep the selection in sync with the active platform list:
@@ -73,11 +86,81 @@ export class ScoutSearchTab implements OnInit {
   search() {
     const q = this.query().trim();
     if (!q || this.searching()) return;
-    this.searching.set(true); this.error.set(''); this.results.set([]); this.expandedRow.set(null);
-    this.svc.searchProducts(q, [...this.selected()]).subscribe({
-      next: (res: any) => { this.results.set(res.products); this.searching.set(false); },
-      error: (err: any) => { this.error.set(err.message || 'Search failed'); this.searching.set(false); }
+
+    // Generate a request_id that the backend uses to register this search
+    // in its cancellation registry. crypto.randomUUID is widely supported
+    // (Chrome 92+, Firefox 95+, Safari 15.4+) — covers the targeted dev/user
+    // browsers. No polyfill needed.
+    this.currentRequestId = crypto.randomUUID();
+    this.wasCancelled = false;
+
+    this.searching.set(true);
+    this.error.set('');
+    this.results.set([]);
+    this.expandedRow.set(null);
+
+    this.currentSubscription = this.svc.searchProducts(
+      q,
+      [...this.selected()],
+      false,
+      this.currentRequestId,
+    ).subscribe({
+      next: (res: any) => {
+        // Backend signals user cancellation with status='cancelled' and
+        // empty products. No error toast — the user knows they cancelled.
+        if (res?.status === 'cancelled') {
+          this.results.set([]);
+        } else {
+          this.results.set(res.products);
+        }
+        this.resetSearchState();
+      },
+      error: (err: any) => {
+        // If the user clicked Cancel, the HTTP request gets aborted on
+        // unsubscribe. RxJS may emit an error here — don't show it as a
+        // "Search failed" toast; the cancel was intentional.
+        if (!this.wasCancelled) {
+          this.error.set(err.message || 'Search failed');
+        }
+        this.resetSearchState();
+      },
     });
+  }
+
+  /**
+   * Cancel an in-flight search. Tells the backend to stop scraping AND
+   * unsubscribes from the HTTP request locally so the UI returns to ready
+   * state immediately.
+   */
+  cancel() {
+    if (!this.currentRequestId || !this.searching()) return;
+
+    const id = this.currentRequestId;
+    this.wasCancelled = true;
+
+    // Tell the backend to stop. Fire-and-forget — we don't await this.
+    // The backend's scraper checkpoints will see the cancel signal within
+    // 1-3 seconds and abandon the search.
+    this.svc.cancelSearch(id).subscribe({
+      next: () => { /* fine — backend acknowledged */ },
+      error: () => { /* fine — backend already finished or never had it */ },
+    });
+
+    // Locally: stop waiting for the response. This makes the UI snappy —
+    // the user doesn't have to watch the spinner for 1-3s while the
+    // backend cleans up.
+    this.currentSubscription?.unsubscribe();
+    this.resetSearchState();
+  }
+
+  /**
+   * Reset all per-search state. Called from both successful completion and
+   * cancellation paths so we never have stale request_ids hanging around.
+   */
+  private resetSearchState() {
+    this.searching.set(false);
+    this.currentRequestId = null;
+    this.currentSubscription = null;
   }
 
   onKeydown(e: KeyboardEvent) { if (e.key === 'Enter') this.search(); }
@@ -91,10 +174,35 @@ export class ScoutSearchTab implements OnInit {
   searchBulk() {
     const file = this.bulkFile();
     if (!file || this.searching()) return;
-    this.searching.set(true); this.error.set(''); this.results.set([]);
-    this.svc.uploadBulk(file, [...this.selected()]).subscribe({
-      next: (res: any) => { this.results.set(res.products); this.searching.set(false); },
-      error: (err: any) => { this.error.set(err.message || 'Bulk search failed'); this.searching.set(false); }
+
+    // Same cancellation pattern as single search — generate a request_id,
+    // pass it to the upload, and wire up Cancel via shared cancel() method.
+    this.currentRequestId = crypto.randomUUID();
+    this.wasCancelled = false;
+
+    this.searching.set(true);
+    this.error.set('');
+    this.results.set([]);
+
+    this.currentSubscription = this.svc.uploadBulk(
+      file,
+      [...this.selected()],
+      this.currentRequestId,
+    ).subscribe({
+      next: (res: any) => {
+        if (res?.status === 'cancelled') {
+          this.results.set([]);
+        } else {
+          this.results.set(res.products);
+        }
+        this.resetSearchState();
+      },
+      error: (err: any) => {
+        if (!this.wasCancelled) {
+          this.error.set(err.message || 'Bulk search failed');
+        }
+        this.resetSearchState();
+      },
     });
   }
 

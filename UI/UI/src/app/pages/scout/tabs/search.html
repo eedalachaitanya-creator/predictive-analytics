@@ -41,9 +41,26 @@
           (keydown)="onKeydown($event)"
           [disabled]="searching()" />
       </div>
-      <button class="btn primary" (click)="search()" [disabled]="searching() || !query().trim() || !selected().size">
-        @if (searching()) { <span class="spin"></span> Searching… } @else { Search }
-      </button>
+      @if (!searching()) {
+        <button class="btn primary" (click)="search()" [disabled]="!query().trim() || !selected().size">
+          Search
+        </button>
+      } @else {
+        <!--
+          While searching, show two buttons:
+            - Disabled "Searching…" so the user sees the spinner and can't double-fire
+            - "Cancel" so the user can stop the in-flight scrape
+          The cancel button calls cancel() which (a) tells the backend to stop
+          via /search/cancel/{id}, and (b) unsubscribes from the HTTP request
+          so the UI returns to ready state immediately.
+        -->
+        <button class="btn primary" disabled>
+          <span class="spin"></span> Searching…
+        </button>
+        <button class="btn outline cancel-btn" (click)="cancel()">
+          Cancel
+        </button>
+      }
     </div>
   </div>
 }
@@ -66,10 +83,24 @@
           <div class="hint">{{ bulkFile()!.name }}</div>
           <div class="cols">{{ (bulkFile()!.size / 1024).toFixed(1) }} KB</div>
           <div class="flex-row" style="justify-content:center;margin-top:12px">
-            <button class="btn sm ghost" (click)="clearFile()">Remove</button>
-            <button class="btn sm primary" (click)="searchBulk()" [disabled]="searching() || !selected().size">
-              @if (searching()) { <span class="spin"></span> Processing… } @else { Search All }
-            </button>
+            <button class="btn sm ghost" (click)="clearFile()" [disabled]="searching()">Remove</button>
+            @if (!searching()) {
+              <button class="btn sm primary" (click)="searchBulk()" [disabled]="!selected().size">
+                Search All
+              </button>
+            } @else {
+              <!--
+                Bulk uses the same cancel() method as single search — it tracks
+                the same currentRequestId / currentSubscription, so one Cancel
+                button works for both modes.
+              -->
+              <button class="btn sm primary" disabled>
+                <span class="spin"></span> Processing…
+              </button>
+              <button class="btn sm outline cancel-btn" (click)="cancel()">
+                Cancel
+              </button>
+            }
           </div>
         </div>
       }

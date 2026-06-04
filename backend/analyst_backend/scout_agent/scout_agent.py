@@ -130,11 +130,26 @@ def _build_agent():
         openai_api_key=api_key,
     )
 
-    agent = create_react_agent(
-        model=llm,
-        tools=SCOUT_TOOLS,
-        state_modifier=SYSTEM_PROMPT,
-    )
+    # Try all langgraph parameter name variants across versions
+    try:
+        agent = create_react_agent(
+            model=llm,
+            tools=SCOUT_TOOLS,
+            prompt=SYSTEM_PROMPT,
+        )
+    except TypeError:
+        try:
+            agent = create_react_agent(
+                model=llm,
+                tools=SCOUT_TOOLS,
+                state_modifier=SYSTEM_PROMPT,
+            )
+        except TypeError:
+            agent = create_react_agent(
+                model=llm,
+                tools=SCOUT_TOOLS,
+                messages_modifier=SYSTEM_PROMPT,
+            )
 
     logger.info("[ScoutAgent] LangGraph ReAct agent built (gpt-4o-mini)")
     return agent

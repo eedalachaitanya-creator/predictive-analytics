@@ -22,6 +22,8 @@ import re
 import urllib.parse
 from typing import Optional
 
+from .cancellation import check_cancelled, SearchCancelledException
+
 logger = logging.getLogger(__name__)
 
 
@@ -584,6 +586,176 @@ async def _discover_search_url(base_url: str) -> Optional[dict]:
     return result2.get("data")
 
 
+# ── Playwright helpers (stealth, overlay dismissal) ──────────────────
+
+async def _apply_stealth(page, context) -> str:
+    """
+    Apply playwright-stealth evasions, supporting both v1 and v2 APIs.
+
+    playwright-stealth 2.x removed the top-level `stealth_async` function
+    and replaced it with `Stealth().apply_stealth_async(context)`. The
+    previous code did `from playwright_stealth import stealth_async` and
+    treated the resulting ImportError as "package not installed", which is
+    wrong — the package IS installed, just shaped differently. The misleading
+    log line ("playwright-stealth not installed") was masking the real bug.
+
+    Order of attempts:
+      1. v2 API: `Stealth().apply_stealth_async(context)` — current
+      2. v1 API: `stealth_async(page)` — legacy, kept for compatibility
+      3. Manual fallback: just mask the navigator.webdriver flag
+
+    Returns a short status string for logging — "v2", "v1", or "manual".
+    Never raises — stealth is best-effort, the scrape still proceeds.
+    """
+    # Try v2 first (the actual installed version per the user's pip output)
+    try:
+        from playwright_stealth import Stealth  # type: ignore
+        await Stealth().apply_stealth_async(context)
+        return "v2"
+    except ImportError:
+        pass  # fall through to v1
+    except Exception as e:
+        logger.warning(f"[resolver] Stealth v2 setup error: {e}")
+        # Don't fall through on non-ImportError — v2 IS installed but broken.
+        # Use manual fallback so we still get something.
+
+    # Try v1 (older installs)
+    try:
+        from playwright_stealth import stealth_async  # type: ignore
+        await stealth_async(page)
+        return "v1"
+    except ImportError:
+        pass  # neither version available — manual fallback
+    except Exception as e:
+        logger.warning(f"[resolver] Stealth v1 setup error: {e}")
+
+    # Manual fallback: minimal evasion (mask the webdriver flag).
+    # Better than nothing, and what the previous code did when it thought
+    # the package was missing.
+    await page.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    return "manual"
+
+
+async def _dismiss_overlays(page) -> int:
+    """
+    Best-effort dismissal of modals, login walls, cookie banners, and
+    region popups that intercept clicks on search inputs.
+
+    Why this is needed: Flipkart, Amazon-IN, Myntra, and many e-commerce
+    sites show a modal on first visit (login prompt, "select location",
+    cookie consent). The modal's backdrop has `tabindex="-1"` and a high
+    z-index, so it captures clicks before they reach the search box.
+
+    Strategy (three passes, in order):
+      1. Press Escape twice — closes accessibly-built native dialogs.
+      2. Click standard dismiss buttons by ARIA / button text. We do NOT
+         use class-name selectors (e.g. Flipkart's `_2KpZ6l._2doB4z`) —
+         those break on the next deploy. Anything we keep here must be
+         portable.
+      3. Generic obstruction removal: look at fixed/sticky elements with
+         high z-index that cover the page, and hide them via JS. This is
+         the catch-all for sites whose modals don't expose any standard
+         dismiss affordance (Flipkart's login wall, for example).
+
+    Returns the count of dismiss actions that fired (logging only).
+    Never raises — overlay dismissal is best-effort. The scrape continues
+    even if every step fails; the worst case is the same as before.
+    """
+    actions = 0
+
+    # Pass 1 — Escape. Two presses handles nested modals (cookie banner
+    # over login modal). Cheap and idempotent.
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(150)
+        await page.keyboard.press("Escape")
+        actions += 1
+    except Exception:
+        pass
+
+    # Pass 2 — standard dismiss buttons. ARIA labels and button text only.
+    # No class-name selectors: those go stale on every site redeploy and
+    # are why this function failed on Flipkart even after "succeeding".
+    # We do NOT break after the first match — multiple banners may be
+    # stacked (cookie + login, region + cookie, etc).
+    CLOSE_SELECTORS = [
+        "button[aria-label*='close' i]",
+        "button[aria-label*='dismiss' i]",
+        "[role='dialog'] button[aria-label*='close' i]",
+        "button:has-text('No thanks')",
+        "button:has-text('Not now')",
+        "button:has-text('Not Now')",
+        "button:has-text('Skip')",
+        "button:has-text('Maybe later')",
+        "button:has-text('Continue without')",
+        "button:has-text('Got it')",
+        "button:has-text('I agree')",
+        "button:has-text('Accept all')",
+        "button:has-text('Accept')",
+    ]
+
+    for selector in CLOSE_SELECTORS:
+        try:
+            # locator.first handles multiple matches; short timeout so
+            # missing selectors don't pile up into seconds of waiting.
+            loc = page.locator(selector).first
+            if await loc.count() > 0:
+                await loc.click(timeout=400)
+                await page.wait_for_timeout(150)
+                actions += 1
+        except Exception:
+            continue
+
+    # Pass 3 — generic obstruction removal. Independent of selectors.
+    # Why this exists: Flipkart's login modal has no aria-label, no
+    # close button, no "X". The previous version "succeeded" by clicking
+    # an unrelated button (or maybe a phantom one) and returning 1, but
+    # the actual modal — `<div tabindex="-1" class="mcO4kT RFBkxv">` —
+    # was still up and intercepting clicks. We can't fix that with new
+    # selectors because Flipkart will rotate the class hash on their
+    # next deploy. Instead, ask the browser directly: what is currently
+    # covering the page? Anything fixed/sticky with a high z-index that
+    # spans most of the viewport is almost certainly an unwanted overlay.
+    #
+    # Why this is safe: we only target elements that ALSO cover most of
+    # the viewport. A normal cart drawer or dropdown is small or anchored
+    # to a corner; we leave those alone. The threshold (60% viewport) is
+    # tuned to catch full-screen modals without touching legitimate UI.
+    try:
+        removed = await page.evaluate("""() => {
+            let count = 0;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const minArea = vw * vh * 0.6;
+            // Walk all elements; cheap because most pages have <5k.
+            for (const el of document.querySelectorAll('body *')) {
+                const cs = window.getComputedStyle(el);
+                const pos = cs.position;
+                if (pos !== 'fixed' && pos !== 'sticky') continue;
+                const z = parseInt(cs.zIndex, 10);
+                if (!Number.isFinite(z) || z < 100) continue;
+                if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                const r = el.getBoundingClientRect();
+                if (r.width * r.height < minArea) continue;
+                // Found a viewport-spanning fixed/sticky overlay. Hide it.
+                // We use display:none rather than .remove() so the page's
+                // own JS doesn't notice and re-create the modal.
+                el.style.setProperty('display', 'none', 'important');
+                count++;
+            }
+            return count;
+        }""")
+        if removed:
+            actions += removed
+    except Exception:
+        # JS evaluation failure is non-fatal; we already did passes 1 & 2.
+        pass
+
+    return actions
+
+
 async def _playwright_discover(base_url: str, use_stealth: bool = False) -> Optional[dict]:
     from playwright.async_api import async_playwright
 
@@ -630,20 +802,11 @@ async def _playwright_discover(base_url: str, use_stealth: bool = False) -> Opti
         # Stealth can cause regressions on sites that work fine without it
         # (e.g., Target's React hydration detection, DrBerg Shopify fill).
         if use_stealth:
-            try:
-                from playwright_stealth import stealth_async
-                await stealth_async(page)
-                logger.info("[resolver] 🛡️ Applied playwright-stealth (fallback attempt)")
-            except ImportError:
-                logger.info("[resolver] playwright-stealth not installed")
-                await page.add_init_script(
-                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-                )
-            except Exception as stealth_err:
-                logger.warning(f"[resolver] Stealth setup error: {stealth_err}")
-                await page.add_init_script(
-                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-                )
+            mode = await _apply_stealth(page, context)
+            if mode in ("v1", "v2"):
+                logger.info(f"[resolver] 🛡️ Applied playwright-stealth ({mode})")
+            else:
+                logger.info(f"[resolver] playwright-stealth unavailable, using manual fallback")
         else:
             # Minimal baseline stealth — mask webdriver flag only.
             # This is what worked before on Target/DrBerg/etc.
@@ -677,13 +840,7 @@ async def _playwright_discover(base_url: str, use_stealth: bool = False) -> Opti
                     )
                     page = await context.new_page()
                     if use_stealth:
-                        try:
-                            from playwright_stealth import stealth_async
-                            await stealth_async(page)
-                        except Exception:
-                            await page.add_init_script(
-                                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-                            )
+                        await _apply_stealth(page, context)
                     else:
                         await page.add_init_script(
                             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
@@ -692,6 +849,24 @@ async def _playwright_discover(base_url: str, use_stealth: bool = False) -> Opti
                 else:
                     raise
             await page.wait_for_timeout(2000)
+
+            # Dismiss any login modals, cookie banners, or region popups
+            # that intercept clicks. Many e-commerce sites (Flipkart in
+            # particular) show a login modal on first visit whose backdrop
+            # captures clicks meant for the search input. Without this,
+            # Phase 3 finds the input but every click times out with
+            # "intercepts pointer events".
+            try:
+                actions = await _dismiss_overlays(page)
+                if actions > 0:
+                    logger.info(f"[resolver] 🚪 Dismissed {actions} overlay(s) before search")
+                    # Brief settle after dismissal so DOM stabilizes
+                    await page.wait_for_timeout(400)
+            except Exception as overlay_err:
+                # Overlay dismissal is best-effort. If it errors we still
+                # try to find and click the search input — it might work
+                # on sites without a modal.
+                logger.debug(f"[resolver] Overlay dismiss error (non-fatal): {overlay_err}")
 
             search_input = None
             input_name_attr = None
@@ -837,8 +1012,37 @@ async def _playwright_discover(base_url: str, use_stealth: bool = False) -> Opti
                             await page.keyboard.type(TEST_QUERY, delay=50)
                         await page.wait_for_timeout(300)
                     except Exception as retype_err:
-                        logger.warning(f"[resolver] Retype failed: {retype_err}")
-                        return None
+                        # The most common cause here is "intercepts pointer
+                        # events" — a modal we missed during initial dismiss
+                        # has appeared (or stayed up). Run dismiss again,
+                        # which will now also catch viewport-spanning
+                        # overlays via the generic JS pass, then try once
+                        # more before giving up. Without this, every site
+                        # with a re-rendering login modal (Flipkart) is
+                        # unaddable even though we know the search input.
+                        err_str = str(retype_err)
+                        if "intercepts pointer events" in err_str or "Timeout" in err_str:
+                            logger.info(
+                                f"[resolver] 🔓 Retype blocked — re-dismissing overlays and retrying"
+                            )
+                            try:
+                                await _dismiss_overlays(page)
+                                await page.wait_for_timeout(300)
+                                if isinstance(search_input, str):
+                                    await page.click(search_input, timeout=2000)
+                                    await page.keyboard.type(TEST_QUERY, delay=50)
+                                else:
+                                    await search_input.click()
+                                    await page.keyboard.type(TEST_QUERY, delay=50)
+                                await page.wait_for_timeout(300)
+                            except Exception as second_err:
+                                logger.warning(
+                                    f"[resolver] Retype failed after re-dismiss: {second_err}"
+                                )
+                                return None
+                        else:
+                            logger.warning(f"[resolver] Retype failed: {retype_err}")
+                            return None
             except Exception as verify_err:
                 logger.debug(f"[resolver] Fill-verify error: {verify_err}")
 
@@ -985,7 +1189,7 @@ async def _playwright_discover(base_url: str, use_stealth: bool = False) -> Opti
 
 # ── Public Entry Point ───────────────────────────────────────────────
 
-async def resolve_website(name: str) -> dict:
+async def resolve_website(name: str, request_id: Optional[str] = None) -> dict:
     """
     Resolve a website name → search URL template.
 
@@ -996,6 +1200,19 @@ async def resolve_website(name: str) -> dict:
       4. If step 3 fails, ask OpenAI for correct domain and retry
       5. Last resort: OpenAI guesses the search URL directly
 
+    Cooperative cancellation:
+      If request_id is provided AND has been registered via
+      cancellation.register_search(), this function calls check_cancelled()
+      between phases. When the user clicks Cancel in the UI, the next
+      checkpoint raises SearchCancelledException, which the route handler
+      catches and returns as {"status": "cancelled"}.
+
+      Granularity: checks happen at phase boundaries, not inside individual
+      network calls. Worst-case cancel latency is one Playwright iteration
+      (~5-10s) — the same granularity as the existing product-search cancel.
+      Passing request_id=None disables checks entirely (used by internal
+      callers without a UI session, e.g., scripts).
+
     Usage:
       - Single-region site: user types "flipkart" → resolver finds flipkart.com
       - Multi-region site: user types "amazon.in" → dotted input is used directly,
@@ -1004,12 +1221,17 @@ async def resolve_website(name: str) -> dict:
     """
     logger.info(f"[resolver] Resolving '{name}'...")
 
+    # Cancel check before any work — catches the case where the user
+    # clicked Cancel before the request even reached the resolver.
+    check_cancelled(request_id)
+
     # Step 1: Find live domains
     # _candidate_domains handles both:
     #   - "flipkart" → generates flipkart.com, flipkart.in, shop.flipkart.com, etc.
     #   - "amazon.in" → uses amazon.in directly (dot detected)
     live_domains = await _find_live_domains(name)
     logger.info(f"[resolver] Live domains: {live_domains}")
+    check_cancelled(request_id)  # after Google search / domain probing
 
     # Step 2: Validate via LLM
     validated_domains = []
@@ -1024,6 +1246,7 @@ async def resolve_website(name: str) -> dict:
             else:
                 logger.info(f"[resolver] ⚠️ Domain rejected: {domain}")
     logger.info(f"[resolver] Validated domains: {validated_domains}")
+    check_cancelled(request_id)  # after the LLM domain-validation gather
 
     # Step 3: Playwright on validated domains + shop. variants
     def _expand_with_shop(domains: list[str]) -> list[str]:
@@ -1047,6 +1270,10 @@ async def resolve_website(name: str) -> dict:
     logger.info(f"[resolver] Trying Playwright on: {expanded}")
 
     for candidate_url in expanded:
+        # Cancel check before each Playwright attempt. Each iteration runs
+        # a real browser and can take 5-15s; without this check, a cancelled
+        # search would still grind through every remaining candidate.
+        check_cancelled(request_id)
         async with httpx.AsyncClient(
             timeout=5, follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0"}
@@ -1067,6 +1294,7 @@ async def resolve_website(name: str) -> dict:
         return discovered
 
     # Step 4: Ask OpenAI for correct domain
+    check_cancelled(request_id)  # before kicking off another LLM call
     logger.info(f"[resolver] Playwright failed, asking OpenAI for domain...")
     ai_base = await _ask_openai_for_domain(name)
 
@@ -1147,6 +1375,9 @@ async def resolve_website(name: str) -> dict:
         for try_url in domains_to_try:
             if try_url in validated_domains:
                 continue
+            # Cancel check before each retry — same rationale as the
+            # primary Playwright loop above.
+            check_cancelled(request_id)
             async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
                 live_base = await _probe_domain(client, try_url)
             if not live_base:
@@ -1187,6 +1418,7 @@ async def resolve_website(name: str) -> dict:
         logger.info(f"[resolver] Stripped path from fallback_base: {fallback_base} → {cleaned}")
         fallback_base = cleaned
 
+    check_cancelled(request_id)  # final check before the last-resort LLM call
     return await _llm_url_guess(name, fallback_base)
 
 
@@ -1200,8 +1432,13 @@ FALLBACK_URL_PATTERNS = [
     "/search?type=product&q={query}",      # Shopify canonical
     "/search/result/?q={query}",           # Nykaa-style
     "/search/result?q={query}",
+    "/search/?text={query}",               # Ajio-style
     "/shop/featured/{query}?ss=true",      # Macys (hyphen-slug path)
-    "/catalogsearch/result/?q={query}",  # Magento canonical
+    "/catalogsearch/result/?q={query}",    # Magento canonical
+    "/s?keyword={query}",                  # Costco (current)
+    "/search?keyword={query}",             # Big-box generic (Best Buy, Lowes)
+    "/search?searchTerm={query}",          # Target-style
+    "/pages/search-results-page?q={query}",  # DrBerg-style Shopify pages
     "/products?q={query}",
     "/shop?q={query}",
     "/shop/ols/search?keywords={query}",   # GoDaddy OLS
@@ -1370,8 +1607,11 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
                         f'- Generic: /search?q={{query}}\n'
                         f'- Myntra: /{{query}}?rawQuery={{query}}\n'
                         f'- Nykaa: /search/result/?q={{query}}\n'
+                        f'- Ajio: /search/?text={{query}}\n'
                         f'- Walmart: /search?q={{query}}\n'
                         f'- Macys: /shop/featured/{{query}}?ss=true\n'
+                        f'- Costco: /s?keyword={{query}}\n'
+                        f'- DrBerg: /pages/search-results-page?q={{query}}\n'
                         f'- GoDaddy OLS: /shop/ols/search?keywords={{query}}\n\n'
                         f'Return ONLY JSON (no markdown fences): '
                         f'{{"base_url":"{fallback_base}","search_url":"...","encoding":"plus"}}'}],
@@ -1427,8 +1667,45 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
     # Step 3: Try each URL by actually fetching it and scoring the response.
     # We also collect the final URLs (after redirects) so we can try
     # bot-wall extraction afterwards if everything failed.
+    #
+    # Validation ladder per candidate:
+    #   1. httpx GET — fast and cheap. Works for most sites (Amazon, Beato, Target).
+    #   2. If httpx returns a blocked status (403/429/redirect to /blocked),
+    #      retry that URL via ScraperAPI premium. ScraperAPI uses residential
+    #      proxies that bypass Akamai/Cloudflare/PerimeterX walls (Nykaa, Ajio,
+    #      Macys). One ScraperAPI call is 10 credits, so we cap how many
+    #      candidates trigger the fallback to keep cost bounded.
+    #
+    # Sites that work via httpx never reach the ScraperAPI fallback —
+    # nothing about the fast path changes.
     logger.info(f"[resolver] Validating {len(urls_to_try)} URL candidates...")
     final_urls_seen: list[str] = []  # for bot-wall extraction below
+
+    # Bound ScraperAPI usage: at most 3 candidates per resolution can trigger
+    # the premium fallback. That covers LLM guess + 2 fallback patterns, which
+    # is enough to find the right URL on any reasonably-shaped e-commerce site.
+    # Worst-case cost: 30 credits per add (vs 130 if we tried every candidate).
+    SCRAPERAPI_FALLBACK_BUDGET = 3
+    scraperapi_attempts_used = 0
+
+    # Track whether the LLM's first-choice URL specifically encountered a
+    # bot-wall block. If yes AND we never managed to validate any URL, we
+    # trust the LLM's guess as our best information. The LLM's prompt has
+    # known good patterns for many sites (Nykaa, Macys, Costco, etc.), so
+    # its first guess is informed — not random. We only reach this
+    # "trust on impossible-to-validate" path when bot blocking, not 404s,
+    # is the cause of failure.
+    llm_url_was_blocked = False
+
+    def _is_blocked_status(status: int, final_url: str) -> bool:
+        """A status code or redirect target that suggests bot blocking, not 'wrong URL'."""
+        if status in (401, 403, 429):
+            return True
+        # Walmart/Akamai pattern: 200 OK but redirected to /blocked
+        if "/blocked" in final_url.lower():
+            return True
+        return False
+
     async with httpx.AsyncClient(
         timeout=10, follow_redirects=True,
         headers={
@@ -1444,19 +1721,84 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
             try:
                 resp = await client.get(test_url, timeout=8)
                 final_url = str(resp.url)
-                final_urls_seen.append(final_url)  # track for bot-wall extraction
-                if resp.status_code != 200:
-                    logger.debug(f"[resolver] ✗ {label}: HTTP {resp.status_code}")
+                final_urls_seen.append(final_url)
+
+                if resp.status_code == 200 and "/blocked" not in final_url.lower():
+                    # Genuine 200 — score the HTML directly.
+                    is_search, score = await _looks_like_search_page(resp.text, final_url)
+                    logger.info(f"[resolver] Trying {label}: score={score}, valid={is_search}")
+                    if is_search:
+                        logger.info(f"[resolver] ✅ '{name}' → {template} (validated, score={score})")
+                        return {
+                            "base_url": base,
+                            "search_url": template,
+                            "encoding": llm_encoding,
+                        }
+                    # 200 but doesn't look like search — wrong URL. Move on.
                     continue
-                is_search, score = await _looks_like_search_page(resp.text, final_url)
-                logger.info(f"[resolver] Trying {label}: score={score}, valid={is_search}")
+
+                # Non-200 OR redirected to a blocked page. Decide whether to
+                # retry via ScraperAPI. Only retry if status looks like blocking,
+                # not a real 404 (which means the URL pattern is genuinely wrong).
+                if not _is_blocked_status(resp.status_code, final_url):
+                    logger.debug(f"[resolver] ✗ {label}: HTTP {resp.status_code} (not retrying)")
+                    continue
+
+                # Remember if the LLM's first-choice URL was blocked. This is
+                # the signal that we have an LLM-suggested URL we couldn't
+                # validate due to bot wall, not because the URL was wrong.
+                # Used at the end of the validation loop to decide whether to
+                # trust the LLM's guess as a last-resort save.
+                if label == "LLM guess":
+                    llm_url_was_blocked = True
+
+                if scraperapi_attempts_used >= SCRAPERAPI_FALLBACK_BUDGET:
+                    logger.debug(
+                        f"[resolver] ✗ {label}: HTTP {resp.status_code} "
+                        f"(ScraperAPI budget exhausted)"
+                    )
+                    continue
+
+                # Try ScraperAPI premium for this URL. Sync call — wrap in to_thread.
+                # Lazy import to avoid any circular-import risk between resolver
+                # and scraper modules, and to make the dependency explicit at
+                # the one place it's used.
+                scraperapi_attempts_used += 1
+                logger.info(
+                    f"[resolver] 🛡️ {label}: HTTP {resp.status_code} "
+                    f"— retrying via ScraperAPI premium "
+                    f"({scraperapi_attempts_used}/{SCRAPERAPI_FALLBACK_BUDGET})"
+                )
+                try:
+                    from .scraper import _get_soup_scraperapi
+                    sa_soup, sa_html = await asyncio.to_thread(
+                        _get_soup_scraperapi, test_url, True  # force_premium=True
+                    )
+                except Exception as e:
+                    logger.warning(f"[resolver] ScraperAPI error: {type(e).__name__}: {e}")
+                    continue
+
+                if not sa_html:
+                    # ScraperAPI also failed for this URL — pattern is dead.
+                    continue
+
+                is_search, score = await _looks_like_search_page(sa_html, test_url)
+                logger.info(
+                    f"[resolver] ScraperAPI {label}: score={score}, valid={is_search}"
+                )
                 if is_search:
-                    logger.info(f"[resolver] ✅ '{name}' → {template} (validated, score={score})")
+                    logger.info(
+                        f"[resolver] ✅ '{name}' → {template} "
+                        f"(validated via ScraperAPI, score={score})"
+                    )
                     return {
                         "base_url": base,
                         "search_url": template,
                         "encoding": llm_encoding,
                     }
+                # ScraperAPI got the page but it's not a search results page —
+                # URL pattern is wrong. Move on to the next candidate.
+
             except Exception as e:
                 logger.debug(f"[resolver] ✗ {label}: {type(e).__name__}")
                 continue
@@ -1481,22 +1823,52 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
             "encoding": "plus",
         }
 
-    # ── Step 5: Loud failure (no more silent best-effort saves) ──────
+    # ── Step 5: Trust the LLM when validation was impossible ─────────
+    # If the LLM's first-choice URL was blocked (403/etc.) AND ScraperAPI
+    # couldn't break through either, we have no way to validate. But the
+    # LLM's prompt contains known-good patterns for many walled sites
+    # (Nykaa, Macys, Costco, Ajio), so its first guess is informed — not
+    # random.
+    #
+    # We only trust the LLM in the "impossible to validate" case. If httpx
+    # returned 404 (real "wrong URL"), llm_url_was_blocked stays False and
+    # we still raise RuntimeError — preventing the walmart.in-style bug
+    # where the LLM hallucinates a wrong URL and we save it without checking.
+    #
+    # The trade-off: we might save a wrong URL for a walled site if the
+    # LLM hallucinates. Mitigated by the fact that walled sites with
+    # patterns in our prompt (added based on real sites) get the right
+    # answer, and unknown walled sites are rare.
+    if llm_url and llm_url_was_blocked:
+        logger.warning(
+            f"[resolver] ⚠️ '{name}' → {llm_url} "
+            f"(unvalidated — bot wall blocked both httpx and ScraperAPI; "
+            f"trusting LLM's pattern)"
+        )
+        return {
+            "base_url": base,
+            "search_url": llm_url,
+            "encoding": llm_encoding,
+        }
+
+    # ── Step 6: Loud failure ─────────────────────────────────────────
+    # Reached only when:
+    #   - LLM gave no URL at all, OR
+    #   - LLM's URL returned a real 404 (wrong pattern, not blocked)
     # The walmart.in bug came from saving the LLM's guess unverified.
-    # Refuse to save anything we couldn't validate. Raise a RuntimeError
-    # with a user-friendly message explaining what went wrong.
+    # Refuse to save anything we couldn't validate AND wasn't bot-blocked.
     logger.error(
         f"[resolver] ❌ Could not validate any search URL for '{name}' on {base}. "
         f"LLM suggested: {llm_url or '(none)'}. "
         f"Bot-wall extraction also failed. "
-        f"The site may be using non-Akamai bot detection (Cloudflare, PerimeterX, "
-        f"DataDome) that doesn't echo blocked URLs back."
+        f"The site may be returning real 404s for our guesses — try entering "
+        f"the search URL manually."
     )
     raise RuntimeError(
-        f"We found '{name}' at {base}, but the site is blocking automated "
-        f"discovery of its search URL. This usually means strong bot detection "
-        f"(e.g., Akamai, Cloudflare, PerimeterX). The site may still work if you "
-        f"add it manually with the correct search URL."
+        f"We found '{name}' at {base}, but couldn't auto-detect the search URL. "
+        f"This usually means the URL pattern doesn't match common e-commerce "
+        f"templates. The site may still work if you add it manually with the "
+        f"correct search URL."
     )
 
 

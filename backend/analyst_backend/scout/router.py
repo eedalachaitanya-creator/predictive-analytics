@@ -28,6 +28,13 @@ from .entity_resolver import (
 from .feature_extractor import compare_features
 from .resolver import resolve_website
 from .scraper import scrape_product_on_site
+from .cancellation import (
+    register_search,
+    cancel_search,
+    cleanup_search,
+    check_cancelled,
+    SearchCancelledException,
+)
 from . import langfuse_config                       # stays at top-level, NOT in scout/
 
 logger = logging.getLogger(__name__)
@@ -42,6 +49,7 @@ BULK_CONCURRENCY  = 5
 
 class AddWebsiteRequest(BaseModel):
     name: str
+    request_id: Optional[str] = None  # for cooperative cancel — frontend sends UUID
 
 class UpdateWebsiteRequest(BaseModel):
     name:       str
@@ -53,6 +61,7 @@ class SearchRequest(BaseModel):
     name:          str
     platforms:     Optional[list[str]] = []
     force_refresh: bool = False
+    request_id:    Optional[str] = None  # for cooperative cancel — frontend sends UUID
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -94,6 +103,7 @@ async def _search_across_sites(
     product_name:  str,
     platform_names: list[str],
     force_refresh:  bool = False,
+    request_id:     Optional[str] = None,
 ) -> dict:
     sites   = db.get_active_websites()
     targets = [s for s in sites if s["name"] in platform_names]
@@ -147,11 +157,16 @@ async def _search_across_sites(
         variants = _generate_query_variants(product_name)
         for variant in variants:
             try:
-                result = await scrape_product_on_site(site, variant)
+                result = await scrape_product_on_site(site, variant, request_id=request_id)
                 if result and result.get("listings"):
                     best = result["listings"][0]
                     logger.info(f"[search] ✅ {platform_name} worked with: '{variant}'")
                     return best
+            except SearchCancelledException:
+                # User cancelled — stop trying further variants and propagate up
+                # so asyncio.gather sees this platform as cancelled.
+                logger.info(f"[search] 🛑 {platform_name} cancelled by user")
+                raise
             except Exception as e:
                 logger.error(f"[search] Error on {platform_name} with '{variant}': {e}")
         logger.warning(f"[search] 🚫 {platform_name} failed for ALL variants")
@@ -161,6 +176,14 @@ async def _search_across_sites(
         *[_scrape_one_platform(site) for site in platforms_to_scrape],
         return_exceptions=True,
     )
+
+    # If any platform was cancelled by the user, propagate the cancel up to
+    # the route handler so it can return a 499 / cancelled status. We do this
+    # BEFORE saving partial results — when the user cancels mid-bulk-search,
+    # we don't want to half-commit results to the DB.
+    for res in results:
+        if isinstance(res, SearchCancelledException):
+            raise res
 
     for i, res in enumerate(results):
         if isinstance(res, Exception):
@@ -218,13 +241,17 @@ async def _search_across_sites(
 async def _run_bulk_search(
     product_names: list[str],
     platforms:     list[str],
+    request_id:    Optional[str] = None,
 ) -> dict:
     semaphore = asyncio.Semaphore(BULK_CONCURRENCY)
 
     async def _limited(name: str) -> dict:
         async with semaphore:
             try:
-                return await _search_across_sites(name, platforms)
+                return await _search_across_sites(name, platforms, request_id=request_id)
+            except SearchCancelledException:
+                # Propagate up through gather so the caller can return cancelled
+                raise
             except Exception as exc:
                 logger.error(f"Bulk search error for '{name}': {exc}")
                 return {"name": name, "listings": []}
@@ -233,6 +260,13 @@ async def _run_bulk_search(
         *[_limited(name) for name in product_names],
         return_exceptions=True,
     )
+
+    # If user cancelled, surface that up. The cancel may have arrived
+    # between products in the bulk batch — partial results are discarded
+    # to keep the user's mental model simple ("cancel = nothing happened").
+    for res in results:
+        if isinstance(res, SearchCancelledException):
+            raise res
 
     final = []
     for i, res in enumerate(results):
@@ -288,16 +322,44 @@ async def add_website(payload: AddWebsiteRequest):
         raise HTTPException(400, "Website name is required.")
     if db.get_website_by_name(name):
         raise HTTPException(409, f"'{name}' is already added.")
+
+    # Register this add-website job in the cancellation registry BEFORE the
+    # slow work starts. If we registered after, the user's Cancel click
+    # would arrive before the registry entry exists and would be silently
+    # dropped. Frontend always sends request_id; internal callers may not.
+    request_id = payload.request_id
+    if request_id:
+        register_search(request_id)
+
     try:
-        resolved = await resolve_website(name)
-    except RuntimeError as exc:
-        raise HTTPException(502, str(exc))
-    site = db.add_website(
-        name=name, base_url=resolved["base_url"],
-        search_url=resolved["search_url"],
-        encoding=resolved.get("encoding", "plus"),
-    )
-    return {"data": _shape_site(site)}
+        try:
+            resolved = await resolve_website(name, request_id=request_id)
+        except RuntimeError as exc:
+            raise HTTPException(502, str(exc))
+
+        # Final cancel check between resolver completion and the DB write.
+        # The resolver's last phase (LLM URL guess) is non-cancellable once
+        # it starts — if the user cancelled during that call, the resolver
+        # still returns a result. Without this check, a "cancelled" add
+        # could still leave a row in the DB. With it, cancelled means
+        # cancelled — nothing written.
+        check_cancelled(request_id)
+
+        site = db.add_website(
+            name=name, base_url=resolved["base_url"],
+            search_url=resolved["search_url"],
+            encoding=resolved.get("encoding", "plus"),
+        )
+        return {"data": _shape_site(site)}
+    except SearchCancelledException:
+        # User clicked Cancel. Return the same shape as /search/products
+        # cancel responses so the frontend's handler can be uniform.
+        logger.info(f"[add_website] Cancelled by user: request_id={request_id}")
+        return {"status": "cancelled", "data": None, "request_id": request_id}
+    finally:
+        # Always clean up the registry entry — on success, on cancel, or
+        # on any unhandled error — otherwise we leak Event objects.
+        cleanup_search(request_id)
 
 
 @scout_router.put("/websites")
@@ -336,6 +398,29 @@ def reactivate_website(name: str):
     return {"data": _shape_site(updated)}
 
 
+@scout_router.post("/websites/cancel/{request_id}")
+def cancel_add_website(request_id: str):
+    """
+    Cancel an in-flight add-website operation. Frontend POSTs here with the
+    same request_id it sent in the original /websites call.
+
+    Parallel to /search/cancel/{request_id} — same registry, different URL.
+    Kept separate because the registry entry is owned by the route that
+    created it; conflating endpoints would make later divergence (different
+    timeouts, different audit logging) harder to manage.
+
+    Returns 200 even if the request_id is unknown (already finished or
+    invalid) — user-facing behavior is the same: nothing is running. The
+    `cancelled: false` flag in the response is for debugging only.
+    """
+    cancelled = cancel_search(request_id)
+    if cancelled:
+        logger.info(f"[add_website] Cancel signal sent for request_id={request_id}")
+    else:
+        logger.info(f"[add_website] Cancel requested for unknown/finished request_id={request_id}")
+    return {"status": "ok", "cancelled": cancelled, "request_id": request_id}
+
+
 @scout_router.post("/search/products")
 async def search_single(payload: SearchRequest):
     name      = payload.name.strip()
@@ -344,8 +429,49 @@ async def search_single(payload: SearchRequest):
         raise HTTPException(400, "Product name is required.")
     if not platforms:
         platforms = [s["name"] for s in db.get_active_websites()]
-    row = await _search_across_sites(name, platforms, force_refresh=payload.force_refresh)
-    return {"status": "success", "products": [row]}
+
+    # Register this search in the cancellation registry. If the client passed
+    # a request_id (UUID generated by the frontend), we use it; otherwise we
+    # skip cancellation support for this call. The frontend always sends one
+    # for user-facing searches; internal scripts may not.
+    request_id = payload.request_id
+    if request_id:
+        register_search(request_id)
+
+    try:
+        row = await _search_across_sites(
+            name,
+            platforms,
+            force_refresh=payload.force_refresh,
+            request_id=request_id,
+        )
+        return {"status": "success", "products": [row]}
+    except SearchCancelledException:
+        # User clicked Cancel. Return a clear cancelled status — the frontend
+        # treats this as "stopped, do nothing" rather than as an error.
+        logger.info(f"[search] Cancelled by user: request_id={request_id}")
+        return {"status": "cancelled", "products": [], "request_id": request_id}
+    finally:
+        # Always clean up the registry entry, even on success or unhandled
+        # error — otherwise we leak Event objects forever.
+        cleanup_search(request_id)
+
+
+@scout_router.post("/search/cancel/{request_id}")
+def cancel_search_endpoint(request_id: str):
+    """
+    Cancel an in-flight search. Frontend POSTs here with the same request_id
+    it sent in the original /search/products call.
+    Returns 200 even if the search wasn't found (already finished or invalid
+    ID) — the user-facing behavior is the same: the search is no longer
+    running. We just include `cancelled: false` so debugging is possible.
+    """
+    cancelled = cancel_search(request_id)
+    if cancelled:
+        logger.info(f"[search] Cancel signal sent for request_id={request_id}")
+    else:
+        logger.info(f"[search] Cancel requested for unknown/finished request_id={request_id}")
+    return {"status": "ok", "cancelled": cancelled, "request_id": request_id}
 
 
 @scout_router.get("/products")
@@ -363,8 +489,9 @@ def get_all_products(limit: int = 0, offset: int = 0):
 
 @scout_router.post("/upload/file")
 async def upload_file(
-    file:      UploadFile = File(...),
-    platforms: str        = Form(None),
+    file:       UploadFile     = File(...),
+    platforms:  str            = Form(None),
+    request_id: Optional[str]  = Form(None),
 ):
     content  = await file.read()
     filename = (file.filename or "").lower()
@@ -400,7 +527,20 @@ async def upload_file(
         else [s["name"] for s in db.get_active_websites()]
     )
     logger.info(f"[upload] {len(product_names)} products × {len(platforms_list)} platforms")
-    return await _run_bulk_search(product_names, platforms_list)
+
+    # Register the bulk search for cancellation, mirroring /search/products.
+    # If request_id is None (unusual — the frontend always sends one), we
+    # skip the registry and the run is just non-cancellable.
+    if request_id:
+        register_search(request_id)
+
+    try:
+        return await _run_bulk_search(product_names, platforms_list, request_id=request_id)
+    except SearchCancelledException:
+        logger.info(f"[upload] Cancelled by user: request_id={request_id}")
+        return {"status": "cancelled", "products": [], "request_id": request_id}
+    finally:
+        cleanup_search(request_id)
 
 
 @scout_router.get("/price-history/{product_name}")

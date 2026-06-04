@@ -26,14 +26,14 @@ from typing import Any, Generator, Optional
 
 import psycopg2
 import psycopg2.extras
-
+from app.config import settings
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────
 from dotenv import load_dotenv
 load_dotenv()
 
-_DATABASE_URL = os.environ.get("DATABASE_URL", "")
+DATABASE_URL: str = settings.database_url
 
 
 # ── Database class ────────────────────────────────────────────────────
@@ -43,16 +43,36 @@ class Database:
     Thin wrapper around psycopg2.
     Every public method opens its own connection, commits on success,
     and rolls back on failure. Connections are never reused across calls.
+
+    _init_db() is called lazily on first use, not at import time.
+    This means a DB being unreachable at startup never crashes the server —
+    Scout endpoints return 503 until the DB comes back, but all other
+    routers (auth, pipeline, etc.) keep working normally.
     """
 
     def __init__(self) -> None:
-        self._init_db()
+        # Deliberately NOT calling _init_db() here.
+        # The singleton db = Database() at module bottom now completes
+        # instantly even when PostgreSQL is unreachable.
+        self._initialized = False
+
+    def _ensure_init(self) -> None:
+        """Call _init_db() once on first real DB use."""
+        if not self._initialized:
+            self._init_db()
+            self._initialized = True
 
     # ── Connection / cursor helpers ───────────────────────────────────
 
     @contextmanager
     def _conn(self) -> Generator:
-        conn = psycopg2.connect(dsn=_DATABASE_URL)
+        # Lazy schema init on first real DB use.
+        # _init_db opens its OWN raw psycopg2 connection directly — it must
+        # never call _conn() or we get infinite recursion (_conn→_ensure_init
+        # →_init_db→_conn→...). After the first successful call, _initialized
+        # is True and this becomes a single boolean check (effectively free).
+        self._ensure_init()
+        conn = psycopg2.connect(dsn=DATABASE_URL)
         conn.autocommit = False
         try:
             yield conn
@@ -95,9 +115,13 @@ class Database:
     # ── Schema initialisation ─────────────────────────────────────────
 
     def _init_db(self) -> None:
-        with self._conn() as conn:
-            # Websites
+        # MUST use a raw psycopg2 connection — never call self._conn() here.
+        # _conn() → _ensure_init() → _init_db() → _conn() = infinite recursion.
+        conn = psycopg2.connect(dsn=DATABASE_URL)
+        conn.autocommit = False
+        try:
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS websites (
                     id         SERIAL PRIMARY KEY,
                     name       TEXT UNIQUE NOT NULL,
@@ -108,9 +132,8 @@ class Database:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
-
-            # Latest scrape result per product+platform
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS product_results (
                     id              SERIAL PRIMARY KEY,
                     product_name    TEXT NOT NULL,
@@ -122,9 +145,8 @@ class Database:
                     UNIQUE (product_name, platform)
                 )
             """)
-
-            # Full price history
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS price_history (
                     id           SERIAL PRIMARY KEY,
                     product_name TEXT NOT NULL,
@@ -136,12 +158,12 @@ class Database:
                 )
             """)
             self._execute(conn, """
+
                 CREATE INDEX IF NOT EXISTS idx_price_history_product_platform
                 ON price_history (product_name, platform, scraped_at DESC)
             """)
-
-            # Price change alerts
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS price_alerts (
                     id             SERIAL PRIMARY KEY,
                     product_name   TEXT NOT NULL,
@@ -157,12 +179,12 @@ class Database:
                 )
             """)
             self._execute(conn, """
+
                 CREATE INDEX IF NOT EXISTS idx_price_alerts_product_platform
                 ON price_alerts (product_name, platform, detected_at DESC)
             """)
-
-            # Entity resolution — canonical product groups
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS entities (
                     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     canonical_name    TEXT NOT NULL,
@@ -174,12 +196,12 @@ class Database:
                 )
             """)
             self._execute(conn, """
+
                 CREATE INDEX IF NOT EXISTS idx_entities_query
                 ON entities (query)
             """)
-
-            # One row per entity+platform
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS entity_listings (
                     id           SERIAL PRIMARY KEY,
                     entity_id    UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
@@ -197,12 +219,12 @@ class Database:
                 )
             """)
             self._execute(conn, """
+
                 CREATE INDEX IF NOT EXISTS idx_entity_listings_entity_id
                 ON entity_listings (entity_id)
             """)
-
-            # Cached feature extraction results
             self._execute(conn, """
+
                 CREATE TABLE IF NOT EXISTS product_features (
                     id             SERIAL PRIMARY KEY,
                     product_name   TEXT NOT NULL,
@@ -214,6 +236,12 @@ class Database:
                     UNIQUE (product_name, platform)
                 )
             """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     # ── Websites ──────────────────────────────────────────────────────
 

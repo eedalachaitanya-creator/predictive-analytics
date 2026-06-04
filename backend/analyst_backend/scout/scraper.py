@@ -38,6 +38,7 @@ from openai import OpenAI
 
 from .resolver import build_search_url
 from .entity_resolver import extract_brand_from_title
+from .cancellation import check_cancelled, is_cancelled, SearchCancelledException
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -152,8 +153,39 @@ _site_transport_hints: dict[str, str] = {}
 # Values: "requests_ok", "requests_blocked", "playwright_blocked"
 # Populated dynamically as scrapes succeed or fail.
 
+# Hosts where ScraperAPI's free-tier proxies time out or get blocked.
+# When we observe a timeout/403, we add the host here. Subsequent
+# ScraperAPI calls for that host use premium=true, which uses
+# residential proxies that reliably bypass heavy bot walls (Flipkart,
+# Walmart, etc). Premium calls cost 10x base credits, so we only
+# promote sites that have demonstrably failed without it.
+_scraperapi_premium_hosts: set[str] = set()
+
 import threading as _threading
 _hints_lock = _threading.Lock()
+
+# ── ScraperAPI concurrency cap ────────────────────────────────────────
+# ScraperAPI plans have a hard limit on simultaneous active requests:
+#   Free plan = 5 concurrent threads
+#   Hobby     = 50
+#   Startup   = 100
+# Going over the limit returns HTTP 429 ("Too Many Requests"), which
+# costs us a credit AND a search slot for nothing. With 6+ parallel
+# product searches each potentially needing ScraperAPI for 7 platforms,
+# we routinely fire 20-40 calls in a tight burst — well over any free
+# plan's limit.
+#
+# This semaphore caps OUR concurrency to 4 (one slot below the free
+# plan limit, leaving margin for timing races between when we release
+# a slot and when ScraperAPI's counter decrements). Excess calls block
+# until a slot frees up. Threading semaphore (not asyncio) because
+# _get_soup_scraperapi is sync — this works for both sync callers
+# (the scraper itself) and async callers wrapping in asyncio.to_thread
+# (the resolver's add-time validation).
+#
+# If you upgrade to Hobby plan, change 4 to 49.
+_SCRAPERAPI_CONCURRENCY_LIMIT = 4
+_scraperapi_semaphore = threading.Semaphore(_SCRAPERAPI_CONCURRENCY_LIMIT)
 
 # URL params that are tracking noise — safe to strip
 _STRIP_PARAM_PATTERNS = [
@@ -313,11 +345,25 @@ def _needs_http2_disabled(url: str) -> bool:
 
 # ── Public entry point ────────────────────────────────────────────────
 
-async def scrape_product_on_site(site: dict, product_name: str) -> dict:
-    """Async entry point. Runs the sync scrape in a thread pool."""
+async def scrape_product_on_site(
+    site: dict,
+    product_name: str,
+    request_id: Optional[str] = None,
+) -> dict:
+    """
+    Async entry point. Runs the sync scrape in a thread pool.
+
+    request_id: optional ID for cooperative cancellation. When set, the
+    sync scrape periodically checks scout.cancellation.is_cancelled() and
+    raises SearchCancelledException to bail out. None means no cancel
+    support (used by internal/monitor calls that don't go through the
+    user-facing search flow).
+    """
     loop = asyncio.get_event_loop()
     with ThreadPoolExecutor(max_workers=3) as executor:
-        result = await loop.run_in_executor(executor, _scrape_sync, site, product_name)
+        result = await loop.run_in_executor(
+            executor, _scrape_sync, site, product_name, request_id
+        )
     return result
 
 
@@ -512,6 +558,33 @@ def _score_product_link(href: str) -> int:
     if any(path_lower.startswith(prefix) for prefix in _NAV_PATH_STARTSWITH):
         return -50
 
+    # ── /dp/ disambiguation ──────────────────────────────────────────
+    # /dp/ is used differently across sites:
+    #   Amazon : /dp/B0CXXXXXXX        — individual product (ASIN format)
+    #   Nykaa  : /dp/dyson-hair-dryers — category/collection page
+    # The previous code awarded /dp/ a flat +20 score regardless. That
+    # meant Nykaa category pages (cetaphil-face-wash, dyson-hair-dryers)
+    # were ranked equal to Amazon product pages and outranked Nykaa's
+    # actual /p/{numeric_id} product pages.
+    #
+    # Distinguish by what FOLLOWS /dp/. ASINs are 10-character uppercase
+    # alphanumeric (always start with a letter, usually B). A slug-like
+    # path after /dp/ (lowercase, contains hyphens) is a category page.
+    if "/dp/" in href_lower:
+        # Find the segment immediately after /dp/.
+        m = re.search(r"/dp/([^/?#]+)", href)
+        if m:
+            tail = m.group(1)
+            # ASIN: 10 chars, uppercase alphanumeric, starts with letter.
+            # Examples: B0CRMR79N3, B07XJ8C8F5
+            if re.fullmatch(r"[A-Z][A-Z0-9]{9}", tail):
+                # Strong Amazon product signal
+                return 25
+            # Slug-like (has hyphens, lowercase): category/collection page.
+            # /dp/dyson-hair-dryers, /dp/cetaphil-face-wash
+            if "-" in tail and tail.islower():
+                return -30  # treat as nav, not product
+
     score = 0
 
     # Product path signals
@@ -602,6 +675,25 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
         "ratings", "review", "off", "deal", "save ", "coupon", "price", "offer",
     }
 
+    # Strings that look "title-shaped" (3+ words, no obvious noise) but
+    # are actually UI button labels, not product names. These pass the
+    # length filter and would be sent to the validator, where they always
+    # fail to match (because they don't contain the brand/product words),
+    # making the entire scrape look empty.
+    #
+    # Why this is a separate set from _NOISE_TEXT: _NOISE_TEXT is used as
+    # a substring filter (".lower() contains x"), which is too broad here
+    # — a real title might legitimately contain the word "add" or "view".
+    # _UI_BUTTON_LABELS is used for EXACT match against the candidate
+    # title's lowercased form. Tight match, no false positives.
+    _UI_BUTTON_LABELS = {
+        "add to compare", "add to cart", "add to wishlist", "add to bag",
+        "add to favourites", "add to favorites", "add to list",
+        "quick view", "quick look", "quick add",
+        "wishlist", "compare", "notify me", "notify me when available",
+        "see more", "view details", "view product", "shop now",
+    }
+
     def _is_bad_title(title: str) -> bool:
         t = title.lower()
         return (
@@ -651,6 +743,14 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
             if re.search(r"\d+(\.\d+)?\s+out\s+of\s+\d+\s+star", aria, re.IGNORECASE):
                 continue
             if aria.lower().startswith(_SKIP_ARIA_PREFIXES):
+                continue
+            # Reject UI button labels masquerading as titles. Flipkart's
+            # "Add to Compare" anchor was passing because it has 3 words,
+            # no skip-prefix match, and a /dp-style href — making the whole
+            # search return zero matched products even when the card was
+            # right. Exact-match check on the lowercased aria avoids
+            # rejecting real titles that happen to contain "view" or "add".
+            if aria.lower() in _UI_BUTTON_LABELS:
                 continue
             a_href = a.get("href", "")
             if "/stores/" in a_href or "/s?" in a_href or "field-keywords" in a_href:
@@ -804,6 +904,39 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
             if is_sponsored:
                 continue
 
+            # ── Structural shape check ──────────────────────────────────
+            # Reject cards that don't look like product cards. A real
+            # product card has at least ONE of: a price reference, a
+            # heading (h1-h4), or an image. A button-row container has
+            # none of these. This catches the case where a too-broad
+            # selector ([data-id], [data-testid*='item']) matches a
+            # button row inside the real card — Flipkart's "Add to
+            # Compare" button is the trigger that surfaced this.
+            #
+            # We check existence only — not values — so this is fast
+            # and free of false rejects on minimalist designs. A card
+            # with just a heading still passes; only cards with NONE of
+            # the three signals are dropped.
+            has_heading = bool(card.find(["h1", "h2", "h3", "h4"]))
+            has_image = bool(card.find("img"))
+            # Cheap price check: look for currency symbols or "price"
+            # attribute/class anywhere in the subtree text. We don't
+            # parse the value — just confirm a price is present.
+            card_text = card.get_text(separator=" ", strip=True)[:500].lower()
+            has_price = (
+                "₹" in card_text or
+                "$" in card_text or
+                "€" in card_text or
+                "£" in card_text or
+                "¥" in card_text or
+                bool(re.search(r"\brs\.?\s*\d", card_text)) or
+                bool(card.select_one("[class*='price' i], [data-price]"))
+            )
+            if not (has_heading or has_image or has_price):
+                # Almost certainly a button row, filter chip, or other
+                # non-card element matched by a too-broad selector.
+                continue
+
             # Find the primary link — DYNAMIC: score all links in the card
             # and pick the one that looks most like a product URL.
             # No site-specific href patterns.
@@ -831,6 +964,14 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
                 full_url = dp_match.group(1)
 
             title = _best_title_from_card(card)
+
+            # Reject titles that are UI button labels. _best_title_from_card
+            # has six strategies; if all six fall through to picking up
+            # button text (Flipkart's "Add to Compare"), we'd otherwise
+            # add it as a product and the validator would reject every
+            # card. Cleaner to reject here and try the next card.
+            if title and title.strip().lower() in _UI_BUTTON_LABELS:
+                continue
 
             if title and len(title.split()) >= 3 and full_url not in seen_urls:
                 seen_urls.add(full_url)
@@ -918,9 +1059,18 @@ def _matches_query(title: str, query_words: list[str]) -> bool:
     return matches >= 2
 
 
-def find_and_validate_product(products: list, query: str) -> Optional[dict]:
+def find_and_validate_product(
+    products: list,
+    query: str,
+    request_id: Optional[str] = None,
+) -> Optional[dict]:
     """
     Find the best matching product from a list of candidates.
+
+    request_id: when set, the loop checks for cancellation between OpenAI
+    validation calls. This is the most expensive checkpoint — each call
+    costs ~$0.0001 and ~0.5s of latency, so cancelling between candidates
+    saves real money and time.
     """
     stop = {"and", "the", "for", "with", "per", "pack", "buy", "online", "from", "of", "in"}
     query_words = [w for w in query.lower().split() if w not in stop]
@@ -941,6 +1091,10 @@ def find_and_validate_product(products: list, query: str) -> Optional[dict]:
     # which have a high rate of false positives. Scanning fewer candidates
     # produces cleaner misses and fewer wrong-brand matches.
     for product in products[:7]:
+        # Cancellation checkpoint — between OpenAI calls. Check first so
+        # we never fire an OpenAI call after the user has cancelled.
+        check_cancelled(request_id, "between validation candidates")
+
         title = product["title"]
         title_lower = title.lower()
         matches = sum(1 for w in query_words if w in title_lower)
@@ -1064,77 +1218,186 @@ def _get_soup(url: str, referer: str = "") -> tuple[Optional[BeautifulSoup], str
         return None, ""
 
 
-def _get_soup_scraperapi(url: str) -> tuple[Optional[BeautifulSoup], str]:
+def _scraperapi_country_for(url: str) -> str:
+    """
+    Map a URL to a ScraperAPI country_code (2-letter ISO).
+
+    Reuses _locale_for_url so TLD detection AND the .com Indian-seed list
+    are a single source of truth. Without this, .com sites that are
+    actually Indian (Flipkart, Myntra, Nykaa) fall through to country='us',
+    ScraperAPI routes via US proxies, and Indian sites either time out
+    (geofencing) or serve geo-blocked pages.
+
+    The mapping below covers all locales _locale_for_url returns. New
+    locales must be added in both places.
+    """
+    locale, _, _ = _locale_for_url(url)
+    # locale is "en-IN", "en-GB", "en-AU", "en-CA", "de-DE", etc.
+    region = locale.split("-")[-1].lower() if "-" in locale else "us"
+    # Map ISO region → ScraperAPI country code. Most regions map 1:1 to
+    # ScraperAPI's expected codes; special cases below.
+    overrides = {
+        "uk": "gb",  # ScraperAPI uses 'gb' for United Kingdom
+    }
+    return overrides.get(region, region)
+
+
+def _get_soup_scraperapi(url: str, force_premium: bool = False) -> tuple[Optional[BeautifulSoup], str]:
     """
     Fetch via ScraperAPI — bypasses sites with heavy bot detection.
     Only called when SCRAPER_API_KEY is set and Playwright is blocked.
-    render=true enables JS rendering. country_code derived from URL TLD.
+
+    Adaptive premium escalation:
+      Attempt 1 — non-premium (1 credit/call), unless force_premium=True
+                  or this host has previously failed without premium.
+      Attempt 2 — premium=true (10 credits/call), uses residential proxies
+                  that bypass Flipkart/Walmart/Akamai/PerimeterX walls.
+
+    On premium-only success, the host is added to _scraperapi_premium_hosts
+    so subsequent calls for that host skip the wasted free-tier attempt.
+
+    render=true enables JS rendering. country_code derived from
+    _locale_for_url so .com Indian sites (Flipkart, Myntra, Nykaa) get
+    Indian proxies — the previous TLD-only logic returned "us" for them
+    and was the root cause of Flipkart timeouts.
+
+    Concurrency: wrapped in _scraperapi_semaphore (cap = 4) so we never
+    exceed ScraperAPI's free plan concurrency limit (5). Excess callers
+    block until a slot frees up. Without this, parallel searches fired
+    20+ ScraperAPI calls at once and got back HTTP 429 on most of them —
+    burning credits and slot time for no result.
     """
     if not SCRAPER_API_KEY or SCRAPER_API_KEY.strip() == "":
         logger.warning("[scraperapi] No SCRAPER_API_KEY set — skipping. "
                        "Get a free key at https://www.scraperapi.com/")
         return None, ""
 
-    # Detect country from URL for accurate geo-rendering
     host = urllib.parse.urlparse(url).netloc.lower()
-    country = "us"
-    if host.endswith(".in"):
-        country = "in"
-    elif host.endswith(".co.uk"):
-        country = "gb"
-    elif host.endswith(".com.au"):
-        country = "au"
-    elif host.endswith(".ca"):
-        country = "ca"
+    country = _scraperapi_country_for(url)
 
-    proxy_url = (
-        f"http://api.scraperapi.com"
-        f"?api_key={SCRAPER_API_KEY.strip()}"
-        f"&url={urllib.parse.quote(url, safe='')}"
-        f"&render=true"
-        f"&country_code={country}"
-    )
+    # Has this host previously needed premium? If so, start premium —
+    # don't waste a free-tier credit just to time out.
+    with _hints_lock:
+        host_needs_premium = host in _scraperapi_premium_hosts
 
-    try:
-        max_retries = 2
-        for attempt in range(max_retries):
-            logger.info(f"[scraperapi] Fetching{' (retry)' if attempt > 0 else ''}: {url[:80]}")
-            try:
-                response = requests.get(proxy_url, timeout=TIMEOUT_SCRAPER)
-            except requests.exceptions.Timeout:
-                logger.warning(f"[scraperapi] Timeout after {TIMEOUT_SCRAPER}s (attempt {attempt+1}/{max_retries})")
-                if attempt < max_retries - 1:
-                    time.sleep(1)
-                    continue
+    # Build the parameter set common to all attempts. Per ScraperAPI's
+    # Flipkart docs, premium=true is required for Flipkart-class sites.
+    def _build_url(use_premium: bool) -> str:
+        params = (
+            f"?api_key={SCRAPER_API_KEY.strip()}"
+            f"&url={urllib.parse.quote(url, safe='')}"
+            f"&render=true"
+            f"&country_code={country}"
+        )
+        if use_premium:
+            params += "&premium=true"
+        return f"http://api.scraperapi.com{params}"
+
+    # Order the attempts. If we already know this host needs premium
+    # (or caller forced it), skip the free-tier attempt entirely. Otherwise
+    # try free first, escalate to premium on timeout/403/5xx.
+    if force_premium or host_needs_premium:
+        attempts = [True]  # premium only
+        reason = "forced" if force_premium else "host previously needed premium"
+        logger.info(f"[scraperapi] Starting premium ({reason}) for {host}")
+    else:
+        attempts = [False, True]  # free then premium
+
+    # ── Concurrency gate ──────────────────────────────────────────────
+    # Acquire a slot before making ANY HTTP call. Block here if all 4
+    # slots are taken. Released automatically when the `with` block exits,
+    # whether we return normally or raise. We acquire ONCE for the whole
+    # function (including the potential premium retry inside the loop)
+    # because the retry hits the SAME ScraperAPI account — releasing
+    # between the standard and premium attempt would just let us re-queue
+    # at the back of the line for no reason.
+    with _scraperapi_semaphore:
+        try:
+            for i, use_premium in enumerate(attempts):
+                tag = "premium" if use_premium else "standard"
+                label = f"attempt {i+1}/{len(attempts)} ({tag})"
+                logger.info(f"[scraperapi] Fetching {label}: {url[:80]}")
+                proxy_url = _build_url(use_premium)
+
+                try:
+                    response = requests.get(proxy_url, timeout=TIMEOUT_SCRAPER)
+                except requests.exceptions.Timeout:
+                    logger.warning(
+                        f"[scraperapi] Timeout after {TIMEOUT_SCRAPER}s ({label}) "
+                        f"— {'giving up' if use_premium else 'escalating to premium'}"
+                    )
+                    # If we just timed out without premium, fall through to
+                    # the next iteration which will use premium. If we timed
+                    # out WITH premium, there's no further escalation.
+                    if not use_premium:
+                        # Note: don't add to premium_hosts yet — only do that
+                        # if premium actually succeeds. A timeout on free
+                        # might just be a transient network blip.
+                        continue
+                    return None, ""
+
+                if response.status_code == 200:
+                    logger.info(f"[scraperapi] ✅ Success ({tag})")
+                    # Remember this host needs premium so we skip free next time.
+                    if use_premium and not host_needs_premium:
+                        with _hints_lock:
+                            _scraperapi_premium_hosts.add(host)
+                        logger.info(
+                            f"[scraperapi] {host} added to premium hosts — "
+                            f"future calls skip free-tier attempt"
+                        )
+                    return _build_soup_and_text(response.text)
+
+                if response.status_code == 401:
+                    logger.error(
+                        f"[scraperapi] ❌ HTTP 401 — API key invalid or expired. "
+                        f"Check SCRAPER_API_KEY in .env. Key starts with: "
+                        f"'{SCRAPER_API_KEY[:8]}...'"
+                    )
+                    return None, ""
+
+                if response.status_code == 403:
+                    # 403 from ScraperAPI itself usually means the target site
+                    # blocked their IP. Premium uses different (residential)
+                    # IPs, so escalate.
+                    logger.warning(
+                        f"[scraperapi] HTTP 403 ({label}) "
+                        f"— {'giving up' if use_premium else 'escalating to premium'}"
+                    )
+                    if not use_premium:
+                        continue
+                    return None, ""
+
+                if response.status_code == 429:
+                    # 429 = ScraperAPI's concurrency rate limiter. With the
+                    # semaphore in place, we should never hit this — but if
+                    # we do (e.g., another process on the same key is also
+                    # using ScraperAPI), don't burn the premium budget on
+                    # what is almost certainly a timing problem.
+                    logger.warning(
+                        f"[scraperapi] HTTP 429 ({label}) — concurrency "
+                        f"limit; another process may share this API key"
+                    )
+                    return None, ""
+
+                if response.status_code >= 500:
+                    logger.warning(
+                        f"[scraperapi] HTTP {response.status_code} ({label}) "
+                        f"— {'giving up' if use_premium else 'escalating to premium'}"
+                    )
+                    if not use_premium:
+                        continue
+                    return None, ""
+
+                # Any other non-200 status (4xx other than 401/403/429): no
+                # point escalating, the request itself is malformed.
+                logger.warning(f"[scraperapi] HTTP {response.status_code} ({label})")
                 return None, ""
 
-            if response.status_code == 200:
-                logger.info(f"[scraperapi] ✅ Success")
-                return _build_soup_and_text(response.text)
-            elif response.status_code == 401:
-                logger.error(
-                    f"[scraperapi] ❌ HTTP 401 — API key is invalid or expired. "
-                    f"Check SCRAPER_API_KEY in your .env file. "
-                    f"Key starts with: '{SCRAPER_API_KEY[:8]}...'"
-                )
-                return None, ""
-            elif response.status_code == 403:
-                logger.warning(f"[scraperapi] HTTP 403 — site may require premium ScraperAPI plan")
-                return None, ""
-            elif response.status_code >= 500:
-                logger.warning(f"[scraperapi] HTTP {response.status_code} (attempt {attempt+1}/{max_retries})")
-                if attempt < max_retries - 1:
-                    time.sleep(1)
-                    continue
-                return None, ""
-            else:
-                logger.warning(f"[scraperapi] HTTP {response.status_code}")
-                return None, ""
-
-        return None, ""
-    except Exception as exc:
-        logger.warning(f"[scraperapi] Failed: {exc}")
-        return None, ""
+            return None, ""
+        except Exception as exc:
+            logger.warning(f"[scraperapi] Failed: {exc}")
+            return None, ""
 
 
 def _get_soup_playwright(url: str) -> tuple[Optional[BeautifulSoup], str, str]:
@@ -2497,7 +2760,11 @@ def _empty() -> dict:
 
 # ── Main scrape logic ─────────────────────────────────────────────────
 
-def _scrape_sync(site: dict, product_name: str) -> dict:
+def _scrape_sync(
+    site: dict,
+    product_name: str,
+    request_id: Optional[str] = None,
+) -> dict:
     """
     Full scrape pipeline for one site + product:
 
@@ -2507,7 +2774,17 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
                               and SCRAPER_API_KEY is set — handles heavy bot-blockers)
       Attempt 4: Playwright → product page (if product page is blocked on requests)
       Fallback:  Derive product URL from site's URL pattern (Shopify-style sites)
+
+    request_id: cooperative cancellation. Checked at every expensive checkpoint
+    below. When set and the corresponding event is set in scout.cancellation,
+    we raise SearchCancelledException to bail out fast — saving Playwright
+    launch time, ScraperAPI credits, and OpenAI tokens.
     """
+    # Earliest possible checkpoint — bail before any work if already cancelled.
+    # (Common when several platforms run in parallel and the user hits Cancel
+    # before some of them have even started their _scrape_sync call.)
+    check_cancelled(request_id, "before scraping starts")
+
     site_name  = site["name"]
     search_url = build_search_url(
         site["search_url"],
@@ -2531,6 +2808,7 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
 
     # ── Attempt 1: requests on search page ───────────────────────────
     if not skip_requests:
+        check_cancelled(request_id, "before requests on search page")
         logger.info(f"[{site_name}] Trying requests on search page...")
         search_soup, search_text = _get_soup(search_url, referer=base_url)
         if search_soup:
@@ -2552,7 +2830,9 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
             else:
                 all_products = _extract_product_links(search_soup, search_url)
                 if all_products:
-                    selected = find_and_validate_product(all_products, product_name)
+                    selected = find_and_validate_product(
+                        all_products, product_name, request_id=request_id
+                    )
                     if selected:
                         products = [selected]
                         with _hints_lock:
@@ -2573,6 +2853,7 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
 
     # ── Attempt 2: Playwright on search page ─────────────────────────
     if not products:
+        check_cancelled(request_id, "before Playwright on search page")
         logger.info(f"[{site_name}] Trying Playwright on search page...")
         pw_soup, pw_text, _ = _get_soup_playwright(search_url)
         if pw_soup:
@@ -2595,21 +2876,53 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
                 logger.warning(f"[{site_name}] ⚠️ Bot detection triggered on Playwright")
             else:
                 all_products = _extract_product_links(pw_soup, search_url)
-                selected     = find_and_validate_product(all_products, product_name)
+                selected     = find_and_validate_product(
+                    all_products, product_name, request_id=request_id
+                )
                 if selected:
                     products = [selected]
 
     # ── Attempt 3: ScraperAPI (any site where Playwright is also blocked) ──
     if not products:
         if SCRAPER_API_KEY and SCRAPER_API_KEY.strip():
+            # Critical checkpoint — ScraperAPI burns a credit per call.
+            # Cancelling here saves real money.
+            check_cancelled(request_id, "before ScraperAPI on search page")
             logger.info(f"[{site_name}] Playwright blocked — trying ScraperAPI...")
             sa_soup, sa_text = _get_soup_scraperapi(search_url)
             if sa_soup:
                 all_products = _extract_product_links(sa_soup, search_url)
-                selected     = find_and_validate_product(all_products, product_name)
+                selected     = find_and_validate_product(
+                    all_products, product_name, request_id=request_id
+                )
                 if selected:
                     products = [selected]
                     logger.info(f"[{site_name}] ✅ ScraperAPI found product")
+                else:
+                    # Standard ScraperAPI returned a 200 but the page did
+                    # not contain matching products. This usually means
+                    # Nykaa-class bot detection: the site served a
+                    # generic/homepage shell instead of search results,
+                    # and the only product-shaped links are unrelated
+                    # collection or recommendation links.
+                    #
+                    # Retry once with premium (residential proxies). The
+                    # _get_soup_scraperapi premium path will also remember
+                    # the host needs premium going forward.
+                    check_cancelled(request_id, "before ScraperAPI premium retry")
+                    logger.info(
+                        f"[{site_name}] ScraperAPI standard returned no matches "
+                        f"— retrying with premium"
+                    )
+                    sa_soup_p, _ = _get_soup_scraperapi(search_url, force_premium=True)
+                    if sa_soup_p:
+                        all_products = _extract_product_links(sa_soup_p, search_url)
+                        selected = find_and_validate_product(
+                            all_products, product_name, request_id=request_id
+                        )
+                        if selected:
+                            products = [selected]
+                            logger.info(f"[{site_name}] ✅ ScraperAPI (premium) found product")
             else:
                 # Both Playwright and ScraperAPI failed — record it
                 with _hints_lock:
@@ -2670,15 +2983,21 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
     logger.info(f"[{site_name}] Selected: {title[:80]}")
     logger.info(f"[{site_name}] URL: {product_url[:100]}")
 
+    # Checkpoint before product page fetch — avoids burning more time
+    # extracting full details if user already cancelled.
+    check_cancelled(request_id, "before product page fetch")
+
     # Try requests first, fall back to Playwright, then ScraperAPI
     product_soup, full_text = _get_soup(product_url, referer=search_url)
 
     if not product_soup or len(full_text) < 500:
+        check_cancelled(request_id, "before Playwright on product page")
         logger.info(f"[{site_name}] requests blocked on product page → Playwright")
         product_soup, full_text, product_url = _get_soup_playwright(product_url)
 
     if not product_soup or len(full_text) < 500:
         if SCRAPER_API_KEY and SCRAPER_API_KEY.strip():
+            check_cancelled(request_id, "before ScraperAPI on product page")
             logger.info(f"[{site_name}] Playwright blocked on product page → ScraperAPI")
             product_soup, full_text = _get_soup_scraperapi(product_url)
 
@@ -2694,12 +3013,14 @@ def _scrape_sync(site: dict, product_name: str) -> dict:
     # shell — Amazon returns pages with specs/description but no buy box.
     # These pass the len>500 check but have no price. Retry with Playwright/ScraperAPI.
     if result.get("price", 0) == 0:
+        check_cancelled(request_id, "before price retry with Playwright")
         logger.info(f"[{site_name}] Price=0 on requests page — retrying with Playwright...")
         pw_soup, pw_text, pw_url = _get_soup_playwright(product_url)
         if pw_soup and len(pw_text) > 500:
             result = _extract_all(pw_soup, pw_text, pw_url, product_name, site_name)
 
     if result.get("price", 0) == 0 and SCRAPER_API_KEY and SCRAPER_API_KEY.strip():
+        check_cancelled(request_id, "before price retry with ScraperAPI")
         logger.info(f"[{site_name}] Price=0 on Playwright — retrying with ScraperAPI...")
         sa_soup, sa_text = _get_soup_scraperapi(product_url)
         if sa_soup and len(sa_text) > 500:

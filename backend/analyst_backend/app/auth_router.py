@@ -20,6 +20,7 @@ db/migration_retire_viewer_role.sql.
 """
 
 import hashlib
+import secrets
 import uuid
 import logging
 from datetime import datetime
@@ -80,9 +81,18 @@ _ensure_tokens_table()
 
 
 def _make_token(user_id: str) -> str:
-    """Generate a token and store it in the database."""
-    raw = f"{user_id}-{uuid.uuid4()}-{datetime.now().isoformat()}"
-    token = hashlib.sha256(raw.encode()).hexdigest()
+    """Generate an opaque session token and store it in the database.
+
+    The token is 256 bits straight from the OS CSPRNG via
+    ``secrets.token_urlsafe(32)`` (URL-safe, 43 chars) — unguessable by
+    construction. This replaces the prior ``sha256(user_id + uuid4 + timestamp)``
+    which, while effectively random, derived its entropy indirectly. The token is
+    an opaque server-side session key (NOT a JWT): it carries no user data and is
+    validated / revoked via the ``active_tokens`` table. Old sha256 tokens already
+    in active_tokens stay valid until they expire — the format change is forward-
+    only and never invalidates a live session.
+    """
+    token = secrets.token_urlsafe(32)
 
     try:
         with engine.connect() as conn:

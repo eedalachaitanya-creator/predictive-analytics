@@ -4,7 +4,7 @@
     <div class="topbar-meta">{{ pageMeta().meta }}</div>
   </div>
   <div class="topbar-right">
-    <div class="chip"><span class="dot green"></span>&nbsp;Pipeline Ready</div>
+    <!-- <div class="chip"><span class="dot green"></span>&nbsp;Pipeline Ready</div> -->
     <div class="chip">👤 {{ auth.user()?.role === 'super_admin' ? 'Super Admin' : 'Client' }}</div>
     <!-- Only show the client-id chip when there is one. Admin-console pages
          are cross-tenant so the pill would otherwise render empty. -->

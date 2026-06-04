@@ -165,6 +165,41 @@ def build_scoring_frame(
     )
 
 
+def compute_drivers(
+    df: pd.DataFrame,
+    bundle: Mapping,
+    probabilities: Sequence[float],
+    *,
+    low_risk_cutoff: float = 0.35,
+    top_n: int = 3,
+) -> pd.DataFrame:
+    """Per-customer top-N churn drivers for the dashboard's "Top Driver" column.
+
+    Reuses the legacy ``ml.predict.compute_churn_drivers`` (signed SHAP attribution
+    that already unwraps ``CalibratedClassifierCV``), so a temporal-scored row gets
+    the SAME driver semantics as a legacy-scored one. Drivers are suppressed (None)
+    below ``low_risk_cutoff`` — the UI shows no attribution for low-risk customers.
+    Returns a DataFrame with ``driver_1 … driver_N``.
+    """
+    from ml.predict import compute_churn_drivers
+
+    feature_names = list(bundle["feature_names"])
+    metadata = bundle.get("metadata") or {}
+    train_medians = metadata.get("train_medians") or {}
+    scaler = bundle.get("scaler")
+
+    X = align_features(df, feature_names, train_medians)
+    X_scaled = pd.DataFrame(
+        scaler.transform(X) if scaler is not None else X.to_numpy(),
+        columns=feature_names,
+    )
+    return compute_churn_drivers(
+        bundle["model"], X_scaled, top_n=top_n,
+        probabilities=np.asarray(probabilities, dtype=float),
+        low_risk_cutoff=low_risk_cutoff,
+    )
+
+
 def load_bundle(bundle_path: Any) -> Dict:
     """Load a temporal model bundle ({model, scaler, feature_names, metadata}).
 
@@ -234,6 +269,18 @@ def score(
         from ml.predict import load_risk_thresholds
         thresholds = load_risk_thresholds(db_url, client_id)
     score_df = to_score_df(client_id, customer_ids, probabilities, thresholds=thresholds)
+
+    # Per-customer churn drivers (dashboard "Top Driver" / Driver 1-3). Suppressed
+    # below the MEDIUM cutoff. Wrapped so a driver-attribution failure can never
+    # break scoring — scores still persist, just without drivers (graceful).
+    cutoff = (thresholds or {}).get("medium", 0.35)
+    try:
+        drivers = compute_drivers(frame, bundle, probabilities, low_risk_cutoff=cutoff)
+        for col in drivers.columns:
+            score_df[col] = drivers[col].to_numpy()
+    except Exception as exc:  # noqa: BLE001 — drivers are best-effort
+        logger.warning("score: driver computation failed (%s) — writing scores "
+                       "without drivers", exc)
 
     if write:
         from ml.predict import save_scores_to_db

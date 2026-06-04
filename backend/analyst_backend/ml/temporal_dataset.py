@@ -514,6 +514,96 @@ def _max_order_date(conn: Any, client_id: str) -> Optional[dt.date]:
     return res
 
 
+def _min_order_date(conn: Any, client_id: str) -> Optional[dt.date]:
+    res = conn.execute(
+        text("SELECT MIN(order_date)::date FROM orders WHERE client_id = :c"),
+        {"c": client_id},
+    ).scalar()
+    return res
+
+
+def resolve_cutoffs(
+    engine_or_conn: Any,
+    client_id: str,
+    *,
+    label_window_days: int = 90,
+    cadence_days: int = 30,
+    observability_buffer_days: int = 0,
+    earliest: Optional[dt.date] = None,
+    max_cutoffs: Optional[int] = None,
+) -> List[dt.date]:
+    """The cutoffs ``build_dataset`` will use for a tenant.
+
+    When ``earliest`` is not supplied (the live pipeline path), it is bounded
+    BELOW by the tenant's FIRST order date so cutoffs span only the real data
+    range. Without this, ``generate_cutoffs`` would step backward 30 days at a
+    time to its 10,000-cutoff safety stop (~year 1204), building thousands of
+    empty pre-data snapshots — a ~20-minute no-op found via the live E2E.
+
+    ``max_cutoffs`` further caps the result to the most RECENT N cutoffs — the
+    pipeline uses this to bound per-run cost (recent behaviour is also the most
+    predictive of near-term churn). Cutoffs are returned in ascending order.
+    """
+    own = hasattr(engine_or_conn, "connect")
+    conn = engine_or_conn.connect() if own else engine_or_conn
+    try:
+        max_d = _max_order_date(conn, client_id)
+        if max_d is None:
+            return []
+        lo = earliest if earliest is not None else _min_order_date(conn, client_id)
+        cutoffs = generate_cutoffs(
+            max_order_date=max_d,
+            label_window_days=label_window_days,
+            cadence_days=cadence_days,
+            observability_buffer_days=observability_buffer_days,
+            earliest=lo,
+        )
+        if max_cutoffs is not None and len(cutoffs) > max_cutoffs:
+            cutoffs = cutoffs[-max_cutoffs:]  # keep the most recent N (ascending)
+        return cutoffs
+    finally:
+        if own:
+            conn.close()
+
+
+# DDL kept in lock-step with db/migration_ml_temporal_snapshots.sql so the staging
+# table can be created in-process (the pipeline never needs a manual migration).
+_SNAPSHOTS_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS ml_temporal_snapshots (
+        snapshot_id  BIGSERIAL PRIMARY KEY,
+        client_id    TEXT        NOT NULL,
+        customer_id  TEXT        NOT NULL,
+        cutoff_date  DATE        NOT NULL,
+        churned      SMALLINT    NOT NULL,
+        features     JSONB       NOT NULL,
+        computed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_ml_temporal_snapshot UNIQUE (client_id, customer_id, cutoff_date)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ml_temporal_snapshots_client_cutoff
+        ON ml_temporal_snapshots (client_id, cutoff_date)
+    """,
+)
+
+
+def ensure_snapshots_table(engine_or_conn: Any) -> None:
+    """Idempotently create ``ml_temporal_snapshots`` (applies the migration DDL).
+
+    Safe to call on every pipeline run: ``CREATE TABLE/INDEX IF NOT EXISTS`` are
+    no-ops once the table exists. Accepts an Engine (opens its own committed
+    transaction) or an open Connection (executes inline; caller commits).
+    """
+    if hasattr(engine_or_conn, "begin") and not hasattr(engine_or_conn, "execute"):
+        with engine_or_conn.begin() as cx:
+            for stmt in _SNAPSHOTS_DDL:
+                cx.execute(text(stmt))
+    else:
+        for stmt in _SNAPSHOTS_DDL:
+            engine_or_conn.execute(text(stmt))
+
+
 def _write_staging(conn: Any, df: pd.DataFrame) -> int:
     """Idempotent upsert of an assembled dataset into ml_temporal_snapshots.
 
@@ -564,6 +654,7 @@ def build_dataset(
     min_positives_per_cutoff: int = 30,
     observability_buffer_days: int = 0,
     earliest: Optional[dt.date] = None,
+    max_cutoffs: Optional[int] = None,
     write: bool = True,
 ) -> pd.DataFrame:
     """Assemble the multi-cutoff temporal dataset for one tenant.
@@ -590,12 +681,15 @@ def build_dataset(
             logger.warning("build_dataset: no orders for client_id=%s — empty dataset", client_id)
             return pd.DataFrame()
 
-        cutoffs = generate_cutoffs(
-            max_order_date=max_order_date,
+        # Bound cutoffs to the tenant's real data span when no explicit earliest
+        # is given (prevents the unbounded backward sweep — see resolve_cutoffs).
+        cutoffs = resolve_cutoffs(
+            conn, client_id,
             label_window_days=label_window_days,
             cadence_days=cadence_days,
             observability_buffer_days=observability_buffer_days,
             earliest=earliest,
+            max_cutoffs=max_cutoffs,
         )
         logger.info(
             "build_dataset: client_id=%s max_order_date=%s cutoffs=%d (%s..%s)",
@@ -670,3 +764,73 @@ def build_dataset(
     finally:
         if own_conn:
             conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CLI — `python -m ml.temporal_dataset --client-id X --write` (closes the gap the
+# trainer/pipeline reference). Ensures the staging table, then builds + writes.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _parse_args(argv=None):
+    import argparse
+
+    p = argparse.ArgumentParser(
+        description="Build point-in-time (<=T) temporal snapshots into "
+                    "ml_temporal_snapshots (additive staging table).")
+    p.add_argument("--client-id", required=True)
+    p.add_argument("--db-url", default=None,
+                   help="Postgres URL (falls back to DB_URL / DATABASE_URL env).")
+    p.add_argument("--label-window-days", type=int, default=90)
+    p.add_argument("--cadence-days", type=int, default=30)
+    p.add_argument("--min-tenure-days", type=int, default=90)
+    p.add_argument("--min-orders", type=int, default=2)
+    p.add_argument("--active-window-days", type=int, default=120)
+    p.add_argument("--min-positives-per-cutoff", type=int, default=30)
+    p.add_argument("--earliest", default=None,
+                   help="YYYY-MM-DD lower bound on cutoffs (default: all history).")
+    grp = p.add_mutually_exclusive_group()
+    grp.add_argument("--active-only", dest="active_only", action="store_true")
+    grp.add_argument("--no-active-only", dest="active_only", action="store_false")
+    p.add_argument("--write", dest="write", action="store_true")
+    p.add_argument("--no-write", dest="write", action="store_false")
+    p.set_defaults(active_only=True, write=True)
+    return p.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    import os
+
+    from sqlalchemy import create_engine
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(levelname)s %(name)s: %(message)s")
+    args = _parse_args(argv)
+    db_url = args.db_url or os.environ.get("DB_URL") or os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise SystemExit("No DB URL: pass --db-url or set DB_URL/DATABASE_URL")
+
+    earliest = dt.date.fromisoformat(args.earliest) if args.earliest else None
+    engine = create_engine(db_url, pool_pre_ping=True)
+    try:
+        ensure_snapshots_table(engine)
+        df = build_dataset(
+            engine, args.client_id,
+            label_window_days=args.label_window_days,
+            cadence_days=args.cadence_days,
+            min_tenure_days=args.min_tenure_days,
+            min_orders=args.min_orders,
+            active_window_days=args.active_window_days,
+            active_only=args.active_only,
+            min_positives_per_cutoff=args.min_positives_per_cutoff,
+            earliest=earliest,
+            write=args.write,
+        )
+        print(f"WROTE rows={len(df)} client_id={args.client_id} "
+              f"cutoffs={df['cutoff_date'].nunique() if not df.empty else 0}")
+        return 0
+    finally:
+        engine.dispose()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

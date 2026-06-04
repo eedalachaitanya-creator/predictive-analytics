@@ -117,6 +117,7 @@ STAGE_LABELS = [
     "Train ML models",
     "Evaluate models",
     "Score customers (churn predictions)",
+    "Temporal churn modeling (forward 90-day)",
     "Generate risk summary",
     "Compute purchase cycles",
     "Run refill alerts + outreach",
@@ -317,29 +318,50 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             ok, msg = _run_python_module("ml.evaluate_model", ["--no-plots", "--client-id", client_id])
         _update_stage(job, 5, "done" if ok else "error", msg[:200])
 
-        # Stage 7: Score customers
+        # Stage 7: Score customers (LEGACY model → baseline churn_scores)
         _update_stage(job, 6, "running", f"Scoring {client_id} customers...")
         ok, msg = _run_python_module("ml.predict", ["--mode", "cli", "--source", "db", "--db-url", _DB_URL, "--output", "all", "--client-id", client_id])
         _update_stage(job, 6, "done" if ok else "error", msg[:200])
 
-        # Stage 8: Generate risk summary
-        _update_stage(job, 7, "running", "Generating risk summary...")
+        # Stage 8: Temporal churn modeling (forward 90-day)
+        # The legacy model above already wrote baseline scores into
+        # churn_scores (Stage 7). This stage builds point-in-time snapshots,
+        # trains the leakage-free temporal model, and — on success — OVERWRITES
+        # churn_scores with its forward-90-day predictions (what the dashboard
+        # then shows). If the tenant lacks enough history or the leakage gate
+        # hard-fails, ml.temporal_pipeline falls back gracefully: it ALWAYS
+        # exits 0 and prints `MODE=temporal|fallback`, leaving the baseline
+        # Stage-7 scores untouched. So this stage can never fail the pipeline
+        # or leave churn_scores in a broken state.
+        _update_stage(job, 7, "running", f"Temporal churn modeling for {client_id}...")
+        ok, msg = _run_python_module("ml.temporal_pipeline", ["--client-id", client_id, "--db-url", _DB_URL])
+        if ok and "MODE=temporal" in msg:
+            _update_stage(job, 7, "done", f"Temporal predictions applied — {msg.strip()[:160]}")
+        elif ok:
+            _update_stage(job, 7, "done", f"Baseline model kept (temporal fallback) — {msg.strip()[:160]}")
+        else:
+            # Unexpected non-zero exit: keep the Stage-7 baseline scores; do not
+            # fail the run (the dashboard still has valid legacy predictions).
+            _update_stage(job, 7, "done", f"Temporal stage skipped, baseline scores kept — {msg[:140]}")
+
+        # Stage 9: Generate risk summary
+        _update_stage(job, 8, "running", "Generating risk summary...")
         risk_file = ML_DIR / "output" / "risk_summary.txt"
         if risk_file.exists():
-            _update_stage(job, 7, "done", "Risk summary available")
+            _update_stage(job, 8, "done", "Risk summary available")
         else:
-            _update_stage(job, 7, "done", "Risk summary generated from scores")
+            _update_stage(job, 8, "done", "Risk summary generated from scores")
 
-        # Stage 9: Compute purchase cycles
-        _update_stage(job, 8, "running", "Computing purchase cycles...")
+        # Stage 10: Compute purchase cycles
+        _update_stage(job, 9, "running", "Computing purchase cycles...")
         ok, msg = _run_python_module("ml.compute_purchase_cycles", ["--db-url", _DB_URL, "--client-id", client_id])
-        _update_stage(job, 8, "done" if ok else "error", msg[:200])
+        _update_stage(job, 9, "done" if ok else "error", msg[:200])
 
-        # Stage 10: Run refill alerts + outreach generation
-        _update_stage(job, 9, "running", "Generating refill alerts + outreach emails...")
+        # Stage 11: Run refill alerts + outreach generation
+        _update_stage(job, 10, "running", "Generating refill alerts + outreach emails...")
         if mode in ("retention", "full"):
             ok, msg = _run_python_module("ml.alerts")
-            _update_stage(job, 9, "done" if ok else "error", msg[:200])
+            _update_stage(job, 10, "done" if ok else "error", msg[:200])
             # Also generate template-based churn outreach emails
             try:
                 from app.messages_router import generate_outreach, GenerateOutreachRequest
@@ -354,10 +376,10 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             except Exception as e:
                 log.warning("Churn outreach generation failed (non-blocking): %s", e)
         else:
-            _update_stage(job, 9, "done", "Skipped (mode: {})".format(mode))
+            _update_stage(job, 10, "done", "Skipped (mode: {})".format(mode))
 
-        # Stage 11: Finalize — save all output files to database + build summary
-        _update_stage(job, 10, "running", "Finalizing outputs & storing to database...")
+        # Stage 12: Finalize — save all output files to database + build summary
+        _update_stage(job, 11, "running", "Finalizing outputs & storing to database...")
         try:
             from db.pipeline_outputs_store import save_all_output_files
             output_dir = str(ML_DIR / "output")
@@ -368,7 +390,7 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
 
         summary = _build_summary(client_id)
         job["summary"] = summary
-        _update_stage(job, 10, "done", "Pipeline complete")
+        _update_stage(job, 11, "done", "Pipeline complete")
 
         # Check if any stage failed
         has_errors = any(s["status"] == "error" for s in job["stages"])

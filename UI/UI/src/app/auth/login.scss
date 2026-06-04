@@ -86,6 +86,81 @@
   }
 }
 
+// ── Password field with eye toggle ───────────────────────────────
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  .form-input {
+    width: 100%;
+    padding-right: 44px;
+  }
+}
+
+.eye-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  opacity: 0.55;
+  transition: opacity 0.2s;
+  &:hover { opacity: 1; }
+  &:disabled { cursor: default; opacity: 0.25; }
+}
+
+// ── Password strength bar ─────────────────────────────────────────
+.pw-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pw-bars {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.pw-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.3s;
+
+  &.active.weak   { background: #EF4444; }
+  &.active.ok     { background: #F59E0B; }
+  &.active.strong { background: #10B981; }
+}
+
+.pw-label {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 48px;
+  text-align: right;
+  &.weak   { color: #EF4444; }
+  &.ok     { color: #F59E0B; }
+  &.strong { color: #10B981; }
+}
+
+// ── Confirm password match indicator ─────────────────────────────
+.match-msg {
+  font-size: 12px;
+  font-weight: 500;
+  &.match    { color: #10B981; }
+  &.no-match { color: #EF4444; }
+}
+
+// ── Error message ─────────────────────────────────────────────────
 .err-msg {
   color: var(--accent-red);
   font-size: 12px;
@@ -96,19 +171,54 @@
   border-radius: 6px;
 }
 
+.validation-area {
+  min-height: 0;
+}
+
+// ── Sign In / Create Account button ──────────────────────────────
+.full-width {
+  width: 100%;
+  margin-top: 4px;
+}
+
+// ── Footer links ──────────────────────────────────────────────────
+.login-footer {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
 .login-links {
   text-align: center;
-  margin-top: 18px;
+  width: 100%;
+  margin: 0;
   font-size: 12px;
   color: var(--text-muted);
   a {
     color: var(--accent-blue);
     text-decoration: none;
+    font-weight: 500;
     &:hover { text-decoration: underline; }
   }
 }
 
-// ── Registration page extras ──────────────────────────────────────
+// ── Spacing helpers ───────────────────────────────────────────────
+.mb-6  { margin-bottom: 6px; }
+.mb-8  { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-16 { margin-bottom: 16px; }
+.mb-20 { margin-bottom: 20px; }
+
+.required {
+  color: var(--accent-red);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+// ── Registration extras ───────────────────────────────────────────
 .form-section-label {
   font-size: 11px;
   font-weight: 700;
@@ -119,8 +229,6 @@
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
-
-.mb-12 { margin-bottom: 12px; }
 
 .success-box {
   text-align: center;
@@ -135,18 +243,7 @@
   margin: 8px 0;
 }
 
-// Required-field asterisk — red, slightly bolder than the surrounding label
-// so it reads as a signal, not just a character. Used in .form-label spans.
-.required {
-  color: var(--accent-red);
-  font-weight: 600;
-  margin-left: 2px;
-}
-
-// ── Forgot-password modal ──────────────────────────────────────────
-// Fixed-position overlay that darkens the page and centers the card.
-// The backdrop captures clicks to close; the card stops click propagation
-// so clicking inside it doesn't also close it.
+// ── Forgot-password modal ─────────────────────────────────────────
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -213,6 +310,74 @@
   font-weight: 600;
   letter-spacing: .04em;
   color: var(--text-primary);
-  user-select: all;  // triple-click or Cmd+A inside selects it cleanly
+  user-select: all;
   word-break: break-all;
+}
+// ── mb-4 spacing helper (needed for field-error spacing) ─────────
+.mb-4 { margin-bottom: 4px; }
+
+// ── Wider card for register page ──────────────────────────────────
+.register-card {
+  width: 460px;
+}
+
+// ── Per-field inline validation areas ────────────────────────────
+.field-error-area {
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+}
+
+.field-err {
+  font-size: 12px;
+  color: #DC2626;
+  font-weight: 500;
+  &::before { content: '⚠ '; font-size: 11px; }
+}
+
+.field-ok {
+  font-size: 12px;
+  color: #10B981;
+  font-weight: 500;
+}
+
+// ── Red border on invalid inputs ──────────────────────────────────
+.form-input.input-error {
+  border-color: #DC2626;
+  background: rgba(220, 38, 38, 0.03);
+  &:focus { box-shadow: 0 0 0 3px rgba(220,38,38,.12); }
+}
+
+// ── Password rules checklist (register page) ──────────────────────
+.pw-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.pw-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  transition: color 0.2s;
+
+  .pw-rule-icon {
+    font-size: 13px;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--border-bright);
+  }
+
+  &.pass {
+    color: #10B981;
+    .pw-rule-icon { color: #10B981; }
+  }
 }

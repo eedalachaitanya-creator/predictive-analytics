@@ -2,7 +2,7 @@
   <div class="login-card">
     <div class="login-top-bar"></div>
     <div class="login-logo">📊 <span>Predictive</span> Analytics</div>
-    <p class="login-sub">Churn Prediction & Retention Platform · v4.0</p>
+    <p class="login-sub">Churn Prediction &amp; Retention Platform · v4.0</p>
 
     @if (isMock) {
       <div class="mock-banner">🧪 Dev / Mock Mode — no backend needed</div>
@@ -15,65 +15,71 @@
 
     <label class="form-label">Email Address <span class="required">*</span></label>
     <input
-      class="form-input mb-16"
+      class="form-input mb-4"
+      [class.input-error]="emailError()"
       type="email"
       [ngModel]="email()"
       (ngModelChange)="email.set($event)"
-      placeholder="Enter your email"
+      (blur)="emailTouched.set(true)"
+      placeholder="you@company.com"
       [disabled]="loading()"
       autocomplete="email"
       required />
+    <div class="field-error-area mb-12">
+      @if (emailError()) {
+        <span class="field-err">{{ emailError() }}</span>
+      }
+    </div>
 
     <label class="form-label">Password <span class="required">*</span></label>
-    <input
-      class="form-input mb-20"
-      type="password"
-      [ngModel]="password()"
-      (ngModelChange)="password.set($event)"
-      [placeholder]="isMock ? 'Any password works in mock mode' : 'Enter your password'"
-      [disabled]="loading()"
-      autocomplete="current-password"
-      (keyup.enter)="login()"
-      required />
+    <div class="password-wrapper mb-4">
+      <input
+        class="form-input"
+        [class.input-error]="passwordError()"
+        [type]="showPassword() ? 'text' : 'password'"
+        [ngModel]="password()"
+        (ngModelChange)="password.set($event)"
+        (blur)="passwordTouched.set(true)"
+        placeholder="Enter your password"
+        [disabled]="loading()"
+        autocomplete="current-password"
+        (keyup.enter)="login()"
+        required />
+      <button type="button" class="eye-btn" (click)="showPassword.set(!showPassword())" [disabled]="loading()" tabindex="-1" [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'">
+        <svg *ngIf="!showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg *ngIf="showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+      </button>
+    </div>
+    <div class="field-error-area mb-4">
+      @if (passwordError()) {
+        <span class="field-err">{{ passwordError() }}</span>
+      }
+    </div>
 
-    @if (error()) {
-      <div class="err-msg">⚠️ {{ error() }}</div>
-    }
+    <div class="validation-area">
+      @if (error()) {
+        <div class="err-msg">⚠️ {{ error() }}</div>
+      }
+    </div>
 
     <button
-      class="btn walmart lg"
-      style="width:100%;margin-top:4px"
+      class="btn walmart lg full-width"
       [disabled]="loading()"
       (click)="login()">
-      {{ loading() ? 'Signing in…' : 'Sign In →' }}
+      {{ loading() ? 'Signing in…' : 'Sign In' }}
     </button>
 
-    <p class="login-links" style="margin-top:14px">
-      New client? <a routerLink="/register" style="font-weight:600">Create Account</a>
-    </p>
-    <p class="login-links" style="margin-top:6px">
-      <a (click)="openForgot()" style="cursor:pointer">Forgot password?</a> · <a href="#">Contact IT Support</a>
-    </p>
-  </div>
-
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       Forgot-password modal
-       ─────────────────────────────────────────────────────────────────────
-       Two states, toggled by forgotResult():
-         A) no result yet   → show email input + Reset button
-         B) result returned → show the temp password + Copy button
-       The backdrop click closes the modal; the card's own click is stopped
-       from bubbling so clicks *inside* the card don't close it.
-       ═════════════════════════════════════════════════════════════════════ -->
+    <div class="login-footer">
+  <p class="login-links">New client? <a routerLink="/register">Create Account</a></p>
+  <p class="login-links"><a (click)="openForgot()" style="cursor:pointer">Forgot password?</a> · <a href="#">Contact IT Support</a></p>
+</div>
   @if (forgotOpen()) {
     <div class="modal-backdrop" (click)="closeForgot()">
       <div class="modal-card" (click)="$event.stopPropagation()">
         @if (!forgotResult()) {
-          <!-- State A: enter email -->
           <h3 class="modal-title">Forgot your password?</h3>
           <p class="modal-sub">
-            Enter the email address for your account. We'll reset your
-            password to a new temporary one and show it here.
+            Enter the email address linked to your account. We'll generate a temporary password and display it here.
           </p>
 
           <label class="form-label">Email Address <span class="required">*</span></label>
@@ -93,16 +99,13 @@
           }
 
           <div class="modal-actions">
-            <button class="btn outline" (click)="closeForgot()" [disabled]="forgotLoading()">
-              Cancel
-            </button>
+            <button class="btn outline" (click)="closeForgot()" [disabled]="forgotLoading()">Cancel</button>
             <button class="btn walmart" (click)="submitForgot()" [disabled]="forgotLoading()">
               {{ forgotLoading() ? 'Resetting…' : 'Reset Password' }}
             </button>
           </div>
         } @else {
-          <!-- State B: show the temp password -->
-          <h3 class="modal-title">✅ Password reset</h3>
+          <h3 class="modal-title">✅ Password Reset</h3>
           <p class="modal-sub">{{ forgotResult()!.message }}</p>
 
           <label class="form-label">Temporary password for {{ forgotResult()!.email }}</label>
@@ -114,8 +117,7 @@
           </div>
 
           <p class="modal-hint">
-            Any previous sessions have been logged out. Close this dialog
-            and sign in again with the new password.
+            All previous sessions have been logged out. Close this dialog and sign in with the temporary password above.
           </p>
 
           <div class="modal-actions">

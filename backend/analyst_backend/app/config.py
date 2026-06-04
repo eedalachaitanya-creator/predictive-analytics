@@ -6,8 +6,13 @@ from urllib.parse import unquote_plus, quote_plus
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import os
+from pathlib import Path
+
+_ENV_FILE = Path(__file__).parent.parent / ".env"
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     database_url: str = "postgresql://dev-users:yT9Lp5tCtfSc/8kTiDoZxg==@10.0.0.15:5432/predictive_analytics"
 
@@ -43,6 +48,14 @@ class Settings(BaseSettings):
     log_level: str = "info"
     app_name: str = "CRP Analyst Agent"
     app_version: str = "0.1.0"
+
+    # SMTP — Office 365 for retention offer emails
+    smtp_host:     str  = "smtp.office365.com"
+    smtp_port:     int  = 587
+    smtp_user:     str  = ""
+    smtp_password: str  = ""
+    smtp_from:     str  = ""
+    smtp_enabled:  bool = False
 
 
 settings = Settings()

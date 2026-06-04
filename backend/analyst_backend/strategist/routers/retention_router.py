@@ -21,6 +21,7 @@ Endpoints:
 """
 
 from __future__ import annotations
+from strategist.services.email_service import send_retention_emails
 
 import logging
 from typing import Optional
@@ -152,8 +153,34 @@ async def run_retention(
     if not request.dry_run:
         db_result = await persist_interventions(batch)
         logger.info("DB persist: %s", db_result)
+
+        # ── Step 8: Send retention emails ─────────────────────────────────
+        try:
+            from strategist.db.connection import get_analyst_pool
+            pool = await get_analyst_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT customer_id, customer_email
+                    FROM customers
+                    WHERE client_id = $1
+                      AND customer_id = ANY($2::text[])
+                      AND customer_email IS NOT NULL
+                    """,
+                    client_id,
+                    [i.customer_id for i in batch.interventions],
+                )
+            customer_emails = {
+                r["customer_id"]: r["customer_email"] for r in rows
+            }
+            email_result = await send_retention_emails(
+                batch.interventions, customer_emails
+            )
+            logger.info("Email sending result: %s", email_result)
+        except Exception as exc:
+            logger.error("Email sending failed (non-fatal): %s", exc)
     else:
-        logger.info("dry_run=True — skipping DB write (interventions generated but not saved).")
+        logger.info("dry_run=True — skipping DB write and email sending.")
 
     return RetentionResponse(
         run_id        = batch.run_id,

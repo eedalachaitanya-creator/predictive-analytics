@@ -294,9 +294,35 @@ def get_feature_importances(
     feature_names: List[str],
     model_type: str
 ) -> List[Dict[str, Any]]:
-    """Extract top 15 feature importances."""
-    if model_type in ('xgboost', 'random_forest'):
-        importances = model.feature_importances_
+    """Extract top 15 feature importances.
+
+    After the calibration change (audit fix #7), ``bundle['model']`` is a
+    ``CalibratedClassifierCV`` wrapping the tree estimator, which has no
+    ``feature_importances_`` of its own. Mirror ``predict.py:_unwrap_calibrated``
+    but average importances across ALL calibration folds (one base estimator
+    per fold) rather than taking fold ``[0]`` (design §11). The brittle
+    ``model_type in ('xgboost','random_forest')`` guard is replaced by a
+    ``hasattr(base, 'feature_importances_')`` check (strictly safer), so the
+    contract — top-15, ``round(float(v), 6)``, empty list for unsupported
+    models — is preserved for ``generate_evaluation_report`` /
+    ``generate_evaluation_json``.
+    """
+    from sklearn.calibration import CalibratedClassifierCV
+
+    if isinstance(model, CalibratedClassifierCV):
+        # One internal base estimator per calibration fold; average their
+        # importances. sklearn >= 1.1 exposes `.estimator`; older uses
+        # `.base_estimator`.
+        fold_importances = []
+        for cc in model.calibrated_classifiers_:
+            base = getattr(cc, 'estimator', None) or getattr(cc, 'base_estimator', None)
+            if base is not None and hasattr(base, 'feature_importances_'):
+                fold_importances.append(np.asarray(base.feature_importances_, dtype=float))
+        if not fold_importances:
+            return []
+        importances = np.mean(fold_importances, axis=0)
+    elif hasattr(model, 'feature_importances_'):
+        importances = np.asarray(model.feature_importances_, dtype=float)
     else:
         return []
 

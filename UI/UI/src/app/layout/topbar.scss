@@ -3,3 +3,64 @@
 .topbar-meta { font-size:11px; color:var(--text-secondary); margin-top:2px; }
 .topbar-right { display:flex; align-items:center; gap:10px; }
 .chip { display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:100px; background:#EBF1FB; border:1px solid var(--border); font-size:12px; color:var(--text-secondary); }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 28px 22px;
+  box-shadow: 0 20px 48px rgba(0,0,0,.22);
+  width: 420px;
+  max-width: 100%;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+
+.modal-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.mb-8  { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+
+.err-msg {
+  color: var(--accent-red);
+  font-size: 12px;
+  background: rgba(220,38,38,.06);
+  border: 1px solid rgba(220,38,38,.18);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.success-banner {
+  color: #16a34a;
+  font-size: 13px;
+  background: rgba(22,163,74,.08);
+  border: 1px solid rgba(22,163,74,.24);
+  padding: 10px 14px;
+  border-radius: 8px;
+}

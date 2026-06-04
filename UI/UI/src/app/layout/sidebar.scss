@@ -46,3 +46,212 @@ a.nav-item:focus-visible { outline: 2px solid var(--walmart-blue); outline-offse
 }
 .nav-child { font-size: 12.5px; padding: 7px 10px; }
 .nav-child .nav-icon { font-size: 13px; width: 18px; }
+
+/* ── User menu at the bottom of sidebar ─────────────────────────────────── */
+.sb-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  background: #F5F8FF;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  position: relative;
+}
+
+.sb-user-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background .15s;
+  font: inherit;
+
+  &:hover { background: var(--bg-hover); }
+  &.menu-open { background: rgba(26,111,212,.06); }
+}
+
+.sb-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sb-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--walmart-blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sb-user-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.sb-user-email {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.sb-user-role {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.sb-user-chevron {
+  font-size: 16px;
+  color: var(--text-muted);
+  line-height: 1;
+  transition: transform .15s ease;
+  flex-shrink: 0;
+  &.open { transform: rotate(-90deg); }
+}
+
+/* Dropdown menu — slides up above the user button */
+.sb-user-menu {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.sb-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s, color .12s;
+
+  &:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  &--danger {
+    color: var(--accent-red, #dc2626);
+    &:hover { background: rgba(220,38,38,.07); color: var(--accent-red, #dc2626); }
+  }
+}
+
+.sb-menu-icon { font-size: 15px; width: 20px; text-align: center; }
+
+/* Logout confirmation bar */
+.sb-logout-confirm {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(220,38,38,.04);
+}
+
+.sb-logout-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+}
+
+.sb-logout-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* btn danger variant (if not already globally defined) */
+.btn.danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+  &:hover { background: #b91c1c; border-color: #b91c1c; }
+}
+
+/* Change password modal rendered inside sidebar component */
+.sb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 24px;
+}
+
+.sb-modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 28px 22px;
+  box-shadow: 0 20px 48px rgba(0,0,0,.22);
+  width: 420px;
+  max-width: 100%;
+
+  .modal-title  { font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0 0 6px; }
+  .modal-sub    { font-size: 13px; color: var(--text-secondary); margin: 0 0 20px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .mb-8  { margin-bottom: 8px; }
+  .mb-12 { margin-bottom: 12px; }
+
+  .err-msg {
+    color: var(--accent-red);
+    font-size: 12px;
+    background: rgba(220,38,38,.06);
+    border: 1px solid rgba(220,38,38,.18);
+    padding: 8px 12px;
+    border-radius: 6px;
+  }
+
+  .success-banner {
+    color: #16a34a;
+    font-size: 13px;
+    background: rgba(22,163,74,.08);
+    border: 1px solid rgba(22,163,74,.24);
+    padding: 10px 14px;
+    border-radius: 8px;
+  }
+
+  .password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+
+    .form-input { width: 100%; padding-right: 44px; }
+  }
+
+  .eye-btn {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    color: var(--text-secondary);
+    opacity: .55;
+    &:hover { opacity: 1; }
+  }
+}

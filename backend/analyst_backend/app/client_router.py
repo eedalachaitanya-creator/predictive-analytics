@@ -361,6 +361,7 @@ def _send_welcome_email(
     company_name: str,
     client_id: str,
     client_code: str,
+    password: str = "",
 ) -> None:
     import os
     import smtplib
@@ -440,6 +441,10 @@ def _send_welcome_email(
                     <td style="font-size:13px;color:#666;padding:4px 0;">Login Email</td>
                     <td style="font-size:13px;color:#1a1a2e;font-weight:600;padding:4px 0;">{to_email}</td>
                   </tr>
+                  <tr>
+                    <td style="font-size:13px;color:#666;padding:4px 0;">Temporary Password</td>
+                    <td style="font-size:14px;color:#0071CE;font-weight:700;letter-spacing:1px;padding:4px 0;">{password if password else "As set during registration"}</td>
+                  </tr>
                 </table>
               </td></tr>
             </table>
@@ -487,7 +492,8 @@ def _send_welcome_email(
         f"  Company Name : {company_name}\n"
         f"  Company Code : {client_code}\n"
         f"  Client ID    : {client_id}\n"
-        f"  Login Email  : {to_email}\n\n"
+        f"  Login Email  : {to_email}\n"
+        f"  Temp Password: {password}\n\n"
         f"Sign in at: http://localhost:4200/login\n\n"
         f"If you did not register, please contact support immediately.\n"
         f"© 2025 Predictive Analytics. All rights reserved."
@@ -647,6 +653,7 @@ def self_register(req: SelfRegisterRequest):
             company_name=req.client_name,
             client_id=new_client_id,
             client_code=req.client_code.upper(),
+            password=req.password, 
         )
     return {
         "client_id": new_client_id,
@@ -1090,6 +1097,15 @@ def admin_create_client(
         user_id=caller["id"],
         user_email=caller["email"],
         outcome="success",
+    )
+
+    _send_welcome_email(
+        to_email=req.contact_email,
+        contact_name=req.contact_name,
+        company_name=req.client_name,
+        client_id=new_client_id,
+        client_code=req.client_code.upper(),
+        password=req.password,
     )
 
     return {

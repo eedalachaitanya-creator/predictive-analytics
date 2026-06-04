@@ -61,6 +61,13 @@ export class AuthService {
     );
   }
 
+  changePassword(currentPassword: string, newPassword: string): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>(
+      '/auth/change-password',
+      { current_password: currentPassword, new_password: newPassword }
+    );
+  }
+
   logout(): void {
     // Best-effort server-side revoke
     const token = sessionStorage.getItem(TOKEN_KEY);

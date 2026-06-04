@@ -28,6 +28,7 @@ export const routes: Routes = [
       { path: 'churn-scores', loadComponent: () => import('./pages/churn-scores').then(m => m.ChurnScoresComponent), canActivate: [clientGuard] },
       { path: 'cost-tracking', loadComponent: () => import('./pages/cost-tracking').then(m => m.CostTrackingComponent), canActivate: [clientGuard] },
       { path: 'chat',       loadComponent: () => import('./pages/chat').then(m => m.ChatComponent),             canActivate: [clientGuard] },
+      { path: 'outreach',   loadComponent: () => import('./pages/outreach').then(m => m.OutreachComponent),     canActivate: [clientGuard] },
       // 2026-04-25: 'messages' route removed — outreach template
       // configuration is the Retention Agent's job. Analyst Agent no
       // longer exposes a Message Templates page.

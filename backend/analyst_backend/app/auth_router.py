@@ -535,3 +535,48 @@ def forgot_password(req: ForgotPasswordRequest):
             "it, and any open sessions have been logged out."
         ),
     }
+# ── Change Password ───────────────────────────────────────────────────────────
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.post("/auth/change-password")
+def change_password(
+    req: ChangePasswordRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization required")
+    token = authorization.replace("Bearer ", "")
+    user = _find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    if user["password"] != req.current_password:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    import re
+    pw = req.new_password
+    pw_ok = (
+        len(pw) >= 8 and
+        re.search(r'[A-Z]', pw) and
+        re.search(r'[a-z]', pw) and
+        re.search(r'\d', pw) and
+        re.search(r'[^A-Za-z0-9]', pw)
+    )
+    if not pw_ok:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters with uppercase, lowercase, number, and special character."
+        )
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
+                {"pw": req.new_password, "uid": user["id"]},
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not update password: {e}")
+
+    return {"message": "Password changed successfully"}

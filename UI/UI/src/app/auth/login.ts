@@ -69,22 +69,7 @@ export class LoginComponent {
     const emailVal = this.email().trim();
     const passVal  = this.password();
 
-    if (!emailVal) {
-      this.error.set('Please enter your email address.');
-      return;
-    }
-    if (!this.EMAIL_RE.test(emailVal)) {
-      this.error.set('Please enter a valid email address (e.g. user@company.com).');
-      return;
-    }
-    if (!passVal.trim()) {
-      this.error.set('Please enter your password.');
-      return;
-    }
-    if (passVal.length < 6) {
-      this.error.set('Password must be at least 6 characters.');
-      return;
-    }
+    if (this.emailError() || this.passwordError()) return;
 
     this.loading.set(true);
 

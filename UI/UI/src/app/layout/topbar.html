@@ -6,10 +6,70 @@
   <div class="topbar-right">
     <!-- <div class="chip"><span class="dot green"></span>&nbsp;Pipeline Ready</div> -->
     <div class="chip">👤 {{ auth.user()?.role === 'super_admin' ? 'Super Admin' : 'Client' }}</div>
-    <!-- Only show the client-id chip when there is one. Admin-console pages
-         are cross-tenant so the pill would otherwise render empty. -->
     @if (auth.getClientId()) {
       <div class="chip font-mono" style="color:var(--accent-cyan)">{{ auth.getClientId() }}</div>
     }
   </div>
 </header>
+
+@if (changePassOpen()) {
+  <div class="modal-backdrop" (click)="closeChangePassword()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <h3 class="modal-title">🔑 Change Password</h3>
+      <p class="modal-sub">Enter your current (or temporary) password, then set a new one.</p>
+
+      <label class="form-label">Current Password</label>
+      <div class="password-wrapper mb-12">
+        <input class="form-input" [type]="showCurrentPass() ? 'text' : 'password'"
+               [ngModel]="currentPass()"
+               (ngModelChange)="currentPass.set($event)"
+               placeholder="Your current or temporary password"
+               [disabled]="changePassLoading()" />
+        <button type="button" class="eye-btn" (click)="showCurrentPass.set(!showCurrentPass())" tabindex="-1">
+          <svg *ngIf="!showCurrentPass()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg *ngIf="showCurrentPass()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+
+      <label class="form-label">New Password</label>
+      <div class="password-wrapper mb-12">
+        <input class="form-input" [type]="showNewPass() ? 'text' : 'password'"
+               [ngModel]="newPass()"
+               (ngModelChange)="newPass.set($event)"
+               placeholder="Min 8 chars, uppercase, number, special"
+               [disabled]="changePassLoading()" />
+        <button type="button" class="eye-btn" (click)="showNewPass.set(!showNewPass())" tabindex="-1">
+          <svg *ngIf="!showNewPass()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg *ngIf="showNewPass()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+
+      <label class="form-label">Confirm New Password</label>
+      <div class="password-wrapper mb-12">
+        <input class="form-input" [type]="showConfirmPass() ? 'text' : 'password'"
+               [ngModel]="confirmPass()"
+               (ngModelChange)="confirmPass.set($event)"
+               placeholder="Repeat new password"
+               [disabled]="changePassLoading()" />
+        <button type="button" class="eye-btn" (click)="showConfirmPass.set(!showConfirmPass())" tabindex="-1">
+          <svg *ngIf="!showConfirmPass()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg *ngIf="showConfirmPass()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+
+      @if (changePassError()) {
+        <div class="err-msg mb-8">⚠️ {{ changePassError() }}</div>
+      }
+      @if (changePassSuccess()) {
+        <div class="success-banner mb-8">✅ {{ changePassSuccess() }}</div>
+      }
+
+      <div class="modal-actions">
+        <button class="btn outline" (click)="closeChangePassword()" [disabled]="changePassLoading()">Cancel</button>
+        <button class="btn walmart" (click)="submitChangePassword()" [disabled]="changePassLoading()">
+          {{ changePassLoading() ? '⏳ Saving…' : 'Change Password' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

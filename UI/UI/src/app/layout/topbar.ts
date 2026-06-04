@@ -1,5 +1,6 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { Router, NavigationEnd } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -12,7 +13,6 @@ const META: Record<string, { title: string; meta: string }> = {
   dashboard:  { title: '📊 Output Dashboard',        meta: 'Pipeline results' },
   downloads:  { title: '📥 Downloads',               meta: 'Export your results' },
   chat:       { title: '🤖 Agent Chat',              meta: 'Ask questions about your data' },
-  // 2026-04-25: 'messages' entry removed — page retired (Retention Agent owns outreach).
   clients:    { title: '👥 Client Management',       meta: 'Admin Console · Manage all retail clients' },
   users:      { title: '👤 User Management',         meta: 'Admin Console · Assign roles and client access' },
   monitor:    { title: '💰 Cost Monitoring',         meta: 'Admin Console · LLM cost tracking' },
@@ -20,15 +20,12 @@ const META: Record<string, { title: string; meta: string }> = {
   audit:      { title: '🔒 Audit Log',               meta: 'Admin Console · Full history · 365-day retention' },
 };
 
-// Pages that live in the Admin Console sidebar group. They are cross-tenant,
-// so the topbar should NOT prepend "ClientName (CLT-###) ·" to their meta
-// line — that produced "— () · Admin Console · …" when no tenant was selected.
 const ADMIN_PAGES = new Set(['clients', 'users', 'monitor', 'analytics', 'audit']);
 
 @Component({
   selector: 'app-topbar',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './topbar.html',
   styleUrls: ['./topbar.scss']
 })
@@ -36,7 +33,6 @@ export class TopbarComponent {
   auth   = inject(AuthService);
   router = inject(Router);
 
-  // Derive current page key from the active URL segment after /app/
   private activeKey = toSignal(
     this.router.events.pipe(
       filter(e => e instanceof NavigationEnd),
@@ -50,16 +46,10 @@ export class TopbarComponent {
     const key  = this.activeKey() ?? '';
     const meta = META[key] ?? { title: 'Analytics Platform', meta: '' };
 
-    // Admin-console pages are cross-tenant — they don't belong to any one
-    // client, so show the page meta as-is instead of prefixing a client that
-    // doesn't apply (which rendered as "— () · …" for super admins).
     if (ADMIN_PAGES.has(key)) {
       return { title: meta.title, meta: meta.meta };
     }
 
-    // Tenant-scoped pages: only prepend the client prefix when we actually
-    // have a real client selected. Falling back to "— ()" is worse than
-    // showing just the page meta.
     const id   = this.auth.getClientId();
     const name = this.auth.getClientName();
     if (!id) {
@@ -72,8 +62,65 @@ export class TopbarComponent {
   });
 
   private keyFromUrl(url: string): string {
-    // /app/dashboard?foo=bar  →  'dashboard'
     const segment = url.split('/app/')[1] ?? '';
     return segment.split('?')[0].split('/')[0];
+  }
+
+  // ── Change Password ──────────────────────────────────────────────
+  changePassOpen    = signal(false);
+  changePassLoading = signal(false);
+  changePassError   = signal('');
+  changePassSuccess = signal('');
+  currentPass       = signal('');
+  newPass           = signal('');
+  confirmPass       = signal('');
+  showCurrentPass   = signal(false);
+  showNewPass       = signal(false);
+  showConfirmPass   = signal(false);
+
+  openChangePassword() {
+    this.currentPass.set('');
+    this.newPass.set('');
+    this.confirmPass.set('');
+    this.changePassError.set('');
+    this.changePassSuccess.set('');
+    this.showCurrentPass.set(false);
+    this.showNewPass.set(false);
+    this.showConfirmPass.set(false);
+    this.changePassOpen.set(true);
+  }
+
+  closeChangePassword() {
+    this.changePassOpen.set(false);
+    this.changePassError.set('');
+    this.changePassSuccess.set('');
+  }
+
+  submitChangePassword() {
+    if (!this.currentPass().trim()) {
+      this.changePassError.set('Current password is required.'); return;
+    }
+    if (this.newPass().length < 8) {
+      this.changePassError.set('New password must be at least 8 characters.'); return;
+    }
+    if (this.newPass() !== this.confirmPass()) {
+      this.changePassError.set('New passwords do not match.'); return;
+    }
+    this.changePassLoading.set(true);
+    this.changePassError.set('');
+
+    this.auth.changePassword(this.currentPass(), this.newPass()).subscribe({
+      next: () => {
+        this.changePassLoading.set(false);
+        this.changePassSuccess.set('Password changed successfully! Use your new password next login.');
+        setTimeout(() => this.closeChangePassword(), 3000);
+      },
+      error: (err) => {
+        this.changePassLoading.set(false);
+        this.changePassError.set(
+          err?.error?.detail ?? err?.error?.message ?? 'Could not change password.'
+        );
+      }
+    });
   }
 }

@@ -1,8 +1,5 @@
 <div class="page-anim">
   <div class="grid-3 mb-20">
-    <!-- Three stat tiles double as filter tabs. The active one gets a blue
-         outline + pointer to signal it's pressed. Clicks flip the table
-         between All / Active-only / Inactive-only. -->
     <button type="button"
             class="stat-card stat-card-btn"
             [class.is-selected]="statusFilter() === 'all'"
@@ -33,8 +30,6 @@
     }
   </div>
 
-  <!-- Success banner after creating a new client — sticks around until the
-       super admin dismisses it or opens the form again. -->
   @if (addSuccess()) {
     <div class="success-banner mb-20">
       {{ addSuccess() }}
@@ -42,17 +37,8 @@
     </div>
   }
 
-  <!-- ════════════════════════════════════════════════════════════════════
-       Add New Client — collapsible form (super admin only)
-       ────────────────────────────────────────────────────────────────────
-       Mirrors the public /register page exactly: company name, company code,
-       contact name + email, password. Submitting hits POST /clients/admin-create
-       which creates BOTH a client_config row AND the first user account in
-       one transaction, so the client can log in immediately.
-       ════════════════════════════════════════════════════════════════════ -->
   @if (showAddForm()) {
     <div class="add-client-card mb-24">
-      <!-- Accent strip + title row -->
       <div class="add-client-head">
         <div class="ach-left">
           <div class="ach-icon" aria-hidden="true">✨</div>
@@ -66,7 +52,7 @@
 
       <div class="add-client-body">
 
-        <!-- ─────── Section 1 · Company ─────── -->
+        <!-- Section 1 · Company -->
         <section class="form-section">
           <header class="form-section-head">
             <span class="fs-icon" aria-hidden="true">🏢</span>
@@ -111,13 +97,13 @@
           </div>
         </section>
 
-        <!-- ─────── Section 2 · Initial user ─────── -->
+        <!-- Section 2 · Initial user -->
         <section class="form-section">
           <header class="form-section-head">
             <span class="fs-icon" aria-hidden="true">👤</span>
             <div>
               <h3 class="fs-title">Initial Contact &amp; Login</h3>
-              <p class="fs-hint">This person gets the first client-user account and can invite others later.</p>
+              <p class="fs-hint">This person gets the first client-user account. A welcome email with login details will be sent automatically.</p>
             </div>
           </header>
 
@@ -157,16 +143,29 @@
             <label class="form-label" for="ac-pw">
               Temporary Password <span class="required">*</span>
             </label>
-            <input id="ac-pw"
-                   class="form-input font-mono"
-                   type="text"
-                   placeholder="Min 6 characters"
-                   autocomplete="new-password"
-                   [ngModel]="addForm().password"
-                   (ngModelChange)="updateAddField('password', $event)"
-                   [disabled]="addSaving()"
-                   required />
-            <div class="form-hint">Share this with the contact out-of-band — they'll change it after first login.</div>
+            <div class="password-wrapper">
+              <input id="ac-pw"
+                     class="form-input font-mono"
+                     [type]="showPassword() ? 'text' : 'password'"
+                     placeholder="Min 8 chars, uppercase, number, special"
+                     autocomplete="new-password"
+                     [ngModel]="addForm().password"
+                     (ngModelChange)="updateAddField('password', $event)"
+                     [disabled]="addSaving()"
+                     required />
+              <button type="button"
+                      class="eye-btn"
+                      (click)="showPassword.set(!showPassword())"
+                      [disabled]="addSaving()"
+                      tabindex="-1"
+                      [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'">
+                <svg *ngIf="!showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg *ngIf="showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+            <div class="form-hint">
+              Must be 8+ characters with at least one uppercase letter, one number, and one special character.
+            </div>
           </div>
         </section>
 
@@ -174,7 +173,6 @@
           <div class="err-msg mt-8">⚠️ {{ addError() }}</div>
         }
 
-        <!-- Action bar -->
         <div class="add-client-actions">
           <button class="btn outline" (click)="closeAddForm()" [disabled]="addSaving()">Cancel</button>
           <button class="btn walmart" (click)="saveNewClient()" [disabled]="addSaving()">
@@ -213,7 +211,6 @@
             <th>Registered</th>
             <th>Status</th>
             <th>Action</th>
-            <!-- Only show the Delete column header to super admins. -->
             @if (isSuperAdmin()) { <th>Delete</th> }
           </tr>
         </thead>
@@ -225,10 +222,6 @@
               <td>{{ c.client_name }}</td>
               <td class="font-mono">{{ c.client_code }}</td>
               <td style="font-size:12px">{{ formatDate(c.created_at) }}</td>
-
-              <!-- Status pill. Green for active, gray-red for inactive.
-                   Inactive rows also show when they were deactivated so
-                   the admin can audit the timeline at a glance. -->
               <td>
                 @if (c.is_active) {
                   <span class="status-pill status-active">● Active</span>
@@ -239,33 +232,16 @@
                   </span>
                 }
               </td>
-
               <td><button class="btn outline sm" (click)="selectClient(c)">▶ View</button></td>
-
-              <!-- ─ Action cell (super_admin only) ──────────────────────────
-                   Active rows: two-click Delete flow.
-                   Inactive rows: two-click Reactivate flow (replaces the
-                   old disabled "Deleted" tag). Reactivating is safe — no
-                   tenant data was wiped at delete time, so all customers,
-                   orders, churn scores, and ML features come back online
-                   immediately when the flag flips.  -->
               @if (isSuperAdmin()) {
                 <td>
                   @if (!c.is_active) {
-                    <!-- Inactive client: show Reactivate button (or its
-                         confirm/cancel pair while pending). -->
                     @if (reactivateConfirmId() === c.client_id) {
                       <div class="flex-row" style="gap:6px; flex-wrap:nowrap">
-                        <button class="btn walmart sm"
-                                [disabled]="reactivating()"
-                                (click)="reactivateClient(c.client_id)">
+                        <button class="btn walmart sm" [disabled]="reactivating()" (click)="reactivateClient(c.client_id)">
                           {{ reactivating() ? 'Reactivating…' : '✓ Confirm' }}
                         </button>
-                        <button class="btn outline sm"
-                                [disabled]="reactivating()"
-                                (click)="cancelReactivate()">
-                          ✕ Cancel
-                        </button>
+                        <button class="btn outline sm" [disabled]="reactivating()" (click)="cancelReactivate()">✕ Cancel</button>
                       </div>
                     } @else {
                       <button class="btn outline sm"
@@ -276,21 +252,13 @@
                     }
                   } @else if (deleteConfirmId() === c.client_id) {
                     <div class="flex-row" style="gap:6px; flex-wrap:nowrap">
-                      <button class="btn danger sm"
-                              [disabled]="deleting()"
-                              (click)="deleteClient(c.client_id)">
+                      <button class="btn danger sm" [disabled]="deleting()" (click)="deleteClient(c.client_id)">
                         {{ deleting() ? 'Deleting…' : '✓ Confirm' }}
                       </button>
-                      <button class="btn outline sm"
-                              [disabled]="deleting()"
-                              (click)="cancelDelete()">
-                        ✕ Cancel
-                      </button>
+                      <button class="btn outline sm" [disabled]="deleting()" (click)="cancelDelete()">✕ Cancel</button>
                     </div>
                   } @else {
-                    <button class="btn outline sm"
-                            (click)="confirmDelete(c.client_id)"
-                            title="Delete this client">
+                    <button class="btn outline sm" (click)="confirmDelete(c.client_id)" title="Delete this client">
                       🗑 Delete
                     </button>
                   }
@@ -317,7 +285,6 @@
     @if (selected(); as s) {
       <div class="section-heading">🔍 Client Detail — {{ s.client_id }} · {{ s.client_name }}</div>
 
-      <!-- Basic identity card -->
       <div class="card mb-20" style="padding:20px">
         <div class="detail-row"><span class="detail-label">Client ID</span><span class="param-value font-mono">{{ s.client_id }}</span></div>
         <div class="detail-row"><span class="detail-label">Client Name</span><span>{{ s.client_name }}</span></div>
@@ -325,14 +292,6 @@
         <div class="detail-row"><span class="detail-label">Registered</span><span class="param-value">{{ formatDate(s.created_at) }}</span></div>
       </div>
 
-      <!-- ════════════════════════════════════════════════════════════════
-           Data overview — what this client has in the warehouse.
-           Split into TWO tables:
-             • Uploaded by Client  → the raw facts they sent us
-             • Generated by ML     → rows the churn pipeline produced
-           Each row shows count + most-recent timestamp so a super admin
-           can spot empty / stale data in one glance.
-           ════════════════════════════════════════════════════════════════ -->
       <div class="flex-row mb-12" style="align-items:center; justify-content:space-between">
         <div class="section-heading" style="margin:0">📦 Data Overview</div>
         <button class="btn outline sm" (click)="refreshOverview()" [disabled]="overviewLoading()">
@@ -343,13 +302,11 @@
       @if (overviewLoading()) {
         <div class="loading-state"><div class="spinner">⏳</div><div>Loading data overview…</div></div>
       }
-
       @if (overviewError()) {
         <div class="err-msg">⚠️ {{ overviewError() }}</div>
       }
 
       @if (overview(); as ov) {
-        <!-- Summary tiles so super admin sees grand totals at a glance -->
         <div class="grid-4 mb-20">
           <div class="stat-card">
             <div class="stat-value text-blue">{{ formatCount(ov.totals.uploaded_rows) }}</div>
@@ -369,17 +326,14 @@
           </div>
         </div>
 
-        <!-- A) Uploaded-by-client tables -->
         <div class="section-heading">📤 Uploaded by Client</div>
         <div class="card mb-24">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Dataset</th>
-                <th>Table (DB)</th>
+                <th>Dataset</th><th>Table (DB)</th>
                 <th style="text-align:right">Row Count</th>
-                <th>Last Updated</th>
-                <th>Action</th>
+                <th>Last Updated</th><th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -390,11 +344,7 @@
                   <td style="text-align:right" class="font-mono">{{ formatCount(row.row_count) }}</td>
                   <td style="font-size:12px">{{ formatTimestamp(row.last_updated) }}</td>
                   <td>
-                    <button class="btn outline sm"
-                            [disabled]="row.row_count === 0"
-                            (click)="openDataView(row.table, row.label)">
-                      ▶ View
-                    </button>
+                    <button class="btn outline sm" [disabled]="row.row_count === 0" (click)="openDataView(row.table, row.label)">▶ View</button>
                   </td>
                 </tr>
               }
@@ -402,17 +352,14 @@
           </table>
         </div>
 
-        <!-- B) Generated-by-ML tables -->
         <div class="section-heading">🤖 Generated by ML Pipeline</div>
         <div class="card mb-24">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Dataset</th>
-                <th>Table (DB)</th>
+                <th>Dataset</th><th>Table (DB)</th>
                 <th style="text-align:right">Row Count</th>
-                <th>Last Computed</th>
-                <th>Action</th>
+                <th>Last Computed</th><th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -423,11 +370,7 @@
                   <td style="text-align:right" class="font-mono">{{ formatCount(row.row_count) }}</td>
                   <td style="font-size:12px">{{ formatTimestamp(row.last_updated) }}</td>
                   <td>
-                    <button class="btn outline sm"
-                            [disabled]="row.row_count === 0"
-                            (click)="openDataView(row.table, row.label)">
-                      ▶ View
-                    </button>
+                    <button class="btn outline sm" [disabled]="row.row_count === 0" (click)="openDataView(row.table, row.label)">▶ View</button>
                   </td>
                 </tr>
               }
@@ -438,22 +381,13 @@
     }
   }
 
-  <!-- ══════════════════════════════════════════════════════════════════════
-       Per-table data viewer modal
-       ────────────────────────────────────────────────────────────────────
-       Opens when the super admin clicks "View" on a specific dataset row.
-       Shows a scrollable table of actual rows with prev/next pagination.
-       Backdrop click closes the modal; modal card stops click propagation.
-       ══════════════════════════════════════════════════════════════════════ -->
   @if (viewTable()) {
     <div class="modal-backdrop" (click)="closeDataView()">
       <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
         <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
           <h3 class="modal-title" style="margin:0">
             📋 {{ viewLabel() }}
-            <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:8px">
-              ({{ viewTable() }})
-            </span>
+            <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:8px">({{ viewTable() }})</span>
           </h3>
           <button class="btn outline sm" (click)="closeDataView()">✕ Close</button>
         </div>
@@ -464,56 +398,37 @@
         @if (viewLoading()) {
           <div class="loading-state"><div class="spinner">⏳</div><div>Loading rows…</div></div>
         }
-
         @if (viewError()) {
           <div class="err-msg">⚠️ {{ viewError() }}</div>
         }
 
         @if (viewData(); as d) {
-          <!-- Scrollable region — wide tables (RFM has 30+ columns) would
-               blow out the modal otherwise. overflow-x gives horizontal
-               scroll; max-height caps vertical so the footer stays visible. -->
           <div class="data-viewer-scroll">
             <table class="data-table">
               <thead>
                 <tr>
-                  @for (col of d.columns; track col) {
-                    <th>{{ col }}</th>
-                  }
+                  @for (col of d.columns; track col) { <th>{{ col }}</th> }
                 </tr>
               </thead>
               <tbody>
                 @for (row of d.rows; track $index) {
                   <tr>
-                    @for (col of d.columns; track col) {
-                      <td>{{ renderCell(row[col]) }}</td>
-                    }
+                    @for (col of d.columns; track col) { <td>{{ renderCell(row[col]) }}</td> }
                   </tr>
                 }
                 @if (d.rows.length === 0) {
                   <tr>
-                    <td [attr.colspan]="d.columns.length"
-                        style="text-align:center; color:var(--text-muted); padding:24px">
-                      No rows on this page.
-                    </td>
+                    <td [attr.colspan]="d.columns.length" style="text-align:center; color:var(--text-muted); padding:24px">No rows on this page.</td>
                   </tr>
                 }
               </tbody>
             </table>
           </div>
-
-          <!-- Pagination footer -->
           <div class="flex-row" style="justify-content:space-between; margin-top:14px">
-            <div style="font-size:12px; color:var(--text-muted)">
-              {{ paginationLabel() }}
-            </div>
+            <div style="font-size:12px; color:var(--text-muted)">{{ paginationLabel() }}</div>
             <div class="flex-row" style="gap:8px">
-              <button class="btn outline sm"
-                      [disabled]="viewOffset() === 0 || viewLoading()"
-                      (click)="prevPage()">← Prev</button>
-              <button class="btn outline sm"
-                      [disabled]="(viewOffset() + viewLimit) >= d.total || viewLoading()"
-                      (click)="nextPage()">Next →</button>
+              <button class="btn outline sm" [disabled]="viewOffset() === 0 || viewLoading()" (click)="prevPage()">← Prev</button>
+              <button class="btn outline sm" [disabled]="(viewOffset() + viewLimit) >= d.total || viewLoading()" (click)="nextPage()">Next →</button>
             </div>
           </div>
         }

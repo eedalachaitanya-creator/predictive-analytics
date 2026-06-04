@@ -318,6 +318,11 @@ async def build_churn_lookup(state: StrategistState) -> StrategistState:
 
     request = state["request"]
 
+    # ── skip_churn flag: caller explicitly disabled retention pricing ──────
+    if request.skip_churn:
+        logger.info("build_churn_lookup: skip_churn=True — skipping churn fetch")
+        return {**state, "request": request, "churn_lookup": {}, "highest_risk": None}
+
     # ── Priority 1: use inline churn_batch if caller supplied it ──────────
     if request.churn_batch and request.churn_batch.scores:
         churn_batch = request.churn_batch
@@ -592,11 +597,13 @@ def soft_flag_node(state: StrategistState) -> StrategistState:
             f"(IDs: {', '.join(s.customer_id for s in medium_customers[:3])}). "
             "Consider re-engagement campaign — no discount applied."
         )
-        for rec in recs:
-            if note not in rec.warnings:
-                rec.warnings.append(note)
+        if recs and note not in recs[0].warnings:
+            recs[0].warnings.append(note)
 
-        logger.info("soft_flag_node: re-engagement note appended to %d recs", len(recs))
+        logger.info(
+            "soft_flag_node: re-engagement note added as batch-level signal "
+            "(%d MEDIUM customers)", len(medium_customers)
+        )
 
     return {**state, "recommendations": recs}
 

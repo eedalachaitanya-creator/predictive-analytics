@@ -107,15 +107,26 @@
     </div>
 
     <div class="config-section churn-section">
-      <label class="churn-toggle">
-        <input type="checkbox" [checked]="useChurn()"
-          (change)="useChurn.set($any($event.target).checked)" />
-        <div class="churn-toggle-text">
-          <span class="churn-label">Enable retention pricing</span>
-          <span class="churn-hint">Applies personalised discounts for at-risk customers</span>
-        </div>
-      </label>
+  <label class="churn-toggle">
+    <input type="checkbox" [checked]="useChurn()"
+      (change)="useChurn.set($any($event.target).checked)" />
+    <div class="churn-toggle-text">
+      <span class="churn-label">Enable retention pricing</span>
+      <span class="churn-hint">Applies personalised discounts for at-risk customers</span>
     </div>
+  </label>
+  @if (useChurn()) {
+    <div class="churn-json-wrap">
+      <label class="param-label">Churn batch JSON (optional — leave blank to auto-fetch from DB)</label>
+      <textarea class="form-input churn-json-input"
+        rows="4"
+        placeholder='{"scores": [...]} — paste churn_scores.json, or leave blank to pull from DB automatically'
+        [value]="churnJson()"
+        (input)="churnJson.set($any($event.target).value)">
+      </textarea>
+    </div>
+  }
+</div>
 
     @if (error()) { <div class="error-bar">{{ error() }}</div> }
 

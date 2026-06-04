@@ -49,6 +49,7 @@ export interface StrategistRequest {
   min_margin_pct?:    number;
   undercut_pct?:      number;
   currency?:          string;
+  skip_churn?:        boolean;
 }
 
 export interface ChurnContext {

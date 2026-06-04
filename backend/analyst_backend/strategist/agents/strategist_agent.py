@@ -152,9 +152,10 @@ class StrategistAgent:
         # Build discount lookup — DB rows beat hardcoded fallback
         discount_lookup = _build_discount_lookup(value_props)
 
-        # Build churn lookup for O(1) access inside the product loop
+        # churn_lookup: built from request.churn_batch which was already
+        # populated by the graph's build_churn_lookup node.
         churn_lookup: dict[str, ChurnScore] = {}
-        if request.churn_batch:
+        if request.churn_batch and not request.skip_churn:
             for score in request.churn_batch.scores:
                 churn_lookup[score.customer_id] = score
 
@@ -348,7 +349,7 @@ class StrategistAgent:
 
         # ── Layer 5: Churn-signal fusion ────────────────────────────────────
         # Find the worst-churn customer from the batch (in single-customer mode: one entry)
-        churn_score  = _worst_churn(churn_lookup)
+        churn_score  = _best_churn_for_retention(churn_lookup)
         churn_context: Optional[ChurnContext] = None
         pre_retention_price = 0.0   # 0.0 = no churn discount applied
 
@@ -356,10 +357,20 @@ class StrategistAgent:
             # Look up the appropriate discount for this tier + risk combination.
             # discount_lookup comes from value_propositions DB (via graph) with
             # hardcoded _VP_DISCOUNTS as the fallback. Shared with Retention Agent.
-            raw_discount = discount_lookup.get(
-                (churn_score.customer_tier, churn_score.risk_level), 0.0
-            )
-            # Cap at client's configured maximum (from client_config)
+            lookup_key   = (churn_score.customer_tier, churn_score.risk_level)
+            raw_discount = discount_lookup.get(lookup_key, None)
+
+            if raw_discount is None:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "_process_product: no discount rule for tier=%s risk=%s — "
+                    "skipping retention pricing for customer %s. "
+                    "Add this tier to value_propositions table or _VP_DISCOUNTS.",
+                    churn_score.customer_tier, churn_score.risk_level,
+                    churn_score.customer_id,
+                )
+                raw_discount = 0.0
+
             capped_discount = min(raw_discount, self.config.max_discount_pct)
 
             if capped_discount > 0:
@@ -706,15 +717,28 @@ def _charm_price(price: float) -> float:
         return float(low) if abs(low - price) <= abs(high - price) else float(high)
 
 
-def _worst_churn(churn_lookup: dict[str, ChurnScore]) -> ChurnScore | None:
+def _best_churn_for_retention(churn_lookup: dict[str, ChurnScore]) -> ChurnScore | None:
     """
-    Return the customer with the highest churn probability from the batch.
-    In single-customer mode the dict has exactly one entry.
-    Returns None if the lookup is empty (no churn data provided).
+    Return the most urgent at-risk customer for retention pricing.
+
+    Priority:
+      1. Highest churn_probability among HIGH-risk customers
+      2. If no HIGH exists, highest churn_probability among MEDIUM-risk customers
+
+    Returns None if the lookup is empty.
     """
     if not churn_lookup:
         return None
-    return max(churn_lookup.values(), key=lambda s: s.churn_probability)
+
+    high_scores = [s for s in churn_lookup.values() if s.risk_level == "HIGH"]
+    if high_scores:
+        return max(high_scores, key=lambda s: s.churn_probability)
+
+    medium_scores = [s for s in churn_lookup.values() if s.risk_level == "MEDIUM"]
+    if medium_scores:
+        return max(medium_scores, key=lambda s: s.churn_probability)
+
+    return None
 
 def _build_discount_lookup(
     value_props: list | None,

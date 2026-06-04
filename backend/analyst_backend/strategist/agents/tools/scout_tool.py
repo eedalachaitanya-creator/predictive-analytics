@@ -285,15 +285,3 @@ class ScoutPriceFetchTool(BaseTool):
                 status   = "error",
                 products = [ScoutProduct(name=n, listings=[]) for n in product_names],
             )
-
-        except Exception as exc:
-            logger.error(
-                "ScoutPriceFetchTool [DB]: query failed: %s — "
-                "returning empty response; products will get no_price_data flag.",
-                exc,
-            )
-            # Return products with empty listings — pricing engine handles gracefully
-            return ScoutBulkResponse(
-                status   = "error",
-                products = [ScoutProduct(name=n, listings=[]) for n in product_names],
-            )

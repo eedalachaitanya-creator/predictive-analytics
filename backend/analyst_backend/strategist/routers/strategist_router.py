@@ -116,6 +116,9 @@ async def recommend(
         avg_margin_pct  = avg_margin,
         retention_count = sum(1 for r in recommendations if r.strategy == "retention"),
         run_id          = run_id,
+        client_id       = request.client_id,
+        status          = "ok",
+        elapsed_seconds = 0.0,
     )
 
 

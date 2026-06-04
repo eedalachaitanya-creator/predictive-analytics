@@ -60,6 +60,7 @@ export interface RetentionSummary {
 export interface RetentionResponse {
   run_id:        string;
   client_id:     string;
+  generated_at:  string;
   dry_run:       boolean;
   summary:       any;
   interventions: Intervention[];

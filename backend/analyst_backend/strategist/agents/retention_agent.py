@@ -288,6 +288,7 @@ class RetentionAgent:
             guardrail_passed     = guardrail_passed,
             escalated_to_human   = escalate,
             offer_status         = "pending",
+            avg_order_value_usd  = score.avg_order_value_usd,
         )
 
         self._lf_end_span(span, intervention)
@@ -447,11 +448,11 @@ class RetentionAgent:
         escalated = sum(1 for i in interventions if i.escalated_to_human)
         discounted= sum(1 for i in interventions if i.discount_pct > 0)
 
-        # Discount exposure = total potential cost of all discounts
-        # = LTV × discount% (rough estimate of revenue given up)
+        # Discount exposure = revenue given up on ONE order per customer
         total_discount_exposure = sum(
-            i.customer_ltv_usd * i.discount_pct / 100
+            i.avg_order_value_usd * i.discount_pct / 100
             for i in interventions
+            if i.discount_pct > 0
         )
 
         # Channel breakdown for CRM routing

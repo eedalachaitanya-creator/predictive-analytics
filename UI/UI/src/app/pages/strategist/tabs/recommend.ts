@@ -176,6 +176,7 @@ export class StrategistRecommendTab {
       min_margin_pct:    this.minMargin(),
       undercut_pct:      this.undercutPct(),
       currency:          this.currency(),
+      skip_churn:        !this.useChurn(),
     };
 
     if (this.useChurn() && this.churnJson().trim()) {

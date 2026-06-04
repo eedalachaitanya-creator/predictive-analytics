@@ -162,6 +162,8 @@ class StrategistRequest(BaseModel):
     # Optional: Analyst Agent churn batch for churn-signal fusion
     churn_batch: Optional[ChurnBatch] = None
 
+    skip_churn: bool = False
+
     # Pricing configuration — can be overridden per-request
     target_margin_pct:   float = Field(default=20.0, ge=0, le=200,
         description="Desired profit margin % on true cost")
@@ -182,8 +184,6 @@ class StrategistRequest(BaseModel):
     # Market currency — filters competitor listings to this currency only.
     # If None, falls back to client_config.currency. Lets the UI override the
     # client's default per-request (e.g. switch between INR and USD market views).
-    currency: Optional[str] = Field(default=None,
-        description="3-letter ISO code (INR/USD/EUR). None = use client_config default.")
 
     # Guardrails from Analyst DB.client_config (overridden at runtime)
     max_discount_pct:   float = Field(default=30.0, ge=0, le=100,
@@ -281,14 +281,19 @@ class PricingRecommendation(BaseModel):
 
 
 class StrategistResponse(BaseModel):
-    """Response from POST /api/strategist/recommend."""
     recommendations: list[PricingRecommendation]
     total_products:  int
-    flagged_count:   int      # products with a flag set
+    flagged_count:   int
     strategies_used: list[str]
     avg_margin_pct:  float
-    retention_count: int      # products that got a churn-discount
-    run_id:          str      # UUID for tracing this run through LangFuse + DB
+    retention_count: int
+    run_id:          str
+    client_id:       Optional[str] = None
+    status:          str           = "ok"
+    elapsed_seconds: float         = 0.0
+    client_id:       Optional[str] = None
+    status:          str           = "ok"
+    elapsed_seconds: float         = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +376,7 @@ class RetentionIntervention(BaseModel):
 
     # Guardrail tracking (for audit)
     customer_ltv_usd:     float           = 0.0
+    avg_order_value_usd:  float           = 0.0   
     max_allowed_discount: float           = 30.0
     guardrail_passed:     bool            = True   # False if discount was capped
 

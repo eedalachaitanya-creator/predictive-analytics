@@ -16,7 +16,8 @@ redis==5.0.4
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+passlib[bcrypt]==1.7.4   # legacy/unused for passwords now (kept for compat)
+bcrypt>=4.0             # app/security.py hashes passwords with bcrypt directly
 
 # ── File uploads ───────────────────────────────────────────────────────────────
 python-multipart==0.0.9

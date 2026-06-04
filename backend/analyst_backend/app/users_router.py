@@ -18,6 +18,7 @@ from sqlalchemy import text
 from app.database import engine
 from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
+from app.security import hash_password
 
 router = APIRouter(prefix="/api/v1", tags=["users"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("users")
@@ -142,7 +143,7 @@ def create_user(
                 {
                     "uid": new_id,
                     "email": req.email,
-                    "password": req.password,
+                    "password": hash_password(req.password),
                     "name": req.name,
                     "role": req.role,
                     "access": req.clientAccess,

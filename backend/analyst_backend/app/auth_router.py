@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
+from app.security import hash_password, verify_password, is_hashed
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 log = logging.getLogger("auth")
@@ -202,7 +203,7 @@ def login(req: LoginRequest, request: Request):
 
     user = _get_user_by_email(req.email)
 
-    if not user or user["password"] != req.password:
+    if not user or not verify_password(req.password, user["password"]):
         # Audit failed-login: no user session yet, so user_id is null
         log_audit_event(
             request,
@@ -212,6 +213,19 @@ def login(req: LoginRequest, request: Request):
             outcome="failure",
         )
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Lazy password migration: this account authenticated, but if it still has a
+    # legacy PLAINTEXT password, transparently upgrade it to a bcrypt hash now.
+    # Best-effort — a migration write must never block a valid login.
+    if not is_hashed(user["password"]):
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
+                    {"pw": hash_password(req.password), "uid": user["id"]},
+                )
+        except Exception:
+            pass
 
     if not user.get("is_active", True):
         log_audit_event(
@@ -492,7 +506,7 @@ def forgot_password(req: ForgotPasswordRequest):
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
-                {"pw": new_password, "uid": user["id"]},
+                {"pw": hash_password(new_password), "uid": user["id"]},  # store hash; email the cleartext
             )
             conn.execute(
                 text("DELETE FROM active_tokens WHERE user_id = :uid"),
@@ -552,7 +566,7 @@ def change_password(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    if user["password"] != req.current_password:
+    if not verify_password(req.current_password, user["password"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     import re
@@ -574,7 +588,7 @@ def change_password(
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
-                {"pw": req.new_password, "uid": user["id"]},
+                {"pw": hash_password(req.new_password), "uid": user["id"]},
             )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not update password: {e}")

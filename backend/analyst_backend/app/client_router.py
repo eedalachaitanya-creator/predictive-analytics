@@ -32,6 +32,7 @@ from sqlalchemy import text
 from app.database import engine
 from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
+from app.security import hash_password
 
 router = APIRouter(prefix="/api/v1", tags=["clients"])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("clients")
@@ -631,7 +632,7 @@ def self_register(req: SelfRegisterRequest):
                 {
                     "user_id": new_user_id,
                     "email": req.contact_email,
-                    "password": req.password,
+                    "password": hash_password(req.password),
                     "name": req.contact_name,
                     "client_access": [new_client_id],
                 },
@@ -1066,7 +1067,7 @@ def admin_create_client(
                 {
                     "uid":    new_user_id,
                     "email":  req.contact_email,
-                    "pw":     req.password,
+                    "pw":     hash_password(req.password),
                     "name":   req.contact_name,
                     "access": [new_client_id],
                 },

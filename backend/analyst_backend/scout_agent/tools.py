@@ -4,9 +4,7 @@ scout_agent/tools.py — LangChain tools wrapping Scout's core capabilities.
 Each tool is a thin, well-typed wrapper around the existing FastAPI
 backend logic so the agent can call them without going through HTTP.
 Tools are kept synchronous by running coroutines with asyncio.run()
-so LangChain's OPENAI_FUNCTIONS agent (which is sync) works out of
-the box. Swap to async tools + AsyncCallbackManager if you later move
-to an async agent runner.
+so LangGraph's ReAct agent (which is sync) works out of the box.
 """
 
 import asyncio
@@ -14,7 +12,7 @@ import json
 import logging
 from typing import Optional
 
-
+from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +40,7 @@ def _run(coro):
 # Tool 1 — search_products
 # ──────────────────────────────────────────────────────────────────────
 
+@tool
 def search_products(query: str) -> str:
     """
     Search for a product across all active e-commerce platforms (Amazon,
@@ -87,6 +86,7 @@ def search_products(query: str) -> str:
 # Tool 2 — compare_prices
 # ──────────────────────────────────────────────────────────────────────
 
+@tool
 def compare_prices(query: str) -> str:
     """
     Compare prices for a product across platforms after entity resolution.
@@ -147,6 +147,7 @@ def compare_prices(query: str) -> str:
 # Tool 3 — get_features
 # ──────────────────────────────────────────────────────────────────────
 
+@tool
 def get_features(query: str) -> str:
     """
     Extract and compare product features/specs across platforms for a query.
@@ -209,6 +210,7 @@ def get_features(query: str) -> str:
 # Tool 4 — get_price_history
 # ──────────────────────────────────────────────────────────────────────
 
+@tool
 def get_price_history(query: str) -> str:
     """
     Retrieve historical price data for a product across platforms.
@@ -263,6 +265,7 @@ def get_price_history(query: str) -> str:
 # Tool 5 — get_alerts
 # ──────────────────────────────────────────────────────────────────────
 
+@tool
 def get_alerts(input: str = "") -> str:
     """
     Retrieve recent price change alerts for all tracked products.
@@ -279,10 +282,8 @@ def get_alerts(input: str = "") -> str:
     """
     from scout.scout_db import db
 
-    # LangChain passes a string — parse it
     include_acknowledged = input.strip().lower() in ("all", "true", "yes", "acknowledged")
 
-    # get_alerts() returns (alerts, total). We only need alerts here.
     alerts, _ = db.get_alerts(unacknowledged_only=not include_acknowledged, limit=50)
     unread_count = db.get_unacknowledged_count()
 
@@ -308,6 +309,7 @@ def get_alerts(input: str = "") -> str:
 # Tool 6 — run_price_monitor
 # ──────────────────────────────────────────────────────────────────────
 
+@tool
 def run_price_monitor(confirm: str = "yes") -> str:
     """
     Trigger a full price refresh for ALL tracked products across all active
@@ -327,7 +329,6 @@ def run_price_monitor(confirm: str = "yes") -> str:
     from scout.scout_db import db
     from scout.router import _search_across_sites
 
-    # get_all_products() returns (rows, platforms, total). We only need rows.
     rows, _, _ = db.get_all_products()
     if not rows:
         return json.dumps({"status": "nothing_to_monitor", "products_checked": 0})
@@ -342,7 +343,6 @@ def run_price_monitor(confirm: str = "yes") -> str:
         _run(_search_across_sites(product_name, platforms, force_refresh=True))
         checked += 1
 
-    # get_alerts() returns (alerts, total). We only need alerts for counting.
     alerts, _ = db.get_alerts(limit=checked * 10)
     return json.dumps({
         "status": "completed",
@@ -355,7 +355,8 @@ def run_price_monitor(confirm: str = "yes") -> str:
 # Tool 7 — list_platforms
 # ──────────────────────────────────────────────────────────────────────
 
-def list_platforms(input: str)  -> str:
+@tool
+def list_platforms(input: str = "") -> str:
     """
     List all active e-commerce platforms Scout can currently search.
 

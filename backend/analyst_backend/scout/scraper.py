@@ -1570,6 +1570,7 @@ async def _playwright_fetch(url: str, result: dict) -> None:
 
             # ── Wait for content to render ────────────────────────────
             PRODUCT_SELECTORS = [
+                # Search page product cards
                 "div[data-component-type='s-search-result']",
                 "[data-item-id]",
                 "[data-automation-id='product']",
@@ -1579,6 +1580,14 @@ async def _playwright_fetch(url: str, result: dict) -> None:
                 "[class*='product-item']",
                 "[class*='product-list']",
                 "li.product-base",
+                # Product page price elements — wait for these so Playwright
+                # doesn't return a half-rendered React shell with no price
+                ".Nx9bqj",
+                "._30jeq3",
+                "[class*='pdp-price' i]",
+                "[class*='product-price' i]",
+                "[itemprop='price']",
+                ".priceToPay",
             ]
 
             # Use page.evaluate to race all selectors at once in the browser
@@ -1666,10 +1675,18 @@ async def _playwright_fetch(url: str, result: dict) -> None:
                 except Exception:
                     pass
 
+            # Check if Playwright was silently redirected to a bot-wall page.
+            # Sam's Club redirects to /are-you-human without showing
+            # any of the block_phrases above — just a silent 307 redirect.
+            final_page_url = page.url.lower()
+            bot_wall_paths = ["/are-you-human", "/blocked", "/captcha", "/challenge", "/firewall"]
+            if any(b in final_page_url for b in bot_wall_paths):
+                is_blocked = True
+
             if is_blocked:
                 logger.warning(f"[pw] ❌ Bot detection / block on {url[:80]}")
                 result["html"] = ""
-                result["url"]  = url
+                result["url"]  = url  # return original URL not the bot-wall redirect
                 await browser.close()
                 return
 
@@ -1872,7 +1889,11 @@ def extract_price_universal(
         ".price-item--sale",
         ".price-item--regular",
         ".product__price",
+        # Flipkart price classes (hashed, may change on deploys)
+        ".Nx9bqj",
+        ".Nx9bqj.CxhGGd",
         "._30jeq3",
+        ".UOCQB1",
         "[data-testid='price-wrap']",
         "[data-testid*='price' i]",
         ".product-price",
@@ -2086,8 +2107,13 @@ def extract_price_universal(
                 pass
 
     if priority_prices:
-        priority_prices.sort(key=lambda x: x[0])
-        _, price, detected_currency = priority_prices[0]
+        # Use most common price not first occurrence.
+        # Ad banners near the top of the page show a single stray price
+        # before the real product price. The real price appears 2-4 times
+        # in the priority zone. Picking most common eliminates ad prices.
+        from collections import Counter
+        price_counts = Counter((p, c) for _, p, c in priority_prices)
+        (price, detected_currency) = price_counts.most_common(1)[0][0]
         logger.info(
             f"💰 Regex price (priority zone): {price} {detected_currency} "
             f"(from {len(priority_prices)} candidates in first 5000 chars)"
@@ -2993,7 +3019,14 @@ def _scrape_sync(
     if not product_soup or len(full_text) < 500:
         check_cancelled(request_id, "before Playwright on product page")
         logger.info(f"[{site_name}] requests blocked on product page → Playwright")
-        product_soup, full_text, product_url = _get_soup_playwright(product_url)
+        # Don't blindly overwrite product_url with Playwright's final URL.
+        # If Playwright gets redirected to a bot-wall page (/are-you-human),
+        # the final URL is the bot-wall page not the product. ScraperAPI
+        # would then receive the bot-wall URL and time out.
+        product_soup, full_text, _pw_final_url = _get_soup_playwright(product_url)
+        # Only update product_url if Playwright got a real page
+        if product_soup and len(full_text) >= 500 and "are-you-human" not in _pw_final_url.lower():
+            product_url = _pw_final_url
 
     if not product_soup or len(full_text) < 500:
         if SCRAPER_API_KEY and SCRAPER_API_KEY.strip():

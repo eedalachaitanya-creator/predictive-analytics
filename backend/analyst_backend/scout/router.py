@@ -335,7 +335,18 @@ async def add_website(payload: AddWebsiteRequest):
         try:
             resolved = await resolve_website(name, request_id=request_id)
         except RuntimeError as exc:
-            raise HTTPException(502, str(exc))
+            msg = str(exc)
+            if msg.startswith("BOT_PROTECTED:"):
+                base = msg.split(":", 1)[1]
+                raise HTTPException(422,
+                    f"'{name}' ({base}) uses anti-bot protection that blocked our detection. "                    f"You can still add it manually with the correct search URL.")
+            elif msg.startswith("URL_UNKNOWN:"):
+                base = msg.split(":", 1)[1]
+                raise HTTPException(422,
+                    f"'{name}' ({base}) uses anti-bot protection that blocked our detection. "                    f"You can still add it manually with the correct search URL.")
+            else:
+                raise HTTPException(422,
+                    f"'{name}' uses anti-bot protection that blocked our detection. "                    f"You can still add it manually with the correct search URL.")
 
         # Final cancel check between resolver completion and the DB write.
         # The resolver's last phase (LLM URL guess) is non-cancellable once

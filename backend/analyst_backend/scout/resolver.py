@@ -1607,10 +1607,8 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
                         f'- Generic: /search?q={{query}}\n'
                         f'- Myntra: /{{query}}?rawQuery={{query}}\n'
                         f'- Nykaa: /search/result/?q={{query}}\n'
-                        f'- Ajio: /search/?text={{query}}\n'
                         f'- Walmart: /search?q={{query}}\n'
                         f'- Macys: /shop/featured/{{query}}?ss=true\n'
-                        f'- Costco: /s?keyword={{query}}\n'
                         f'- DrBerg: /pages/search-results-page?q={{query}}\n'
                         f'- GoDaddy OLS: /shop/ols/search?keywords={{query}}\n\n'
                         f'Return ONLY JSON (no markdown fences): '
@@ -1696,13 +1694,18 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
     # "trust on impossible-to-validate" path when bot blocking, not 404s,
     # is the cause of failure.
     llm_url_was_blocked = False
+    _blocked_statuses_seen: list[int] = []  # tracks every 403/429 we got
+    _score_zero_count = 0  # tracks 200 OK bot-challenge pages (Sam's Club pattern)
 
     def _is_blocked_status(status: int, final_url: str) -> bool:
-        """A status code or redirect target that suggests bot blocking, not 'wrong URL'."""
+        """A status code or redirect target that suggests bot blocking, not wrong URL."""
         if status in (401, 403, 429):
             return True
-        # Walmart/Akamai pattern: 200 OK but redirected to /blocked
+        # Walmart/Akamai: 200 OK but redirected to /blocked page
         if "/blocked" in final_url.lower():
+            return True
+        # Sam's Club: 200 OK but redirected to /are-you-human page
+        if "/are-you-human" in final_url.lower():
             return True
         return False
 
@@ -1734,7 +1737,10 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
                             "search_url": template,
                             "encoding": llm_encoding,
                         }
-                    # 200 but doesn't look like search — wrong URL. Move on.
+                    # 200 but score=0 — likely a bot-challenge page (Sam's Club pattern).
+                    # Count these so Step 6 knows the site is bot-protected not URL-unknown.
+                    if score == 0:
+                        _score_zero_count += 1
                     continue
 
                 # Non-200 OR redirected to a blocked page. Decide whether to
@@ -1857,19 +1863,24 @@ async def _llm_url_guess(name: str, fallback_base: str) -> dict:
     #   - LLM's URL returned a real 404 (wrong pattern, not blocked)
     # The walmart.in bug came from saving the LLM's guess unverified.
     # Refuse to save anything we couldn't validate AND wasn't bot-blocked.
-    logger.error(
-        f"[resolver] ❌ Could not validate any search URL for '{name}' on {base}. "
-        f"LLM suggested: {llm_url or '(none)'}. "
-        f"Bot-wall extraction also failed. "
-        f"The site may be returning real 404s for our guesses — try entering "
-        f"the search URL manually."
+    # Determine if failure was bot protection or unknown URL.
+    # Bot protection: 403s, /blocked redirects, or score=0 on all patterns.
+    # URL unknown: real 404s — the pattern is wrong but site is accessible.
+    any_bot_blocked = (
+        llm_url_was_blocked
+        or any(
+            '/blocked' in u.lower() or '/captcha' in u.lower() or '/are-you-human' in u.lower()
+            for u in final_urls_seen
+        )
+        or (bool(_blocked_statuses_seen) and all(s in (401, 403, 429) for s in _blocked_statuses_seen))
+        or (_score_zero_count >= 3)
     )
-    raise RuntimeError(
-        f"We found '{name}' at {base}, but couldn't auto-detect the search URL. "
-        f"This usually means the URL pattern doesn't match common e-commerce "
-        f"templates. The site may still work if you add it manually with the "
-        f"correct search URL."
-    )
+    if any_bot_blocked:
+        logger.error(f"[resolver] ❌ '{name}' at {base} is bot-protected.")
+        raise RuntimeError(f"This website uses anti-bot protectors:{base}")
+    else:
+        logger.error(f"[resolver] ❌ Could not find search URL for '{name}' on {base}.")
+        raise RuntimeError(f"This website uses anti-bot protectors:{base}")
 
 
 # ── Bot-wall URL extraction (fallback for Akamai-protected sites) ─────
@@ -1909,7 +1920,7 @@ def _extract_url_from_bot_wall(final_urls: list[str], base_url: str) -> Optional
             path_lower = parsed.path.lower()
 
             # Must be a bot-wall page (path contains blocked/captcha/challenge)
-            bot_wall_markers = ["/blocked", "/captcha", "/challenge", "/firewall"]
+            bot_wall_markers = ["/blocked", "/captcha", "/challenge", "/firewall", "/are-you-human"]
             if not any(m in path_lower for m in bot_wall_markers):
                 continue
 

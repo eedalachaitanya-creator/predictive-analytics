@@ -86,8 +86,8 @@ _VP_DISCOUNTS: dict[tuple[str, str], float] = {
 _CHANNEL_ROUTING: dict[str, str] = {
     "Platinum": "email",
     "Gold":     "email",
-    "Silver":   "sms",
-    "Bronze":   "push",
+    "Silver":   "email",
+    "Bronze":   "email",
 }
 
 # Human escalation thresholds
@@ -323,19 +323,6 @@ class RetentionAgent:
         # Customer name is not in ChurnScore schema — use a friendly fallback.
         # TODO: join against customer_master to get real name.
         name = f"valued {tier} member"
-
-        # ── SMS branch — keep under 160 chars so carriers don't truncate ──
-        # SMS users skim; no long narratives, no tier flattery.
-        if channel == "sms":
-            if strategist_already_handled:
-                return f"Hi {tier} member — your personal price is waiting. Open to view."
-            if offer_type == "re_engagement":
-                return f"Hi {tier} member — new arrivals this week. We saved picks for you."
-            if risk == "HIGH":
-                return (f"{int(discount_pct)}% off just for you, {tier} member. "
-                        f"Code active 7 days. Shop now.")
-            # MEDIUM + discount
-            return f"{int(discount_pct)}% off for {tier} members. Come back and save."
 
         # Case 1: Strategist already applied a retention price
         # → reference that special price, don't mention our own discount

@@ -87,6 +87,10 @@ async def recommend(
     # ── Run the LangGraph pipeline ────────────────────────────────────────
     # The graph handles: validation → market context → churn lookup →
     # pricing engine → charm pricing → churn routing → DB persistence
+    import time as _time
+    _t0 = _time.perf_counter()
+    import time as _time
+    _t0 = _time.perf_counter()
     try:
         recommendations, run_id = await run_strategist_graph(request)
     except ValueError as exc:
@@ -95,10 +99,12 @@ async def recommend(
         logger.exception("Strategist graph failed.")
         raise HTTPException(status_code=500, detail=f"Pricing engine error: {exc}")
 
+    elapsed = round(_time.perf_counter() - _t0, 2)
     logger.info(
-        "LangGraph pipeline complete: run_id=%s products=%d retention=%d",
+        "LangGraph pipeline complete: run_id=%s products=%d retention=%d elapsed=%.2fs",
         run_id, len(recommendations),
-        sum(1 for r in recommendations if r.strategy == "retention")
+        sum(1 for r in recommendations if r.strategy == "retention"),
+        elapsed,
     )
 
     # ── Step 5: Build response ────────────────────────────────────────────
@@ -118,7 +124,7 @@ async def recommend(
         run_id          = run_id,
         client_id       = request.client_id,
         status          = "ok",
-        elapsed_seconds = 0.0,
+        elapsed_seconds = elapsed,
     )
 
 

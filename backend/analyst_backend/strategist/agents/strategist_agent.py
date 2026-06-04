@@ -234,7 +234,6 @@ class StrategistAgent:
                 f"No in-stock listings found with confidence ≥ {self.config.min_confidence}.",
             )
 
-        # ── Guard: no COGS ──────────────────────────────────────────────────
         # ── Guard: no COGS or suspiciously low COGS ─────────────────────────
         raw_cogs = our_costs.get(product.name)
         if raw_cogs is None or raw_cogs <= 0:

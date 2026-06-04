@@ -66,11 +66,22 @@ export class RetentionInterventionsTab implements OnInit, OnDestroy {
   saveOutcome() {
     const row = this.selected();
     if (!row) return;
+
+    // Validate revenue input before submitting
+    let revenue: number | undefined = undefined;
+    if (this.revenueInput().trim()) {
+      revenue = parseFloat(this.revenueInput());
+      if (isNaN(revenue) || revenue < 0) {
+        this.outcomeMsg.set('❌ Revenue must be a valid positive number.');
+        return;
+      }
+    }
+
     this.saving.set(row.intervention_id);
     const body: OutcomeRequest = {
       intervention_id: row.intervention_id,
       offer_status:    this.outcomeStatus(),
-      revenue_recovered: this.revenueInput() ? parseFloat(this.revenueInput()) : undefined
+      revenue_recovered: revenue
     };
     this.svc.recordOutcome(row.intervention_id, body).subscribe({
       next: () => {

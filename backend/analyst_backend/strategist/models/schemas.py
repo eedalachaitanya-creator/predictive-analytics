@@ -291,9 +291,6 @@ class StrategistResponse(BaseModel):
     client_id:       Optional[str] = None
     status:          str           = "ok"
     elapsed_seconds: float         = 0.0
-    client_id:       Optional[str] = None
-    status:          str           = "ok"
-    elapsed_seconds: float         = 0.0
 
 
 # ---------------------------------------------------------------------------

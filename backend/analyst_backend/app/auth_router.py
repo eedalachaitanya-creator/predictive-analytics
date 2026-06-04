@@ -489,12 +489,11 @@ def forgot_password(req: ForgotPasswordRequest):
     new_password = _generate_temp_password()
 
     try:
-        with engine.begin() as conn:   # atomic: both updates commit together or not at all
+        with engine.begin() as conn:
             conn.execute(
                 text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
                 {"pw": new_password, "uid": user["id"]},
             )
-            # Kill every active session for this user so stale tokens stop working.
             conn.execute(
                 text("DELETE FROM active_tokens WHERE user_id = :uid"),
                 {"uid": user["id"]},
@@ -507,6 +506,26 @@ def forgot_password(req: ForgotPasswordRequest):
         )
 
     log.info("Password reset for user %s (%s)", user["id"], email_trimmed)
+
+    # ── Send password reset email ─────────────────────────────────────
+    try:
+        from app.email_service import send_email
+        send_email(
+            to=user["email"],
+            subject="Your Temporary Password — Predictive Analytics",
+            html_body=f"""
+            <h2>Password Reset</h2>
+            <p>Hi {user["name"]},</p>
+            <p>A temporary password has been generated for your account:</p>
+            <p style="font-size:20px;font-weight:bold;letter-spacing:2px;
+                      background:#f0f4ff;padding:12px 20px;border-radius:8px;
+                      display:inline-block">{new_password}</p>
+            <p>All existing sessions have been logged out. Sign in with this password and change it immediately.</p>
+            <p>If you did not request this, contact IT Support immediately.</p>
+            """,
+        )
+    except Exception as e:
+        log.warning("Forgot-password email failed (non-fatal): %s", e)
 
     return {
         "email": user["email"],

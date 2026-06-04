@@ -20,6 +20,7 @@ No manual editing of Excel files needed!
 
 import logging
 import uuid
+import re
 from decimal import Decimal
 from datetime import date, datetime
 from typing import Any, Optional
@@ -32,7 +33,7 @@ from app.database import engine
 from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
 
-router = APIRouter(prefix="/api/v1", tags=["clients"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
+router = APIRouter(prefix="/api/v1", tags=["clients"])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("clients")
 
 
@@ -121,7 +122,7 @@ def _generate_next_client_id() -> str:
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.post("/clients/register")
+@router.post("/clients/register",dependencies=[Depends(get_current_user)])
 def register_client(
     req: ClientRegisterRequest,
     authorization: Optional[str] = Header(default=None),
@@ -230,7 +231,7 @@ def register_client(
         raise HTTPException(status_code=500, detail=f"Could not register client: {e}")
 
 
-@router.get("/clients")
+@router.get("/clients",dependencies=[Depends(get_current_user)])
 def list_clients(
     includeInactive: bool = Query(default=False),
     authorization: Optional[str] = Header(default=None),
@@ -301,7 +302,7 @@ def list_clients(
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
-@router.get("/clients/{client_id}")
+@router.get("/clients/{client_id}",dependencies=[Depends(get_current_user)])
 def get_client(client_id: str, authorization: Optional[str] = Header(default=None)):
     """Get a specific client's configuration."""
     if not authorization:
@@ -354,6 +355,166 @@ class SelfRegisterRequest(BaseModel):
     contact_email: str     # "john@costco.com"
     password: str          # their chosen password
 
+def _send_welcome_email(
+    to_email: str,
+    contact_name: str,
+    company_name: str,
+    client_id: str,
+    client_code: str,
+) -> None:
+    import os
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    smtp_host = os.getenv("SMTP_HOST", "localhost")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASSWORD", "")
+    smtp_from = os.getenv("SMTP_FROM", smtp_user) or "no-reply@predictive-analytics.io"
+
+    if not smtp_user:
+        log.warning("SMTP_USER not configured — skipping welcome email to %s", to_email)
+        return
+
+    subject = "Welcome to Predictive Analytics — Your Account is Ready"
+
+    html_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Welcome to Predictive Analytics</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6fb;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;
+                    box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+        <tr><td style="background:linear-gradient(90deg,#0071CE,#FFC220);height:4px;"></td></tr>
+
+        <tr>
+          <td style="padding:36px 40px 24px;border-bottom:1px solid #eef0f5;">
+            <div style="font-size:22px;font-weight:700;color:#1a1a2e;">
+              📊 <span style="color:#0071CE;">Predictive</span> Analytics
+            </div>
+            <div style="font-size:12px;color:#888;margin-top:4px;">
+              Churn Prediction &amp; Retention Platform · v4.0
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:32px 40px 24px;">
+            <p style="margin:0 0 12px;font-size:16px;font-weight:600;color:#1a1a2e;">
+              Welcome, {contact_name}!
+            </p>
+            <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.7;">
+              Your account for <strong>{company_name}</strong> has been created successfully.
+              You can now sign in and start using churn prediction and customer retention tools.
+            </p>
+
+            <table width="100%" cellpadding="0" cellspacing="0"
+                   style="background:#f0f6ff;border:1px solid #c8dcf7;border-radius:8px;margin-bottom:24px;">
+              <tr><td style="padding:20px 24px;">
+                <p style="margin:0 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;
+                           letter-spacing:.07em;color:#0071CE;">Account Details</p>
+                <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+                  <tr>
+                    <td style="font-size:13px;color:#666;padding:4px 0;width:140px;">Company Name</td>
+                    <td style="font-size:13px;color:#1a1a2e;font-weight:600;padding:4px 0;">{company_name}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:13px;color:#666;padding:4px 0;">Company Code</td>
+                    <td style="font-size:13px;color:#1a1a2e;font-weight:600;padding:4px 0;">{client_code}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:13px;color:#666;padding:4px 0;">Client ID</td>
+                    <td style="font-size:15px;color:#0071CE;font-weight:700;padding:4px 0;
+                               letter-spacing:1px;">{client_id}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:13px;color:#666;padding:4px 0;">Login Email</td>
+                    <td style="font-size:13px;color:#1a1a2e;font-weight:600;padding:4px 0;">{to_email}</td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+
+            <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
+              <tr>
+                <td align="center" style="border-radius:8px;background:#0071CE;">
+                  <a href="http://localhost:4200/login"
+                     style="display:inline-block;padding:13px 32px;font-size:14px;font-weight:600;
+                            color:#ffffff;text-decoration:none;border-radius:8px;">
+                    Sign In to Your Account
+                  </a>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:0;font-size:13px;color:#555;line-height:1.7;">
+              If you have any questions, please contact our support team.
+              We're glad to have <strong>{company_name}</strong> on board.
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:20px 40px;border-top:1px solid #eef0f5;background:#fafbfd;">
+            <p style="margin:0;font-size:11px;color:#aaa;line-height:1.6;text-align:center;">
+              This email was sent because an account was created at Predictive Analytics.<br/>
+              If you did not register, please contact support immediately.<br/>
+              &copy; 2025 Predictive Analytics. All rights reserved.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+    plain_body = (
+        f"Welcome to Predictive Analytics, {contact_name}!\n\n"
+        f"Your account for {company_name} has been created.\n\n"
+        f"Account Details:\n"
+        f"  Company Name : {company_name}\n"
+        f"  Company Code : {client_code}\n"
+        f"  Client ID    : {client_id}\n"
+        f"  Login Email  : {to_email}\n\n"
+        f"Sign in at: http://localhost:4200/login\n\n"
+        f"If you did not register, please contact support immediately.\n"
+        f"© 2025 Predictive Analytics. All rights reserved."
+    )
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = smtp_from
+        msg["To"]      = to_email
+        msg.attach(MIMEText(plain_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            server.ehlo()
+            if smtp_port != 465:
+                server.starttls()
+                server.ehlo()
+            if smtp_user and smtp_pass:
+                server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_from, [to_email], msg.as_string())
+
+        log.info("Welcome email sent to %s", to_email)
+
+    except Exception as exc:
+        log.warning("Could not send welcome email to %s: %s", to_email, exc)
+
 
 @router.post("/clients/self-register", dependencies=[])
 def self_register(req: SelfRegisterRequest):
@@ -377,10 +538,23 @@ def self_register(req: SelfRegisterRequest):
         raise HTTPException(status_code=400, detail="Company code is required")
     if len(req.client_code) > 10:
         raise HTTPException(status_code=400, detail="Company code must be 10 characters or less")
-    if not req.contact_email.strip() or "@" not in req.contact_email:
+    import re
+    email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
+    if not req.contact_email.strip() or not email_re.match(req.contact_email.strip()):
         raise HTTPException(status_code=400, detail="Valid email address is required")
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    pw = req.password
+    pw_ok = (
+        len(pw) >= 8 and
+        re.search(r'[A-Z]', pw) and
+        re.search(r'[a-z]', pw) and
+        re.search(r'\d', pw) and
+        re.search(r'[^A-Za-z0-9]', pw)
+    )
+    if not pw_ok:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters and include an uppercase letter, lowercase letter, number, and special character."
+        )
 
     # ── Check if email is already taken (in database) ───────────────
     try:
@@ -466,7 +640,14 @@ def self_register(req: SelfRegisterRequest):
         req.client_name, req.client_code, new_client_id,
         req.contact_name, req.contact_email,
     )
-
+    # ── Send welcome email ────────────────────────────────────────────
+    _send_welcome_email(
+            to_email=req.contact_email,
+            contact_name=req.contact_name,
+            company_name=req.client_name,
+            client_id=new_client_id,
+            client_code=req.client_code.upper(),
+        )
     return {
         "client_id": new_client_id,
         "client_name": req.client_name,
@@ -520,7 +701,7 @@ _DATA_OVERVIEW_TABLES = [
 ]
 
 
-@router.get("/clients/{client_id}/data-overview")
+@router.get("/clients/{client_id}/data-overview",dependencies=[Depends(get_current_user)])
 def get_client_data_overview(
     client_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -779,7 +960,7 @@ class AdminCreateClientRequest(BaseModel):
     password: str
 
 
-@router.post("/clients/admin-create")
+@router.post("/clients/admin-create",dependencies=[Depends(get_current_user)])
 def admin_create_client(
     req: AdminCreateClientRequest,
     request: Request,
@@ -809,10 +990,23 @@ def admin_create_client(
         raise HTTPException(status_code=400, detail="Company code is required")
     if len(req.client_code) > 10:
         raise HTTPException(status_code=400, detail="Company code must be 10 characters or less")
-    if not req.contact_email.strip() or "@" not in req.contact_email:
+    import re
+    email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
+    if not req.contact_email.strip() or not email_re.match(req.contact_email.strip()):
         raise HTTPException(status_code=400, detail="Valid email address is required")
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    pw = req.password
+    pw_ok = (
+        len(pw) >= 8 and
+        re.search(r'[A-Z]', pw) and
+        re.search(r'[a-z]', pw) and
+        re.search(r'\d', pw) and
+        re.search(r'[^A-Za-z0-9]', pw)
+    )
+    if not pw_ok:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters and include an uppercase letter, lowercase letter, number, and special character."
+        )
 
     # ── Check for duplicates BEFORE creating anything ─────────────────
     try:
@@ -915,7 +1109,7 @@ def admin_create_client(
 # and potential reactivation, but the client disappears from the admin list.
 
 
-@router.delete("/clients/{client_id}")
+@router.delete("/clients/{client_id}",dependencies=[Depends(get_current_user)])
 def delete_client(
     client_id: str,
     request: Request,
@@ -1014,7 +1208,7 @@ def delete_client(
 # ─────────────────────────────────────────────────────────────────────────────
 # Reactivate (soft-undelete) a client
 # ─────────────────────────────────────────────────────────────────────────────
-@router.post("/clients/{client_id}/reactivate")
+@router.post("/clients/{client_id}/reactivate",dependencies=[Depends(get_current_user)])
 def reactivate_client(
     client_id: str,
     request: Request,

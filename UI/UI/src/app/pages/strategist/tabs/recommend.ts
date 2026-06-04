@@ -154,6 +154,10 @@ export class StrategistRecommendTab {
 
   run() {
     this.error.set('');
+    if (!this.clientId) {
+      this.error.set('No client selected. Please select a client from the top menu.');
+      return;
+    }
     const prods = this.products();
     const scoutProducts = prods.map(p => {
       let listings = [];
@@ -164,9 +168,15 @@ export class StrategistRecommendTab {
     if (!scoutProducts.length) { this.error.set('Add at least one product.'); return; }
 
     const ourCosts: Record<string, number> = {};
-    prods.forEach(p => {
-      if (p.name.trim() && p.cost) ourCosts[p.name.trim()] = parseFloat(p.cost);
-    });
+    for (const p of prods) {
+      if (!p.name.trim() || !p.cost) continue;
+      const v = parseFloat(p.cost);
+      if (isNaN(v) || v <= 0) {
+        this.error.set(`Cost for "${p.name}" must be a valid number greater than zero.`);
+        return;
+      }
+      ourCosts[p.name.trim()] = v;
+    }
 
     const req: StrategistRequest = {
       client_id:         this.clientId,
@@ -182,6 +192,11 @@ export class StrategistRecommendTab {
     if (this.useChurn() && this.churnJson().trim()) {
       try { req.churn_batch = JSON.parse(this.churnJson()); }
       catch { this.error.set('Invalid churn data format.'); return; }
+    }
+
+    if (this.minMargin() >= this.targetMargin()) {
+      this.error.set('Minimum margin must be less than target margin.');
+      return;
     }
 
     this.loading.set(true);

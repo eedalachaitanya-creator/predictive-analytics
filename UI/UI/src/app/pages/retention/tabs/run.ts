@@ -25,6 +25,10 @@ export class RetentionRunTab {
 
   run() {
     this.error.set('');
+    if (!this.clientId) {
+      this.error.set('No client selected. Please select a client from the top menu.');
+      return;
+    }
     this.result.set(null);
     this.loading.set(true);
 

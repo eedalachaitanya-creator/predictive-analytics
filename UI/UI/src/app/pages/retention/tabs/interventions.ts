@@ -67,7 +67,6 @@ export class RetentionInterventionsTab implements OnInit, OnDestroy {
     const row = this.selected();
     if (!row) return;
 
-    // Validate revenue input before submitting
     let revenue: number | undefined = undefined;
     if (this.revenueInput().trim()) {
       revenue = parseFloat(this.revenueInput());

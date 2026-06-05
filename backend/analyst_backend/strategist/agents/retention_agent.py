@@ -25,8 +25,8 @@ Step 3 — For each at-risk customer (HIGH or MEDIUM risk, never LOW):
 
   c. Route to the right channel:
        Platinum/Gold → email
-       Silver        → sms
-       Bronze        → push notification
+       Silver        → email
+       Bronze        → email
 
   d. Check LTV and escalation:
        churn_prob >= 0.90 AND (Platinum|Gold OR is_high_value)

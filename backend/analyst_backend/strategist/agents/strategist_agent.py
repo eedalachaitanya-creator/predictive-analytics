@@ -70,6 +70,17 @@ from strategist.services.langfuse_service import get_langfuse_safe
 # Fallback discount table — mirrors value_propositions seed data
 # Used when Analyst DB is not queryable (always the case if DB is down)
 # ---------------------------------------------------------------------------
+# ── Currency symbol map ───────────────────────────────────────────────────
+_CURRENCY_SYMBOLS: dict[str, str] = {
+    "INR": "₹",
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+    "AUD": "A$",
+    "CAD": "C$",
+}
+
+# ── VP discount fallback ──────────────────────────────────────────────────
 _VP_DISCOUNTS: dict[tuple[str, str], float] = {
     ("Platinum", "HIGH"):   20.0,   # 20% off for Platinum customers at HIGH risk
     ("Platinum", "MEDIUM"): 10.0,
@@ -168,16 +179,17 @@ class StrategistAgent:
         for product in request.scout_output.products:
             # Look up this product's market trend (default stable)
             trend = market_trends.get(product.name, "stable")
-            rec   = self._process_product(
-                product          = product,
-                our_costs        = request.our_costs,
-                client_priority  = request.client_priority,
-                customer_segment = request.customer_segment,
-                market_trend     = trend,
-                churn_lookup     = churn_lookup,
-                discount_lookup  = discount_lookup,
-                trace            = trace,
-            )
+            rec = self._process_product(
+                    product          = product,
+                    our_costs        = request.our_costs,
+                    market_trends    = market_trends,
+                    client_priority  = request.client_priority,
+                    customer_segment = request.customer_segment,
+                    churn_lookup     = churn_lookup,
+                    discount_lookup  = discount_lookup,
+                    trace            = trace,
+                    currency         = request.currency or "INR",
+                )
             recommendations.append(rec)
 
         latency_ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -191,15 +203,17 @@ class StrategistAgent:
 
     def _process_product(
         self,
-        product:          ScoutProduct,
-        our_costs:        dict[str, float],
-        client_priority:  str | None,
-        customer_segment: str | None,
-        market_trend:     str,
-        churn_lookup:     dict[str, ChurnScore],
-        discount_lookup:  dict[tuple[str, str], float],
+        product:         ScoutProduct,
+        our_costs:       dict[str, float],
+        market_trends:   dict[str, str],
+        client_priority: Optional[str],
+        customer_segment:Optional[str],
+        churn_lookup:    dict[str, ChurnScore],
+        discount_lookup: dict[tuple[str, str], float],
         trace,
+        currency:        str = "INR",
     ) -> PricingRecommendation:
+        currency_symbol = _CURRENCY_SYMBOLS.get(currency.upper(), currency)
 
         span = self._lf_span(trace, f"product:{product.name[:50]}", len(product.listings))
 
@@ -409,7 +423,7 @@ class StrategistAgent:
             # Guard: charm must not push price UP to or above comp_min on undercut/match
             # e.g. match at ₹130 → charm ₹139 = above market floor → defeats the match
             # e.g. undercut at ₹293 → charm ₹299 = same as Amazon → defeats the undercut
-            if strategy in ("undercut", "match") and charmed > comp_min:
+            if strategy in ("undercut", "match") and charmed >= comp_min:
                 pass   # skip charm, keep raw price
             else:
                 suggested = charmed
@@ -487,10 +501,10 @@ class StrategistAgent:
 
         # Cost breakdown block (helps strategists understand margin math)
         cost_block = (
-            f"COGS: ₹{raw_cogs} × {self.config.overhead_multiplier}x overhead = "
-            f"₹{true_cost} true cost. "
-            f"Floor (min {self.config.min_margin_pct}% margin): ₹{floor}. "
-            f"Target ({self.config.target_margin_pct}% margin): ₹{target}."
+            f"COGS: {currency_symbol}{raw_cogs} × {self.config.overhead_multiplier}x overhead = "
+            f"{currency_symbol}{true_cost} true cost. "
+            f"Floor (min {self.config.min_margin_pct}% margin): {currency_symbol}{floor}. "
+            f"Target ({self.config.target_margin_pct}% margin): {currency_symbol}{target}."
         )
 
         # Competitor market block

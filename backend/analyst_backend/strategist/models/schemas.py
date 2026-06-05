@@ -409,10 +409,12 @@ class RetentionRequest(BaseModel):
     dry_run      — build offers but skip DB write (safe for testing).
     min_risk     — floor for risk tier processed (HIGH = skip MEDIUM customers).
     """
-    churn_batch: Optional[ChurnBatch] = None
-    client_id:   str  # required — must be supplied by caller
-    dry_run:     bool                 = False
-    min_risk:    Literal["HIGH", "MEDIUM"] = "MEDIUM"   # LOW always skipped
+    churn_batch:            Optional[ChurnBatch] = None
+    client_id:              str  # required — must be supplied by caller
+    dry_run:                bool = False
+    min_risk:               Literal["HIGH", "MEDIUM"] = "MEDIUM"   # LOW always skipped
+    min_probability_medium: float = Field(default=0.40, ge=0.0, le=1.0,
+        description="Skip MEDIUM risk customers below this churn probability (default 0.40)")
 
 
 class RetentionResponse(BaseModel):

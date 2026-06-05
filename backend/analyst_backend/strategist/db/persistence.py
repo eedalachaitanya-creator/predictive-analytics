@@ -331,10 +331,27 @@ async def get_escalations(client_id: str) -> list[dict]:
 async def get_retention_summary(client_id: str) -> dict:
     """
     Aggregate retention stats for a client (total offers, conversion rate, revenue recovered).
+    Auto-expires pending offers older than 7 days → marks them as 'no_response'.
     """
     try:
         pool = await get_analyst_pool()
         async with pool.acquire() as conn:
+            # Auto-expire: pending offers older than 7 days → no_response
+            expired = await conn.execute(
+                """
+                UPDATE retention_interventions
+                SET offer_status = 'no_response'
+                WHERE client_id    = $1
+                  AND offer_status = 'pending'
+                  AND created_at   < NOW() - INTERVAL '7 days'
+                """,
+                client_id,
+            )
+            if expired != "UPDATE 0":
+                logger.info(
+                    "get_retention_summary: auto-expired pending offers for client=%s (%s)",
+                    client_id, expired
+                )
             return await RetentionRepo.get_summary(conn, client_id)
     except Exception as exc:
         logger.error("get_retention_summary failed for client=%s: %s", client_id, exc)

@@ -16,13 +16,14 @@ from email.mime.text import MIMEText
 logger = logging.getLogger(__name__)
 
 
-def _build_subject(offer_type: str, discount_pct: any, tier: str) -> str:
+def _build_subject(offer_type: str, discount_pct: any, tier: str, first_name: str = "") -> str:
     pct = float(discount_pct or 0)
+    greeting = first_name if first_name else f"valued {tier} member"
     if offer_type == "re_engagement":
-        return f"We miss you, {tier} member — exclusive picks waiting for you"
+        return f"We miss you, {greeting} — exclusive picks waiting for you"
     if pct > 0:
-        return f"Your exclusive {int(pct)}% offer — {tier} member special"
-    return f"A personal message for our valued {tier} member"
+        return f"Your exclusive {int(pct)}% offer, {greeting}"
+    return f"A personal message for you, {greeting}"
 
 
 def _build_html(offer_message: str, customer_id: str) -> str:
@@ -48,6 +49,7 @@ def _build_html(offer_message: str, customer_id: str) -> str:
 async def send_retention_emails(
     interventions: list,
     customer_emails: dict[str, str],
+    customer_names: dict[str, str] | None = None,
 ) -> dict:
     """
     Send retention offer emails for all email-channel interventions.
@@ -74,10 +76,11 @@ async def send_retention_emails(
         email_interventions,
         customer_emails,
         settings,
+        customer_names or {},
     )
 
 
-def _send_batch_sync(interventions, customer_emails, settings) -> dict:
+def _send_batch_sync(interventions, customer_emails, settings, customer_names=None) -> dict:
     """Synchronous SMTP batch — runs in thread pool so async loop is not blocked."""
     sent = skipped = failed = 0
 
@@ -102,10 +105,13 @@ def _send_batch_sync(interventions, customer_emails, settings) -> dict:
             msg = MIMEMultipart("alternative")
             msg["From"]    = settings.smtp_from or settings.smtp_user
             msg["To"]      = to_email
+            customer_name = (customer_names or {}).get(intervention.customer_id, "")
+            first_name = customer_name.split()[0] if customer_name else ""
             msg["Subject"] = _build_subject(
                 intervention.offer_type,
                 float(intervention.discount_pct or 0),
                 intervention.risk_tier,
+                first_name,
             )
             msg.attach(MIMEText(intervention.offer_message, "plain"))
             msg.attach(MIMEText(

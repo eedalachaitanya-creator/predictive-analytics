@@ -119,6 +119,37 @@ async def run_retention(
 
     logger.info("Processing %d churn scores.", len(churn_scores))
 
+    # ── Step 3b: Dedup — skip customers offered in the last 30 days ───────
+    try:
+        from strategist.db.connection import get_analyst_pool
+        pool = await get_analyst_pool()
+        async with pool.acquire() as conn:
+            existing_rows = await conn.fetch(
+                """
+                SELECT DISTINCT customer_id
+                FROM retention_interventions
+                WHERE client_id = $1
+                  AND created_at > NOW() - INTERVAL '30 days'
+                """,
+                client_id,
+            )
+        already_offered = {r["customer_id"] for r in existing_rows}
+        before_dedup = len(churn_scores)
+        churn_scores = [s for s in churn_scores if s.customer_id not in already_offered]
+        logger.info(
+            "Dedup: %d customers already offered in last 30 days — %d remaining to process.",
+            before_dedup - len(churn_scores), len(churn_scores)
+        )
+        if not churn_scores:
+            raise HTTPException(
+                status_code=404,
+                detail=f"All at-risk customers for '{client_id}' already received offers in the last 30 days."
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Dedup check failed (non-fatal): %s — proceeding without dedup.", exc)
+
     # ── Step 4: Check Strategist DB for prior retention prices ────────────
     # This is the double-discount prevention step.
     # Customers with strategy='retention' in customer_price_context already
@@ -134,7 +165,10 @@ async def run_retention(
         )
 
     # ── Step 5+6: Run agent (generates offers + applies guardrails) ───────
-    agent = RetentionAgent(RetentionConfig(dry_run=request.dry_run))
+    agent = RetentionAgent(RetentionConfig(
+        dry_run=request.dry_run,
+        min_probability_medium=request.min_probability_medium,
+    ))
     batch = agent.run(
         churn_scores   = churn_scores,
         client_config  = client_config,
@@ -161,7 +195,7 @@ async def run_retention(
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT customer_id, customer_email
+                    SELECT customer_id, customer_email, customer_name
                     FROM customers
                     WHERE client_id = $1
                       AND customer_id = ANY($2::text[])
@@ -173,8 +207,12 @@ async def run_retention(
             customer_emails = {
                 r["customer_id"]: r["customer_email"] for r in rows
             }
+            customer_names = {
+                r["customer_id"]: r["customer_name"]
+                for r in rows if r["customer_name"]
+            }
             email_result = await send_retention_emails(
-                batch.interventions, customer_emails
+                batch.interventions, customer_emails, customer_names
             )
             logger.info("Email sending result: %s", email_result)
         except Exception as exc:

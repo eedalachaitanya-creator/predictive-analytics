@@ -452,6 +452,46 @@ def _cleanup_empty_batch(conn, batch_id: str, client_id: str) -> bool:
     return False
 
 
+def _humanize_staging_error(exc: Exception, master_type: str = "") -> str:
+    """Translate a raw DB staging exception into a SHORT, user-friendly message.
+
+    A staging INSERT failure used to surface the full SQLAlchemy exception — the
+    SQL statement plus every bound parameter set — straight into the UI, which is
+    intimidating and not actionable. The caller already logs the full error
+    (exc_info=True); here we return only a friendly, actionable sentence and NEVER
+    leak the SQL or parameters. Covers the common Postgres staging failures and
+    falls back to a generic "wrong file" message.
+    """
+    import re
+
+    orig = getattr(exc, "orig", None) or exc            # unwrap SQLAlchemy → psycopg2
+    name = type(orig).__name__
+    pgcode = getattr(orig, "pgcode", "") or ""
+    detail = str(orig)
+    m = re.search(r'column "([^"]+)"', detail)
+    col = f" (column '{m.group(1)}')" if m else ""
+    label = f" for {master_type.replace('_', ' ').title()}" if master_type else ""
+
+    if name in ("DatatypeMismatch", "InvalidTextRepresentation") or pgcode in ("42804", "22P02"):
+        return (f"Wrong file or wrong format{label}{col}: a value doesn't match the expected "
+                "type — for example text or true/false where a number is expected. Please "
+                "check you uploaded the correct file for this slot.")
+    if name == "UniqueViolation" or pgcode == "23505":
+        return "Some rows were already uploaded (duplicate IDs); the existing data was kept."
+    if name == "ForeignKeyViolation" or pgcode == "23503":
+        return ("This file references IDs that don't exist yet — upload the parent files first "
+                "(for example categories, brands and vendors before products).")
+    if name == "NotNullViolation" or pgcode == "23502":
+        return f"A required column{col} is empty in one or more rows. Please fill it in and retry."
+    if name in ("NumericValueOutOfRange", "StringDataRightTruncation") or pgcode in ("22003", "22001"):
+        return f"A value{col} is too large or too long for its column. Please check the file."
+    if name == "UndefinedColumn" or pgcode == "42703":
+        return ("The file has a column that doesn't belong in this slot. Please check you "
+                "uploaded the correct file.")
+    return ("Wrong file uploaded, or the file has an unexpected format. Please check you "
+            "uploaded the correct file for this slot.")
+
+
 def _load_df_to_staging(df: pd.DataFrame, master_type: str, client_id: str) -> dict:
     """
     Insert a pandas DataFrame into the STAGING table for this master type.
@@ -600,8 +640,10 @@ def _load_df_to_staging(df: pd.DataFrame, master_type: str, client_id: str) -> d
         }
 
     except Exception as e:
+        # Full technical error (SQL + bound params) goes to the SERVER LOG only.
         log.error("Staging load FAILED for %s: %s", staging_table, e, exc_info=True)
-        return {"staged": False, "reason": str(e)}
+        # The UI gets a short, actionable message — never the raw psycopg2 dump.
+        return {"staged": False, "reason": _humanize_staging_error(e, master_type)}
 
 
 def _is_decorative_row(df: pd.DataFrame) -> bool:

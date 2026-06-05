@@ -16,9 +16,10 @@ function headers(): HttpHeaders {
 }
 
 export interface RetentionRequest {
-  client_id: string;
-  dry_run:   boolean;
-  min_risk?: 'HIGH' | 'MEDIUM';
+  client_id:              string;
+  dry_run:                boolean;
+  min_risk:               'HIGH' | 'MEDIUM';
+  min_probability_medium: number;
 }
 
 export interface Intervention {

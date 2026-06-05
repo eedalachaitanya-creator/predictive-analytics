@@ -16,9 +16,10 @@ export class RetentionRunTab {
   private auth = inject(AuthService);
   clientId     = this.auth.getClientId();
 
-  dryRun   = signal(true);
-  minRisk  = signal<'HIGH' | 'MEDIUM'>('MEDIUM');
-  loading  = signal(false);
+  dryRun          = signal(true);
+  minRisk         = signal<'HIGH' | 'MEDIUM'>('MEDIUM');
+  minProbMedium   = signal(0.40);
+  loading         = signal(false);
   error    = signal('');
   result   = signal<RetentionResponse | null>(null);
   expanded = signal<number | null>(null);
@@ -32,7 +33,12 @@ export class RetentionRunTab {
     this.result.set(null);
     this.loading.set(true);
 
-    this.svc.run({ client_id: this.clientId, dry_run: this.dryRun(), min_risk: this.minRisk() }).subscribe({
+    this.svc.run({
+      client_id:              this.clientId,
+      dry_run:                this.dryRun(),
+      min_risk:               this.minRisk(),
+      min_probability_medium: this.minProbMedium(),
+    }).subscribe({
       next: (res) => { this.result.set(res); this.loading.set(false); },
       error: (err) => {
         this.error.set(err?.error?.detail || 'Retention pipeline failed.');

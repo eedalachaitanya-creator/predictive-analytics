@@ -41,15 +41,17 @@ export interface ChurnScore {
 export interface ChurnBatch { total_customers: number; scores: ChurnScore[]; }
 
 export interface StrategistRequest {
-  scout_output:     ScoutOutput;
-  our_costs:        Record<string, number>;
-  client_id:        string;
-  churn_batch?:     ChurnBatch;
+  scout_output:      ScoutOutput;
+  our_costs:         Record<string, number>;
+  client_id:         string;
+  churn_batch?:      ChurnBatch;
   target_margin_pct?: number;
   min_margin_pct?:    number;
   undercut_pct?:      number;
   currency?:          string;
   skip_churn?:        boolean;
+  client_priority?:   string | null;
+  customer_segment?:  string | null;
 }
 
 export interface ChurnContext {

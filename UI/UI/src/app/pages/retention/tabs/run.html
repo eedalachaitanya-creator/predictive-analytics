@@ -24,6 +24,24 @@
         </div>
       </div>
 
+      @if (minRisk() === 'MEDIUM') {
+        <div class="field-group">
+          <label class="field-label">
+            Medium risk threshold
+            <span class="field-hint">Skip MEDIUM customers below this churn probability</span>
+          </label>
+          <div class="slider-row">
+            <input type="range" min="0.30" max="0.70" step="0.05"
+              [value]="minProbMedium()"
+              (input)="minProbMedium.set(+$any($event.target).value)" />
+            <span class="slider-val">{{ (minProbMedium() * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="slider-note">
+            Customers with MEDIUM risk below {{ (minProbMedium() * 100).toFixed(0) }}% churn probability will be skipped
+          </div>
+        </div>
+      }
+
       <div class="field-group">
         <label class="toggle-row">
           <input type="checkbox" [checked]="dryRun()" (change)="dryRun.set($any($event.target).checked)" />

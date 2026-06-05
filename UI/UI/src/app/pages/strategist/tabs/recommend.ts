@@ -40,13 +40,16 @@ export class StrategistRecommendTab {
   churnJson     = signal('');
   targetMargin  = signal(20);
   minMargin     = signal(8);
-  undercutPct   = signal(2);
+  undercutPct      = signal(2);
+  clientPriority   = signal<string>('');
+  customerSegment  = signal<string>('');
 
   loading       = signal(false);
   loadingSample = signal(false);
   error         = signal('');
   results       = signal<PricingRecommendation[]>([]);
   runMeta       = signal<{ run_id: string; elapsed: number; retention_count: number } | null>(null);
+  savedMsg      = signal('');
 
   // Currency — prefilled from client_config.currency, user can override per request
   currency        = signal('INR');
@@ -128,10 +131,8 @@ export class StrategistRecommendTab {
     // 250ms debounce — avoid hitting backend on every keystroke
     this.searchTimeouts[i] = setTimeout(() => {
       this.svc.searchProducts(this.clientId, q.trim()).subscribe(res => {
-        console.log('autocomplete res:', res);
         this.suggestions.update(s => ({ ...s, [i]: res.products || [] }));
         this.suggestionsOpen.set(res.products?.length ? i : null);
-        console.log('suggestionsOpen set to:', res.products?.length ? i : null);
       });
     }, 250);
   }
@@ -191,6 +192,8 @@ export class StrategistRecommendTab {
       undercut_pct:      this.undercutPct(),
       currency:          this.currency(),
       skip_churn:        !this.useChurn(),
+      client_priority:   this.clientPriority() || null,
+      customer_segment:  this.customerSegment() || null,
     };
 
     if (this.useChurn() && this.churnJson().trim()) {
@@ -220,6 +223,29 @@ export class StrategistRecommendTab {
     });
   }
 
+  saveCosts() {
+    const costs: Record<string, number> = {};
+    for (const p of this.products()) {
+      if (!p.name.trim() || !p.cost) continue;
+      const v = parseFloat(p.cost);
+      if (!isNaN(v) && v > 0) costs[p.name.trim()] = v;
+    }
+    if (!Object.keys(costs).length) {
+      this.savedMsg.set('❌ No valid costs to save.');
+      return;
+    }
+    this.svc.saveCosts(this.clientId, costs).subscribe({
+      next: () => {
+        this.savedMsg.set('✅ Costs saved successfully.');
+        setTimeout(() => this.savedMsg.set(''), 3000);
+      },
+      error: () => {
+        this.savedMsg.set('❌ Failed to save costs.');
+        setTimeout(() => this.savedMsg.set(''), 3000);
+      }
+    });
+  }
+
   getCostPrice(productName: string): number | null {
     return this.savedCosts()[productName] || null;
   }
@@ -233,7 +259,11 @@ export class StrategistRecommendTab {
   }
 
   trendIcon(t: string) { return t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️'; }
-  fmtPrice(n: number)  { return n ? '₹' + n.toFixed(2) : '—'; }
+  fmtPrice(n: number)  {
+  const symbols: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ', SGD: 'S$' };
+  const sym = symbols[this.currency()] || '';
+  return n ? sym + n.toFixed(2) : '—';
+}
   fmtPct(n: number)    { return (n || 0).toFixed(1) + '%'; }
   fmtProb(n: number)   { return ((n || 0) * 100).toFixed(1) + '%'; }
   platformIcon(p: string) {

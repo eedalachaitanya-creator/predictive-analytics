@@ -49,7 +49,7 @@
                   <div class="comp-chip">
                     <span class="comp-icon">{{ platformIcon(pl.name) }}</span>
                     <span class="comp-platform">{{ pl.name }}</span>
-                    <span class="comp-price">₹{{ pl.price }}</span>
+                    <span class="comp-price">{{ fmtPrice(pl.price) }}</span>
                   </div>
                 }
               </div>
@@ -102,6 +102,32 @@
             </select>
           </div>
         </div>
+        <div class="param-item">
+          <label class="param-label">Client Priority</label>
+          <div class="param-input-wrap">
+            <select class="form-input param-input"
+              [value]="clientPriority()"
+              (change)="clientPriority.set($any($event.target).value)">
+              <option value="">Default</option>
+              <option value="volume">Volume</option>
+              <option value="margin">Margin</option>
+              <option value="brand">Brand</option>
+            </select>
+          </div>
+        </div>
+        <div class="param-item">
+          <label class="param-label">Customer Segment</label>
+          <div class="param-input-wrap">
+            <select class="form-input param-input"
+              [value]="customerSegment()"
+              (change)="customerSegment.set($any($event.target).value)">
+              <option value="">Default</option>
+              <option value="budget">Budget</option>
+              <option value="mid">Mid</option>
+              <option value="premium">Premium</option>
+            </select>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -127,13 +153,17 @@
   }
 </div>
 
+    @if (savedMsg()) { <div class="info-bar">{{ savedMsg() }}</div> }
     @if (error()) { <div class="error-bar">{{ error() }}</div> }
 
-    <button class="run-btn" [disabled]="loading()" (click)="run()">
-      @if (loading()) { ⏳ &nbsp;Analysing... }
-      @else { 🧠 &nbsp;Get Price Recommendations }
-    </button>
-  </div>
+    <div class="action-row">
+      <button class="btn outline sm" (click)="saveCosts()">💾 Save Costs</button>
+      <button class="run-btn" [disabled]="loading()" (click)="run()">
+        @if (loading()) { ⏳ &nbsp;Analysing... }
+        @else { 🧠 &nbsp;Get Price Recommendations }
+      </button>
+    </div>
+   
 
   <!-- RIGHT: Results -->
   <div class="rec-results">

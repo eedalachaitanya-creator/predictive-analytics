@@ -3,7 +3,8 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, tap, throwError } from 'rxjs';
 
 // ── Scout API base — runs separately from the main app backend ──────
-const SCOUT_API = 'http://localhost:8000';
+import { environment } from '../../environments/environment';
+const SCOUT_API = (environment as any).scoutApiUrl || 'http://localhost:8000';
 
 // ── Models ──────────────────────────────────────────────────────────
 

@@ -117,7 +117,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         // Polling keeps pipelineSvc.isRunning() accurate so the button
         // re-enables when the backend finishes, even though we no longer
         // render the progress panel.
-        this.sub = this.pipelineSvc.pollJob(job.jobId).subscribe({
+        this.sub = this.pipelineSvc.pollJob(job.jobId, this.clientId).subscribe({
           error: e => this.runError.set(e.message),
         });
       },

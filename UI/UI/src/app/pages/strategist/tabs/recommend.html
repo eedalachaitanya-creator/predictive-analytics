@@ -5,9 +5,7 @@
     <div class="config-section">
       <div class="section-header">
         <div class="config-title">Products</div>
-        <button class="btn ghost sm" (click)="loadSample()" [disabled]="loadingSample()">
-          @if (loadingSample()) { Loading... } @else { ↻ Refresh }
-        </button>
+        <button class="btn ghost sm" (click)="loadSample()">↻ Refresh</button>
       </div>
 
       @for (p of products(); track $index; let i = $index) {
@@ -21,26 +19,26 @@
 
           <div class="autocomplete-wrap">
             <input class="form-input" placeholder="Product name (start typing to search)"
-              [value]="p.name"
+              [value]="p.displayName || p.name"
               (input)="updateProduct(i, 'name', $any($event.target).value)"
               (blur)="onNameBlur()" />
             @if (suggestionsOpen() === i && suggestions()[i]?.length) {
               <div class="autocomplete-dropdown">
                 @for (s of suggestions()[i]; track s.name) {
-                  <div class="autocomplete-item" (mousedown)="pickSuggestion(i, s.name, s.saved_cost)">
-                  <span class="ac-name">{{ s.name }}</span>
-                </div>
+                  <div class="autocomplete-item" (mousedown)="pickSuggestion(i, s.name, s.saved_cost, s.sku)">
+                    <span class="ac-name">{{ s.name }}</span>
+                  </div>
                 }
               </div>
             }
           </div>
+
           <input class="form-input" type="number"
             placeholder="At our expense — optional, uses saved cost if blank"
             [value]="p.cost"
             (input)="updateProduct(i, 'cost', $any($event.target).value)"
             (wheel)="$event.preventDefault()" />
 
-          <!-- Competitor prices shown as clean chips — no JSON -->
           @if (p.platforms.length > 0) {
             <div class="comp-chips-wrap">
               <div class="comp-chips-label">Competitor prices</div>
@@ -131,28 +129,6 @@
       </div>
     </div>
 
-    <div class="config-section churn-section">
-  <label class="churn-toggle">
-    <input type="checkbox" [checked]="useChurn()"
-      (change)="useChurn.set($any($event.target).checked)" />
-    <div class="churn-toggle-text">
-      <span class="churn-label">Enable retention pricing</span>
-      <span class="churn-hint">Applies personalised discounts for at-risk customers</span>
-    </div>
-  </label>
-  @if (useChurn()) {
-    <div class="churn-json-wrap">
-      <label class="param-label">Churn batch JSON (optional — leave blank to auto-fetch from DB)</label>
-      <textarea class="form-input churn-json-input"
-        rows="4"
-        placeholder='{"scores": [...]} — paste churn_scores.json, or leave blank to pull from DB automatically'
-        [value]="churnJson()"
-        (input)="churnJson.set($any($event.target).value)">
-      </textarea>
-    </div>
-  }
-</div>
-
     @if (savedMsg()) { <div class="info-bar">{{ savedMsg() }}</div> }
     @if (error()) { <div class="error-bar">{{ error() }}</div> }
 
@@ -163,7 +139,8 @@
         @else { 🧠 &nbsp;Get Price Recommendations }
       </button>
     </div>
-   
+
+  </div>
 
   <!-- RIGHT: Results -->
   <div class="rec-results">
@@ -202,9 +179,11 @@
         <div class="rec-top">
           <div class="rec-name">{{ rec.product_name }}</div>
           <span class="strategy-tag" [class]="strategyColor(rec.strategy)">
-            {{ rec.strategy === 'undercut' ? '⬇ Undercut' :
-               rec.strategy === 'match'    ? '⇔ Match' :
-               rec.strategy === 'premium'  ? '⬆ Premium' : '🎯 Retention' }}
+            {{rec.strategy === 'undercut'   ? '⬇ Undercut' :
+              rec.strategy === 'match'      ? '⇔ Match' :
+              rec.strategy === 'premium'    ? '⬆ Premium' :
+              rec.strategy === 'floor_only' ? '⚠ Floor Only' :
+              rec.strategy === 'no_data'    ? '❌ No Data' : '🎯 Retention' }}
           </span>
         </div>
 
@@ -235,7 +214,6 @@
           </div>
         </div>
 
-        <!-- Per-platform breakdown — shows which website charges what -->
         @if (rec.platform_breakdown && rec.platform_breakdown.length > 0) {
           <div class="platform-breakdown">
             <div class="platform-breakdown-label">Competitor Prices by Platform</div>

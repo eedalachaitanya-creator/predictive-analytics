@@ -1,7 +1,7 @@
 export const environment = {
   production: false,
-  apiUrl: 'http://10.0.0.14:8017/api/v1',
-  // apiUrl: 'http://localhost:8000/api/v1',
+  // apiUrl: 'http://10.0.0.14:8017/api/v1',
+  apiUrl: 'http://localhost:8000/api/v1',
   appVersion: '4.0.0',
   scoutApiUrl: 'http://10.0.0.14:8017',
   // Set to true to use built-in mock data (no backend needed).

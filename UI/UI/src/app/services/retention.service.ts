@@ -20,6 +20,8 @@ export interface RetentionRequest {
   dry_run:                boolean;
   min_risk:               'HIGH' | 'MEDIUM';
   min_probability_medium: number;
+  customer_ids?:          string[] | null;
+  custom_discounts?:      Record<string, number> | null;
 }
 
 export interface Intervention {

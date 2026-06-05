@@ -132,10 +132,11 @@ class RetentionAgent:
 
     def run(
         self,
-        churn_scores:   list[ChurnScore],
-        client_config:  ClientConfig,
-        value_props:    list[ValueProposition] | None = None,
-        price_contexts: dict[str, CustomerPriceContext] | None = None,
+        churn_scores:    list[ChurnScore],
+        client_config:   ClientConfig,
+        value_props:     list[ValueProposition] | None = None,
+        price_contexts:  dict[str, CustomerPriceContext] | None = None,
+        custom_discounts: dict[str, float] | None = None,
     ) -> RetentionBatch:
         """
         Process a batch of churn scores and generate retention interventions.
@@ -181,11 +182,12 @@ class RetentionAgent:
                 continue
 
             intervention = self._process_customer(
-                score           = score,
-                discount_lookup = discount_lookup,
-                channel_lookup  = channel_lookup,
-                price_ctx       = price_contexts.get(score.customer_id),
-                trace           = trace,
+                score            = score,
+                discount_lookup  = discount_lookup,
+                channel_lookup   = channel_lookup,
+                price_ctx        = price_contexts.get(score.customer_id),
+                trace            = trace,
+                custom_discounts = custom_discounts or {},
             )
             interventions.append(intervention)
 
@@ -207,11 +209,12 @@ class RetentionAgent:
 
     def _process_customer(
         self,
-        score:           ChurnScore,
-        discount_lookup: dict[tuple[str, str], float],
-        channel_lookup:  dict[tuple[str, str], str],
-        price_ctx:       CustomerPriceContext | None,
+        score:            ChurnScore,
+        discount_lookup:  dict[tuple[str, str], float],
+        channel_lookup:   dict[tuple[str, str], str],
+        price_ctx:        CustomerPriceContext | None,
         trace,
+        custom_discounts: dict[str, float] | None = None,
     ) -> RetentionIntervention:
         """
         Generate one retention intervention for one at-risk customer.
@@ -241,9 +244,11 @@ class RetentionAgent:
             offer_type       = "strategist_retention_price"
             guardrail_passed = True   # no discount to check against guardrail
         else:
-            # Calculate our own discount from the lookup table
-            raw_discount     = discount_lookup.get((tier, risk), 0.0)
-            # Apply guardrail: cap at max_discount_pct from client_config
+            # Client override takes priority over lookup table
+            if custom_discounts and score.customer_id in custom_discounts:
+                raw_discount = custom_discounts[score.customer_id]
+            else:
+                raw_discount = discount_lookup.get((tier, risk), 0.0)
             discount_pct     = min(raw_discount, self.config.max_discount_pct)
             guardrail_passed = raw_discount <= self.config.max_discount_pct
             offer_type       = self._offer_type(tier, risk, discount_pct)

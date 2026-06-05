@@ -24,57 +24,48 @@
         </div>
       </div>
 
-      @if (minRisk() === 'MEDIUM') {
-        <div class="field-group">
-          <label class="field-label">
-            Medium risk threshold
-            <span class="field-hint">Skip MEDIUM customers below this churn probability</span>
-          </label>
-          <div class="slider-row">
-            <input type="range" min="0.30" max="0.70" step="0.05"
-              [value]="minProbMedium()"
-              (input)="minProbMedium.set(+$any($event.target).value)" />
-            <span class="slider-val">{{ (minProbMedium() * 100).toFixed(0) }}%</span>
-          </div>
-          <div class="slider-note">
-            Customers with MEDIUM risk below {{ (minProbMedium() * 100).toFixed(0) }}% churn probability will be skipped
-          </div>
-        </div>
-      }
-
-      <div class="field-group">
-        <label class="toggle-row">
-          <input type="checkbox" [checked]="dryRun()" (change)="dryRun.set($any($event.target).checked)" />
-          <div class="toggle-text">
-            <span class="toggle-label">Preview mode</span>
-            <span class="toggle-hint">Generate offers without sending or saving</span>
-          </div>
-        </label>
-        @if (!dryRun()) {
-          <div class="warning-box">⚠️ Preview mode is off — offers will be saved and sent to customers</div>
-        }
-      </div>
-
       @if (error()) { <div class="error-bar">{{ error() }}</div> }
 
       <button class="run-btn" [disabled]="loading()" (click)="run()">
-        @if (loading()) { ⏳ &nbsp;Running... }
-        @else if (dryRun()) { 🔍 &nbsp;Preview Offers }
-        @else { 🚀 &nbsp;Send Retention Offers }
+        @if (loading()) { ⏳ &nbsp;Loading offers... }
+        @else { 🔍 &nbsp;Preview Offers }
       </button>
     </div>
 
-    @if (result()) {
+    <!-- Selection controls — shown after preview -->
+    @if (result() && result()!.interventions.length > 0 && result()!.dry_run) {
+      <div class="selection-card">
+        <div class="selection-header">
+          <div class="selection-info">
+            <span class="selection-count">{{ selectedCount() }} of {{ result()!.interventions.length }} selected</span>
+            <button class="btn ghost sm" (click)="toggleSelectAll()">
+              {{ allSelected() ? 'Deselect All' : 'Select All' }}
+            </button>
+          </div>
+          <button class="send-btn"
+            [disabled]="sending() || selectedCount() === 0"
+            (click)="sendSelected()">
+            @if (sending()) { ⏳ &nbsp;Sending... }
+            @else { 🚀 &nbsp;Send to Selected ({{ selectedCount() }}) }
+          </button>
+        </div>
+        <div class="selection-hint">
+          Review and edit discounts below, then select customers and click Send.
+        </div>
+      </div>
+    }
+
+    <!-- Sent summary -->
+    @if (result() && !result()!.dry_run) {
       <div class="summary-card">
         <div class="summary-title">Run Summary</div>
         <div class="summary-meta">
-          @if (result()!.dry_run) { <span class="badge yellow">preview only</span> } @else { <span class="badge green">saved</span> }
+          <span class="badge green">saved & sent</span>
         </div>
         <div class="summary-grid">
           @for (key of summaryKeys(result()!.summary); track key) {
             <div class="summary-item">
               @if (isObject(result()!.summary[key])) {
-                <!-- by_channel and similar: render as a small list, not [object Object] -->
                 <div class="s-val s-val-list">
                   @for (sub of objectEntries(result()!.summary[key]); track sub[0]) {
                     <div class="sub-row">
@@ -107,7 +98,7 @@
       <div class="empty-state">
         <div class="empty-icon">🎯</div>
         <div class="empty-title">Ready to run</div>
-        <div class="empty-sub">Configure and run to generate personalised retention offers for at-risk customers</div>
+        <div class="empty-sub">Click Preview Offers to generate and review personalised retention offers</div>
       </div>
     }
 
@@ -120,24 +111,58 @@
     }
 
     @for (item of result()?.interventions || []; track item.customer_id; let i = $index) {
-      <div class="offer-card" [class.escalated]="item.escalated_to_human">
-        <div class="offer-header" (click)="toggleExpand(i)">
-          <div class="offer-left">
-            @if (item.escalated_to_human) { <span class="esc-badge">🔔 Needs personal outreach</span> }
-            <span class="customer-id">{{ item.customer_id }}</span>
-            <span class="badge" [class]="riskColor(item.risk_tier)">{{ item.risk_tier }} risk</span>
-            <span class="channel-pill">{{ channelIcon(item.channel) }} {{ item.channel }}</span>
-          </div>
-          <div class="offer-right">
-            @if (item.discount_pct > 0) {
-              <span class="discount-pill">{{ fmtPct(item.discount_pct) }} discount</span>
-            } @else {
-              <span class="discount-pill discount-pill-zero" title="No discount — message-only re-engagement attempt">
-                Re-engagement
-              </span>
-            }
-            <span class="churn-prob">{{ fmtProb(item.churn_probability) }} churn risk</span>
-            <span class="expand-arrow">{{ expanded() === i ? '▲' : '▼' }}</span>
+      <div class="offer-card"
+        [class.escalated]="item.escalated_to_human"
+        [class.selected]="isSelected(item.customer_id)"
+        [class.deselected]="result()!.dry_run && !isSelected(item.customer_id)">
+
+        <div class="offer-header">
+          <!-- Checkbox — only in preview mode -->
+          @if (result()!.dry_run) {
+            <input type="checkbox"
+              class="offer-checkbox"
+              [checked]="isSelected(item.customer_id)"
+              (change)="toggleSelect(item.customer_id)" />
+          }
+
+          <div class="offer-header-content" (click)="toggleExpand(i)">
+            <div class="offer-left">
+              @if (item.escalated_to_human) {
+                <span class="esc-badge">🔔 Needs personal outreach</span>
+              }
+              <span class="customer-id">{{ item.customer_id }}</span>
+              <span class="badge" [class]="riskColor(item.risk_tier)">{{ item.risk_tier }} risk</span>
+              <span class="channel-pill">{{ channelIcon(item.channel) }} {{ item.channel }}</span>
+            </div>
+            <div class="offer-right">
+              <!-- Editable discount — only in preview mode -->
+              @if (result()!.dry_run) {
+                @if (getDiscount(item) === 0 && !discountEdits()[item.customer_id]) {
+                  <span class="discount-pill discount-pill-zero"
+                    title="No discount — click to add one"
+                    (click)="setDiscount(item.customer_id, '0'); $event.stopPropagation()">
+                    Re-engagement
+                  </span>
+                } @else {
+                  <div class="discount-edit" (click)="$event.stopPropagation()">
+                    <input type="number" class="discount-input"
+                      min="0" max="100" step="1"
+                      [value]="getDiscount(item)"
+                      (input)="setDiscount(item.customer_id, $any($event.target).value)"
+                      (wheel)="$event.preventDefault()" />
+                    <span class="discount-unit">%</span>
+                  </div>
+                }
+              } @else {
+                @if (item.discount_pct > 0) {
+                  <span class="discount-pill">{{ fmtPct(item.discount_pct) }} discount</span>
+                } @else {
+                  <span class="discount-pill discount-pill-zero">Re-engagement</span>
+                }
+              }
+              <span class="churn-prob">{{ fmtProb(item.churn_probability) }} churn risk</span>
+              <span class="expand-arrow">{{ expanded() === i ? '▲' : '▼' }}</span>
+            </div>
           </div>
         </div>
 

@@ -1,35 +1,3 @@
-"""
-agents/tools/value_prop_fetch_tool.py — Customer Retention Platform
-====================================================================
-
-ValuePropFetchTool
-------------------
-A LangChain BaseTool that wraps fetch_value_props() as an observable,
-mockable tool step in the LangGraph pipeline.
-
-WHY THIS IS A TOOL:
-  value_propositions is the discount table: (tier, risk_level) → discount_pct.
-  Without this tool, Strategist was using a hardcoded _VP_DISCOUNTS dict, which
-  drifted silently from Retention Agent (which reads from DB). Same customer,
-  different discount depending on which agent touched them first.
-
-  As a tool:
-    1. The load is a visible span in LangSmith — you can see which discount
-       source was used and why (DB hit vs fallback).
-    2. Integration tests can inject ValuePropFetchTool(override=[...]) without
-       needing a live DB.
-    3. Retention and Strategist now share one source of truth (value_propositions
-       table). Change a discount in the DB → both agents pick it up.
-
-INPUTS:
-    (none — value_propositions is a global table, not per-client today)
-
-OUTPUTS:
-    list[ValueProposition]  — rows from the DB, or empty list on failure.
-                              Caller should fall back to hardcoded _VP_DISCOUNTS
-                              when this returns [].
-"""
-
 from __future__ import annotations
 
 import logging
@@ -48,11 +16,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class ValuePropFetchInput(BaseModel):
-    """
-    No inputs — value_propositions is loaded globally.
-    A future per-client override could add `client_id` here.
-    """
-    pass
+    client_id: str = "default"
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +48,7 @@ class ValuePropFetchTool(BaseTool):
         import asyncio
         return asyncio.get_event_loop().run_until_complete(self._arun())
 
-    async def _arun(self, **kwargs: Any) -> List[ValueProposition]:
+    async def _arun(self, client_id: str = "default", **kwargs: Any) -> List[ValueProposition]:
         """
         Load discount rules from Analyst DB.
 
@@ -101,7 +65,7 @@ class ValuePropFetchTool(BaseTool):
         # ── Normal DB path ─────────────────────────────────────────────────
         try:
             from strategist.db.persistence import fetch_value_props
-            rows = await fetch_value_props()
+            rows = await fetch_value_props(client_id)
 
             logger.info(
                 "ValuePropFetchTool: loaded %d discount rules from value_propositions", len(rows)

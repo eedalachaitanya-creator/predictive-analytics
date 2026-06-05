@@ -94,7 +94,7 @@ async def run_retention(
     )
 
     # ── Step 2: Load discount rules ──────────────────────────────────────
-    value_props = await fetch_value_props()
+    value_props = await fetch_value_props(client_id)
     logger.info("Loaded %d value propositions.", len(value_props))
 
     # ── Step 3: Get churn scores ──────────────────────────────────────────
@@ -117,9 +117,18 @@ async def run_retention(
                 ),
             )
 
+    # ── Step 3a: Filter by specific customer_ids if provided ─────────────
+    if request.customer_ids:
+        allowed = set(request.customer_ids)
+        churn_scores = [s for s in churn_scores if s.customer_id in allowed]
+        logger.info(
+            "customer_ids filter: %d customers selected out of available pool.",
+            len(churn_scores)
+        )
+
     logger.info("Processing %d churn scores.", len(churn_scores))
 
-    # ── Step 3b: Dedup — skip customers offered in the last 30 days ───────
+    # ── Step 3b: Dedup ───────────────────────────────────────────────────
     try:
         from strategist.db.connection import get_analyst_pool
         pool = await get_analyst_pool()
@@ -170,10 +179,11 @@ async def run_retention(
         min_probability_medium=request.min_probability_medium,
     ))
     batch = agent.run(
-        churn_scores   = churn_scores,
-        client_config  = client_config,
-        value_props    = value_props or None,   # None triggers hardcoded fallback
-        price_contexts = price_contexts,
+        churn_scores     = churn_scores,
+        client_config    = client_config,
+        value_props      = value_props or None,
+        price_contexts   = price_contexts,
+        custom_discounts = request.custom_discounts,
     )
 
     logger.info(

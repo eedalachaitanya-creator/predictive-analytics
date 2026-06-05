@@ -314,3 +314,18 @@
     }
   }
 }
+.action-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.info-bar {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #166534;
+}
+.strategy-tag.orange { background: #FED7AA; color: #C2410C; }

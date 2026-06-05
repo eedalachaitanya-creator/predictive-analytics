@@ -262,7 +262,7 @@ async def load_market_context(state: StrategistState) -> StrategistState:
 
     # ── Tool 4: ValuePropFetchTool — load discount rules from DB ───────────
     vp_tool     = ValuePropFetchTool()
-    value_props = await vp_tool.ainvoke({})
+    value_props = await vp_tool.ainvoke({"client_id": request.client_id})
     logger.info(
         "load_market_context: ValuePropFetchTool → %d discount rules loaded",
         len(value_props),

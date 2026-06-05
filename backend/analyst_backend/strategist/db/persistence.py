@@ -216,15 +216,16 @@ async def fetch_at_risk_customers(
         return []
 
 
-async def fetch_value_props() -> list[ValueProposition]:
+async def fetch_value_props(client_id: str = "default") -> list[ValueProposition]:
     """
     Load discount rules from value_propositions table.
-    Returns empty list on failure — RetentionAgent uses its hardcoded _VP_DISCOUNTS fallback.
+    Client-specific rules take priority over default rules.
+    Returns empty list on failure — agents use hardcoded _VP_DISCOUNTS fallback.
     """
     try:
         pool = await get_analyst_pool()
         async with pool.acquire() as conn:
-            return await ValuePropositionsRepo.get_all(conn)
+            return await ValuePropositionsRepo.get_all(conn, client_id)
     except Exception as exc:
         logger.warning("Cannot fetch value_propositions: %s — using hardcoded table.", exc)
         return []

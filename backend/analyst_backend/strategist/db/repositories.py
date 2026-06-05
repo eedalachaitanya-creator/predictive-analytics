@@ -409,22 +409,7 @@ _VP_RISK_LEVEL_MAP: dict[str, str] = {
 class ValuePropositionsRepo:
 
     @staticmethod
-    async def get_all(conn: asyncpg.Connection) -> list[ValueProposition]:
-        """
-        Load all discount rules from value_propositions table.
-        Ordered by priority ASC (lower number = higher priority).
-
-        Maps Analyst Agent risk_level names to agent-expected names at read time:
-          "At-Risk"    → "HIGH"   (customer at churn risk = HIGH priority)
-          "Reactivated"→ "LOW"    (already re-engaged, low urgency)
-          "New"        → "LOW"    (new customer, low churn risk)
-
-        This keeps the DB schema owned by the Analyst Agent unchanged
-        while giving Strategist and Retention agents the values they expect.
-
-        If table is empty, both agents fall back to their hardcoded
-        _VP_DISCOUNTS dict.
-        """
+    async def get_all(conn: asyncpg.Connection, client_id: str = "default") -> list[ValueProposition]:
         rows = await conn.fetch(
             """
             SELECT
@@ -436,8 +421,13 @@ class ValuePropositionsRepo:
                 channel,
                 priority
             FROM value_propositions
-            ORDER BY priority ASC
-            """
+            WHERE client_id = $1
+               OR client_id = 'default'
+            ORDER BY
+                CASE WHEN client_id = $1 THEN 0 ELSE 1 END,
+                priority ASC
+            """,
+            client_id,
         )
         vps = []
         for r in rows:

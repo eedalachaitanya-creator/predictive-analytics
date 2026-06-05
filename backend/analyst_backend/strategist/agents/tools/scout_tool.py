@@ -1,38 +1,3 @@
-"""
-agents/tools/scout_tool.py — Customer Retention Platform
-=========================================================
-
-ScoutPriceFetchTool
--------------------
-Fetches competitor price listings for the pricing engine.
-
-TWO data sources (tried in order):
-  1. Scout Agent HTTP API  (POST /search/products)
-     — used when SCOUT_AGENT_URL is set and the service is reachable
-     — Scout Agent scrapes live prices from Amazon, Flipkart, etc.
-
-  2. entity_listings DB table  (direct asyncpg query — ALWAYS available)
-     — used when Scout Agent is unreachable OR SCOUT_AGENT_URL is not set
-     — entity_listings is written by the Scout Agent on every scrape run
-     — same data, no HTTP round-trip, always consistent with DB state
-
-This means the Strategist pipeline NEVER blocks on Scout Agent availability.
-If Scout is down, we price from the last scraped data in entity_listings.
-
-DB query:
-  SELECT e.canonical_name, el.platform, el.price, el.availability, el.product_url, el.last_seen
-  FROM entity_listings el
-  JOIN entities e ON e.id = el.entity_id
-  WHERE e.canonical_name = ANY($1)
-    AND el.availability = 'in_stock'
-    AND el.price > 0
-  ORDER BY e.canonical_name, el.last_seen DESC
-
-ENVIRONMENT:
-    SCOUT_AGENT_URL  — optional. If set, HTTP API is tried first.
-                       default: not set (DB-only mode)
-"""
-
 from __future__ import annotations
 
 import logging
@@ -169,7 +134,6 @@ class ScoutPriceFetchTool(BaseTool):
 
     # ── DB source (entity_listings) ───────────────────────────────────────────
 
-    # async def _fetch_from_db(self, product_names: list[str]) -> ScoutBulkResponse:
     async def _fetch_from_db(
         self,
         product_names: list[str],
@@ -178,26 +142,24 @@ class ScoutPriceFetchTool(BaseTool):
         """
         Query entity_listings directly from Scout DB.
 
-        Matching strategy (user-friendly names supported):
-          1. Exact match on entities.canonical_name  (e.g. "Dolo-650 - Strip of 15 Tablets")
-          2. OR case-insensitive match on entities.query  (e.g. "dolo 650")
+        Matching strategy (in priority order):
+          1. Exact match on entities.canonical_name
+          2. Case-insensitive match on entities.query
+          3. Trigram similarity >= 0.3 (pg_trgm) — works for ANY product name
 
-        Scout's entities table stores both the full scraped title (canonical_name)
-        AND the original user-facing search term (query). By matching either,
-        users can type the clean short name OR the messy full title — both resolve
-        to the same product's listings.
+        DISTINCT ON (el.platform) deduplicates — one listing per platform
+        even if multiple entities match the same product.
         """
         try:
             from strategist.db.connection import get_scout_pool
 
-            # Lowercase variants for case-insensitive query-column match
             lowered = [n.lower() for n in product_names]
 
             pool = await get_scout_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT
+                    SELECT DISTINCT ON (el.platform)
                         e.canonical_name   AS canonical_name,
                         e.query            AS orig_query,
                         el.platform,
@@ -211,36 +173,56 @@ class ScoutPriceFetchTool(BaseTool):
                     WHERE (
                         e.canonical_name = ANY($1::text[])
                         OR LOWER(e.query) = ANY($2::text[])
+                        OR EXISTS (
+                            SELECT 1 FROM unnest($1::text[]) AS input_name
+                            WHERE similarity(LOWER(e.canonical_name), LOWER(input_name)) > 0.3
+                               OR similarity(LOWER(e.query), LOWER(input_name)) > 0.3
+                        )
                     )
                       AND el.availability = 'in_stock'
                       AND el.price > 0
                       AND el.currency = $3
-                    ORDER BY e.canonical_name, el.last_seen DESC
+                    ORDER BY el.platform, el.price ASC, el.last_seen DESC
                     """,
                     product_names,
                     lowered,
                     currency,
                 )
 
-            # Map each returned row back to whichever input key it matched.
-            # The pricing engine expects results keyed by the USER's input,
-            # not by canonical_name. Build a reverse lookup so "dolo 650"
-            # (input) gets the Dolo-650 listings attached to it.
-            input_set_exact = set(product_names)
-            input_set_lower = {n.lower(): n for n in product_names}
-
+            # Map every returned row back to the user's input product name.
+            # Priority: exact canonical → exact query → token overlap fallback.
+            input_set_exact  = set(product_names)
+            input_set_lower  = {n.lower(): n for n in product_names}
             products: dict[str, list[ScoutListing]] = {n: [] for n in product_names}
 
             for row in rows:
                 canonical = row["canonical_name"]
                 orig_q    = row["orig_query"]
-
-                # Figure out which input name this row belongs to
                 matched_key = None
+
+                # Priority 1: exact canonical_name
                 if canonical in input_set_exact:
                     matched_key = canonical
+
+                # Priority 2: exact query column
                 elif orig_q and orig_q.lower() in input_set_lower:
                     matched_key = input_set_lower[orig_q.lower()]
+
+                # Priority 3: token overlap — no hardcoding, works for any product
+                else:
+                    best_score = 0.0
+                    for input_name in product_names:
+                        input_tokens     = set(input_name.lower().split())
+                        canonical_tokens = set(canonical.lower().split())
+                        if not input_tokens:
+                            continue
+                        overlap = len(input_tokens & canonical_tokens) / len(input_tokens)
+                        if overlap > best_score:
+                            best_score  = overlap
+                            matched_key = input_name
+                    # Require at least 30% token overlap to accept the match
+                    if best_score < 0.3:
+                        matched_key = None
 
                 if matched_key is None:
                     continue
@@ -269,7 +251,7 @@ class ScoutPriceFetchTool(BaseTool):
             found = sum(1 for p in scout_products if p.listings)
             logger.info(
                 "ScoutPriceFetchTool [DB]: %d/%d products have listings "
-                "(total %d rows; matched via canonical_name or query column)",
+                "(total %d rows; matched via exact/trigram)",
                 found, len(product_names), len(rows),
             )
 

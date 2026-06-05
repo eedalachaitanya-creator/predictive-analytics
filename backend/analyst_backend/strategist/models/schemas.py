@@ -410,11 +410,15 @@ class RetentionRequest(BaseModel):
     min_risk     — floor for risk tier processed (HIGH = skip MEDIUM customers).
     """
     churn_batch:            Optional[ChurnBatch] = None
-    client_id:              str  # required — must be supplied by caller
+    client_id:              str
     dry_run:                bool = False
-    min_risk:               Literal["HIGH", "MEDIUM"] = "MEDIUM"   # LOW always skipped
+    min_risk:               Literal["HIGH", "MEDIUM"] = "MEDIUM"
     min_probability_medium: float = Field(default=0.40, ge=0.0, le=1.0,
-        description="Skip MEDIUM risk customers below this churn probability (default 0.40)")
+        description="Skip MEDIUM risk customers below this churn probability")
+    customer_ids:           Optional[list[str]] = Field(default=None,
+        description="If set, only process these specific customers")
+    custom_discounts:       Optional[dict[str, float]] = Field(default=None,
+        description="Per-customer discount overrides {customer_id: discount_pct}")
 
 
 class RetentionResponse(BaseModel):

@@ -19,7 +19,7 @@
       [class.input-error]="emailError()"
       type="email"
       [ngModel]="email()"
-      (ngModelChange)="email.set($event)"
+      (ngModelChange)="email.set($event); error.set('')"
       (blur)="emailTouched.set(true)"
       placeholder="you@company.com"
       [disabled]="loading()"
@@ -38,7 +38,7 @@
         [class.input-error]="passwordError()"
         [type]="showPassword() ? 'text' : 'password'"
         [ngModel]="password()"
-        (ngModelChange)="password.set($event)"
+        (ngModelChange)="password.set($event); error.set('')"
         (blur)="passwordTouched.set(true)"
         placeholder="Enter your password"
         [disabled]="loading()"
@@ -70,61 +70,63 @@
     </button>
 
     <div class="login-footer">
-  <p class="login-links">New client? <a routerLink="/register">Create Account</a></p>
-  <p class="login-links"><a (click)="openForgot()" style="cursor:pointer">Forgot password?</a> · <a href="#">Contact IT Support</a></p>
-</div>
-  @if (forgotOpen()) {
-    <div class="modal-backdrop" (click)="closeForgot()">
-      <div class="modal-card" (click)="$event.stopPropagation()">
-        @if (!forgotResult()) {
-          <h3 class="modal-title">Forgot your password?</h3>
-          <p class="modal-sub">
-            Enter the email address linked to your account. We'll generate a temporary password and display it here.
-          </p>
-
-          <label class="form-label">Email Address <span class="required">*</span></label>
-          <input
-            class="form-input mb-16"
-            type="email"
-            [ngModel]="forgotEmail()"
-            (ngModelChange)="forgotEmail.set($event)"
-            placeholder="you@company.com"
-            [disabled]="forgotLoading()"
-            autocomplete="email"
-            (keyup.enter)="submitForgot()"
-            required />
-
-          @if (forgotError()) {
-            <div class="err-msg">⚠️ {{ forgotError() }}</div>
-          }
-
-          <div class="modal-actions">
-            <button class="btn outline" (click)="closeForgot()" [disabled]="forgotLoading()">Cancel</button>
-            <button class="btn walmart" (click)="submitForgot()" [disabled]="forgotLoading()">
-              {{ forgotLoading() ? 'Resetting…' : 'Reset Password' }}
-            </button>
-          </div>
-        } @else {
-          <h3 class="modal-title">✅ Password Reset</h3>
-          <p class="modal-sub">{{ forgotResult()!.message }}</p>
-
-          <label class="form-label">Temporary password for {{ forgotResult()!.email }}</label>
-          <div class="temp-password-box">
-            <code class="temp-password-value">{{ forgotResult()!.temp_password }}</code>
-            <button class="btn outline sm" (click)="copyTempPassword()">
-              {{ copyDone() ? 'Copied!' : 'Copy' }}
-            </button>
-          </div>
-
-          <p class="modal-hint">
-            All previous sessions have been logged out. Close this dialog and sign in with the temporary password above.
-          </p>
-
-          <div class="modal-actions">
-            <button class="btn walmart" (click)="closeForgot()">Close</button>
-          </div>
-        }
-      </div>
+      <p class="login-links">New client? <a routerLink="/register">Create Account</a></p>
+      <p class="login-links"><a (click)="openForgot()" style="cursor:pointer">Forgot password?</a> · <a href="#">Contact IT Support</a></p>
     </div>
-  }
+
+    @if (forgotOpen()) {
+      <div class="modal-backdrop" (click)="closeForgot()">
+        <div class="modal-card" (click)="$event.stopPropagation()">
+          @if (!forgotResult()) {
+            <h3 class="modal-title">Forgot your password?</h3>
+            <p class="modal-sub">
+              Enter the email address linked to your account. We'll generate a temporary password and display it here.
+            </p>
+
+            <label class="form-label">Email Address <span class="required">*</span></label>
+            <input
+              class="form-input mb-16"
+              type="email"
+              [ngModel]="forgotEmail()"
+              (ngModelChange)="forgotEmail.set($event)"
+              placeholder="you@company.com"
+              [disabled]="forgotLoading()"
+              autocomplete="email"
+              (keyup.enter)="submitForgot()"
+              required />
+
+            @if (forgotError()) {
+              <div class="err-msg">⚠️ {{ forgotError() }}</div>
+            }
+
+            <div class="modal-actions">
+              <button class="btn outline" (click)="closeForgot()" [disabled]="forgotLoading()">Cancel</button>
+              <button class="btn walmart" (click)="submitForgot()" [disabled]="forgotLoading()">
+                {{ forgotLoading() ? 'Resetting…' : 'Reset Password' }}
+              </button>
+            </div>
+          } @else {
+            <h3 class="modal-title">✅ Password Reset</h3>
+            <p class="modal-sub">{{ forgotResult()!.message }}</p>
+
+            <label class="form-label">Temporary password for {{ forgotResult()!.email }}</label>
+            <div class="temp-password-box">
+              <code class="temp-password-value">{{ forgotResult()!.temp_password }}</code>
+              <button class="btn outline sm" (click)="copyTempPassword()">
+                {{ copyDone() ? 'Copied!' : 'Copy' }}
+              </button>
+            </div>
+
+            <p class="modal-hint">
+              All previous sessions have been logged out. Close this dialog and sign in with the temporary password above.
+            </p>
+
+            <div class="modal-actions">
+              <button class="btn walmart" (click)="closeForgot()">Close</button>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
 </div>

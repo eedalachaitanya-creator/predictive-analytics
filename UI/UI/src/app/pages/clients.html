@@ -69,13 +69,18 @@
               </label>
               <input id="ac-name"
                      class="form-input"
+                     [class.input-error]="addNameError()"
                      type="text"
                      placeholder="e.g. Target Corporation"
                      autocomplete="organization"
                      [ngModel]="addForm().client_name"
                      (ngModelChange)="updateAddField('client_name', $event)"
+                     (blur)="addNameTouched.set(true)"
                      [disabled]="addSaving()"
                      required />
+              @if (addNameError()) {
+                <div class="field-err-inline">⚠ {{ addNameError() }}</div>
+              }
             </div>
 
             <div class="form-field">
@@ -84,15 +89,22 @@
               </label>
               <input id="ac-code"
                      class="form-input font-mono"
+                     [class.input-error]="addCodeError()"
                      type="text"
                      placeholder="e.g. TARGET"
                      maxlength="10"
                      autocomplete="off"
                      [ngModel]="addForm().client_code"
                      (ngModelChange)="updateAddField('client_code', $event)"
+                     (blur)="addCodeTouched.set(true)"
                      [disabled]="addSaving()"
                      required />
-              <div class="form-hint">Max 10 characters · auto-uppercased.</div>
+              @if (addCodeError()) {
+                <div class="field-err-inline">⚠ {{ addCodeError() }}</div>
+              }
+              @if (!addCodeError()) {
+                <div class="form-hint">Max 10 characters · auto-uppercased.</div>
+              }
             </div>
           </div>
         </section>
@@ -114,13 +126,18 @@
               </label>
               <input id="ac-contact"
                      class="form-input"
+                     [class.input-error]="addContactError()"
                      type="text"
                      placeholder="e.g. Jane Smith"
                      autocomplete="name"
                      [ngModel]="addForm().contact_name"
                      (ngModelChange)="updateAddField('contact_name', $event)"
+                     (blur)="addContactTouched.set(true)"
                      [disabled]="addSaving()"
                      required />
+              @if (addContactError()) {
+                <div class="field-err-inline">⚠ {{ addContactError() }}</div>
+              }
             </div>
 
             <div class="form-field">
@@ -129,13 +146,18 @@
               </label>
               <input id="ac-email"
                      class="form-input"
+                     [class.input-error]="addEmailError()"
                      type="email"
                      placeholder="jane@target.com"
                      autocomplete="email"
                      [ngModel]="addForm().contact_email"
                      (ngModelChange)="updateAddField('contact_email', $event)"
+                     (blur)="addEmailTouched.set(true)"
                      [disabled]="addSaving()"
                      required />
+              @if (addEmailError()) {
+                <div class="field-err-inline">⚠ {{ addEmailError() }}</div>
+              }
             </div>
           </div>
 
@@ -146,11 +168,13 @@
             <div class="password-wrapper">
               <input id="ac-pw"
                      class="form-input font-mono"
+                     [class.input-error]="addPassError()"
                      [type]="showPassword() ? 'text' : 'password'"
                      placeholder="Min 8 chars, uppercase, number, special"
                      autocomplete="new-password"
                      [ngModel]="addForm().password"
                      (ngModelChange)="updateAddField('password', $event)"
+                     (blur)="addPassTouched.set(true)"
                      [disabled]="addSaving()"
                      required />
               <button type="button"
@@ -163,9 +187,12 @@
                 <svg *ngIf="showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               </button>
             </div>
-            <div class="form-hint">
-              Must be 8+ characters with at least one uppercase letter, one number, and one special character.
-            </div>
+            @if (addPassError()) {
+              <div class="field-err-inline">⚠ {{ addPassError() }}</div>
+            }
+            @if (!addPassError()) {
+              <div class="form-hint">Must be 8+ characters with at least one uppercase letter, one number, and one special character.</div>
+            }
           </div>
         </section>
 

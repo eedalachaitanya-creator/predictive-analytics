@@ -422,3 +422,17 @@
   &:hover { opacity: 1; }
   &:disabled { cursor: default; opacity: 0.25; }
 }
+// ── Red border on invalid inputs ──────────────────────────────────
+.form-input.input-error {
+  border-color: #DC2626 !important;
+  background: rgba(220, 38, 38, 0.03);
+  &:focus { box-shadow: 0 0 0 3px rgba(220,38,38,.12) !important; }
+}
+
+// ── Inline field error message ────────────────────────────────────
+.field-err-inline {
+  font-size: 12px;
+  color: #DC2626;
+  font-weight: 500;
+  margin-top: 5px;
+}

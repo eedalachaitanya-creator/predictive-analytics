@@ -206,6 +206,7 @@
 }
 
 // ── Spacing helpers ───────────────────────────────────────────────
+.mb-4  { margin-bottom: 4px; }
 .mb-6  { margin-bottom: 6px; }
 .mb-8  { margin-bottom: 8px; }
 .mb-12 { margin-bottom: 12px; }
@@ -313,8 +314,6 @@
   user-select: all;
   word-break: break-all;
 }
-// ── mb-4 spacing helper (needed for field-error spacing) ─────────
-.mb-4 { margin-bottom: 4px; }
 
 // ── Wider card for register page ──────────────────────────────────
 .register-card {
@@ -328,16 +327,10 @@
   align-items: center;
 }
 
+// ── FIXED: removed ::before so ⚠ doesn't appear twice ────────────
 .field-err {
   font-size: 12px;
   color: #DC2626;
-  font-weight: 500;
-  &::before { content: '⚠ '; font-size: 11px; }
-}
-
-.field-ok {
-  font-size: 12px;
-  color: #10B981;
   font-weight: 500;
 }
 

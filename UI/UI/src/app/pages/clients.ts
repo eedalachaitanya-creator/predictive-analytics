@@ -46,11 +46,11 @@ interface TableDataResponse {
   styleUrls: ['./clients.scss']
 })
 export class ClientsComponent implements OnInit {
-  private api = inject(ApiService);
+  private api  = inject(ApiService);
   private auth = inject(AuthService);
 
-  clients = signal<ClientRow[]>([]);
-  loading = signal(true);
+  clients  = signal<ClientRow[]>([]);
+  loading  = signal(true);
   selected = signal<ClientRow | null>(null);
 
   activeClients   = computed(() => this.clients().filter(c => c.is_active));
@@ -79,12 +79,64 @@ export class ClientsComponent implements OnInit {
   readonly isSuperAdmin = this.auth.isSuperAdmin;
 
   // ── Add-client form state ─────────────────────────────────────────────
-  showAddForm   = signal(false);
-  showPassword  = signal(false);   // eye toggle for the password field
-  addForm       = signal({ client_name: '', client_code: '', contact_name: '', contact_email: '', password: '' });
-  addSaving     = signal(false);
-  addError      = signal('');
-  addSuccess    = signal<string>('');
+  showAddForm  = signal(false);
+  showPassword = signal(false);
+  addForm      = signal({ client_name: '', client_code: '', contact_name: '', contact_email: '', password: '' });
+  addSaving    = signal(false);
+  addError     = signal('');
+  addSuccess   = signal<string>('');
+
+  // ── Touched flags — one per field ─────────────────────────────────────
+  addNameTouched     = signal(false);
+  addCodeTouched     = signal(false);
+  addContactTouched  = signal(false);
+  addEmailTouched    = signal(false);
+  addPassTouched     = signal(false);
+
+  // ── Validation regexes ────────────────────────────────────────────────
+  private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{3,}$/;
+  private readonly CODE_RE  = /^[A-Za-z0-9]+$/;
+
+  // ── Inline computed errors ────────────────────────────────────────────
+  addNameError = computed(() => {
+    if (!this.addNameTouched()) return '';
+    if (!this.addForm().client_name.trim()) return 'Company name is required.';
+    return '';
+  });
+
+  addCodeError = computed(() => {
+    if (!this.addCodeTouched()) return '';
+    const code = this.addForm().client_code.trim();
+    if (!code) return 'Company code is required (e.g. TARGET, COSTCO).';
+    if (code.length > 10) return 'Company code must be 10 characters or less.';
+    if (!this.CODE_RE.test(code)) return 'Letters and numbers only — no special characters.';
+    return '';
+  });
+
+  addContactError = computed(() => {
+    if (!this.addContactTouched()) return '';
+    if (!this.addForm().contact_name.trim()) return 'Contact name is required.';
+    return '';
+  });
+
+  addEmailError = computed(() => {
+    if (!this.addEmailTouched()) return '';
+    const v = this.addForm().contact_email.trim();
+    if (!v) return 'Contact email is required.';
+    if (!this.EMAIL_RE.test(v)) return 'Please enter a valid email (e.g. jane@target.com).';
+    return '';
+  });
+
+  addPassError = computed(() => {
+    if (!this.addPassTouched()) return '';
+    const p = this.addForm().password;
+    if (!p) return 'Password is required.';
+    if (p.length < 8) return 'Must be at least 8 characters.';
+    if (!/[A-Z]/.test(p)) return 'Must contain at least one uppercase letter.';
+    if (!/[0-9]/.test(p)) return 'Must contain at least one number.';
+    if (!/[^A-Za-z0-9]/.test(p)) return 'Must contain at least one special character (e.g. !@#$%).';
+    return '';
+  });
 
   // ── Delete-client state ───────────────────────────────────────────────
   deleteConfirmId = signal<string | null>(null);
@@ -102,17 +154,15 @@ export class ClientsComponent implements OnInit {
   overviewError   = signal('');
 
   // ── Per-table data-viewer modal state ─────────────────────────────────
-  viewTable    = signal<string | null>(null);
-  viewLabel    = signal<string>('');
-  viewData     = signal<TableDataResponse | null>(null);
-  viewLoading  = signal(false);
-  viewError    = signal('');
-  viewOffset   = signal(0);
+  viewTable  = signal<string | null>(null);
+  viewLabel  = signal<string>('');
+  viewData   = signal<TableDataResponse | null>(null);
+  viewLoading = signal(false);
+  viewError  = signal('');
+  viewOffset = signal(0);
   readonly viewLimit = 100;
 
-  ngOnInit() {
-    this.loadClients();
-  }
+  ngOnInit() { this.loadClients(); }
 
   loadClients() {
     this.loading.set(true);
@@ -142,7 +192,7 @@ export class ClientsComponent implements OnInit {
       error: (err) => {
         this.overviewLoading.set(false);
         this.overviewError.set(
-          err?.error?.detail ?? err?.error?.message ?? err?.message ?? 'Could not load data overview for this client.'
+          err?.error?.detail ?? err?.error?.message ?? err?.message ?? 'Could not load data overview.'
         );
       }
     });
@@ -189,7 +239,7 @@ export class ClientsComponent implements OnInit {
 
   fetchTableRows() {
     const client = this.selected();
-    const table = this.viewTable();
+    const table  = this.viewTable();
     if (!client || !table) return;
     this.viewLoading.set(true);
     this.viewError.set('');
@@ -198,7 +248,7 @@ export class ClientsComponent implements OnInit {
       next: (data) => { this.viewData.set(data); this.viewLoading.set(false); },
       error: (err) => {
         this.viewLoading.set(false);
-        this.viewError.set(err?.error?.detail ?? err?.error?.message ?? err?.message ?? 'Could not load data for this table.');
+        this.viewError.set(err?.error?.detail ?? err?.error?.message ?? err?.message ?? 'Could not load data.');
       }
     });
   }
@@ -222,7 +272,7 @@ export class ClientsComponent implements OnInit {
     const d = this.viewData();
     if (!d || d.total === 0) return 'No rows';
     const start = d.offset + 1;
-    const end = Math.min(d.offset + d.rows.length, d.total);
+    const end   = Math.min(d.offset + d.rows.length, d.total);
     return `${start}–${end} of ${this.formatCount(d.total)}`;
   }
 
@@ -243,6 +293,12 @@ export class ClientsComponent implements OnInit {
     this.addError.set('');
     this.addSuccess.set('');
     this.showPassword.set(false);
+    // Reset all touched flags
+    this.addNameTouched.set(false);
+    this.addCodeTouched.set(false);
+    this.addContactTouched.set(false);
+    this.addEmailTouched.set(false);
+    this.addPassTouched.set(false);
     this.showAddForm.set(true);
   }
 
@@ -257,38 +313,42 @@ export class ClientsComponent implements OnInit {
     this.addForm.update(f => ({ ...f, [field]: value }));
   }
 
-  saveNewClient() {
+  private addFormValid(): boolean {
     const f = this.addForm();
+    return (
+      !!f.client_name.trim() &&
+      !!f.client_code.trim() &&
+      f.client_code.length <= 10 &&
+      this.CODE_RE.test(f.client_code) &&
+      !!f.contact_name.trim() &&
+      !!f.contact_email.trim() &&
+      this.EMAIL_RE.test(f.contact_email.trim()) &&
+      f.password.length >= 8 &&
+      /[A-Z]/.test(f.password) &&
+      /[0-9]/.test(f.password) &&
+      /[^A-Za-z0-9]/.test(f.password)
+    );
+  }
 
-    if (!f.client_name.trim())  { this.addError.set('Company name is required.'); return; }
-    if (!f.client_code.trim())  { this.addError.set('Company code is required.'); return; }
-    if (f.client_code.length > 10) { this.addError.set('Company code must be 10 characters or less.'); return; }
-    if (!f.contact_name.trim()) { this.addError.set('Contact name is required.'); return; }
-    if (!f.contact_email.trim() || !f.contact_email.includes('@')) {
-      this.addError.set('A valid contact email is required.'); return;
-    }
-    if (f.password.length < 8) {
-      this.addError.set('Password must be at least 8 characters.'); return;
-    }
-    if (!/[A-Z]/.test(f.password)) {
-      this.addError.set('Password must contain at least one uppercase letter.'); return;
-    }
-    if (!/[0-9]/.test(f.password)) {
-      this.addError.set('Password must contain at least one number.'); return;
-    }
-    if (!/[^A-Za-z0-9]/.test(f.password)) {
-      this.addError.set('Password must contain at least one special character (e.g. !@#$%).'); return;
-    }
+  saveNewClient() {
+    // Touch all fields so inline errors appear
+    this.addNameTouched.set(true);
+    this.addCodeTouched.set(true);
+    this.addContactTouched.set(true);
+    this.addEmailTouched.set(true);
+    this.addPassTouched.set(true);
+    this.addError.set('');
+
+    if (!this.addFormValid()) return;
 
     this.addSaving.set(true);
-    this.addError.set('');
     this.api.post<{ client_id: string; client_name: string; message: string }>(
-      '/clients/admin-create', f,
+      '/clients/admin-create', this.addForm(),
     ).subscribe({
       next: (res) => {
         this.addSaving.set(false);
         this.addSuccess.set(
-          `✅ ${res.client_name} created (${res.client_id}). A welcome email has been sent to ${f.contact_email}.`
+          `✅ Client "${res.client_name}" created! Client ID: ${res.client_id} · Welcome email sent to ${this.addForm().contact_email}.`
         );
         this.showAddForm.set(false);
         this.showPassword.set(false);
@@ -305,7 +365,7 @@ export class ClientsComponent implements OnInit {
 
   // ── Delete ────────────────────────────────────────────────────────────
   confirmDelete(clientId: string) { this.deleteError.set(''); this.deleteConfirmId.set(clientId); }
-  cancelDelete()  { this.deleteConfirmId.set(null); this.deleteError.set(''); }
+  cancelDelete() { this.deleteConfirmId.set(null); this.deleteError.set(''); }
 
   deleteClient(clientId: string) {
     this.deleting.set(true);

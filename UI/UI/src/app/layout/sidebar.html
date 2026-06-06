@@ -159,17 +159,21 @@
       </div>
     }
 
-    @if (logoutConfirmOpen()) {
-      <div class="sb-logout-confirm">
-        <p class="sb-logout-msg">Are you sure you want to sign out?</p>
-        <div class="sb-logout-actions">
-          <button class="btn outline sm" (click)="cancelLogout()">Cancel</button>
-          <button class="btn danger sm" (click)="logout()">Sign Out</button>
-        </div>
-      </div>
-    }
   </div>
 </aside>
+
+@if (logoutConfirmOpen()) {
+  <div class="modal-backdrop" (click)="cancelLogout()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <h3 class="modal-title">🚪 Sign Out</h3>
+      <p class="modal-sub">Are you sure you want to sign out?</p>
+      <div class="modal-actions">
+        <button class="btn outline" (click)="cancelLogout()">Cancel</button>
+        <button class="btn danger" (click)="logout()">Sign Out</button>
+      </div>
+    </div>
+  </div>
+}
 
 @if (changePassOpen()) {
   <div class="sb-modal-backdrop" (click)="closeChangePassword()">

@@ -33,7 +33,7 @@ export class LoginComponent {
 
   constructor(private auth: AuthService, private router: Router) {}
 
-  private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{3,}$/;
 
   emailError = computed(() => {
     if (!this.emailTouched()) return '';

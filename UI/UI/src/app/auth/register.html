@@ -27,40 +27,65 @@
     @if (!success()) {
       <div class="form-section-label">Company Details</div>
 
+      <!-- COMPANY NAME -->
       <label class="form-label">Company Name <span class="required">*</span></label>
       <input
-        class="form-input mb-16"
+        class="form-input mb-4"
+        [class.input-error]="companyNameError()"
         type="text"
         [ngModel]="companyName()"
         (ngModelChange)="companyName.set($event)"
+        (blur)="companyNameTouched.set(true)"
         placeholder="e.g., Costco Wholesale"
         [disabled]="loading()"
         required />
+      <div class="field-error-area mb-12">
+        @if (companyNameError()) {
+          <span class="field-err">⚠ {{ companyNameError() }}</span>
+        }
+      </div>
 
+      <!-- COMPANY CODE -->
       <label class="form-label">Company Code <span class="required">*</span></label>
       <input
-        class="form-input mb-16"
+        class="form-input mb-4"
+        [class.input-error]="companyCodeError()"
         type="text"
         [ngModel]="companyCode()"
         (ngModelChange)="companyCode.set($event)"
+        (blur)="companyCodeTouched.set(true)"
         placeholder="e.g., COSTCO (max 10 characters)"
         maxlength="10"
         style="text-transform:uppercase"
         [disabled]="loading()"
         required />
+      <div class="field-error-area mb-12">
+        @if (companyCodeError()) {
+          <span class="field-err">⚠ {{ companyCodeError() }}</span>
+        }
+      </div>
 
       <div class="form-section-label" style="margin-top:4px">Your Account</div>
 
+      <!-- FULL NAME -->
       <label class="form-label">Full Name <span class="required">*</span></label>
       <input
-        class="form-input mb-16"
+        class="form-input mb-4"
+        [class.input-error]="contactNameError()"
         type="text"
         [ngModel]="contactName()"
         (ngModelChange)="contactName.set($event)"
+        (blur)="contactNameTouched.set(true)"
         placeholder="e.g., John Smith"
         [disabled]="loading()"
         required />
+      <div class="field-error-area mb-12">
+        @if (contactNameError()) {
+          <span class="field-err">⚠ {{ contactNameError() }}</span>
+        }
+      </div>
 
+      <!-- EMAIL -->
       <label class="form-label">Email Address <span class="required">*</span></label>
       <input
         class="form-input mb-4"
@@ -75,10 +100,11 @@
         required />
       <div class="field-error-area mb-12">
         @if (emailError()) {
-          <span class="field-err">{{ emailError() }}</span>
+          <span class="field-err">⚠ {{ emailError() }}</span>
         }
       </div>
 
+      <!-- PASSWORD -->
       <label class="form-label">Password <span class="required">*</span></label>
       <div class="password-wrapper mb-4">
         <input
@@ -92,7 +118,7 @@
           [disabled]="loading()"
           autocomplete="new-password"
           required />
-        <button type="button" class="eye-btn" (click)="showPassword.set(!showPassword())" [disabled]="loading()" tabindex="-1" [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'">
+        <button type="button" class="eye-btn" (click)="showPassword.set(!showPassword())" [disabled]="loading()" tabindex="-1">
           <svg *ngIf="!showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           <svg *ngIf="showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
         </button>
@@ -101,28 +127,24 @@
       @if (password().length > 0) {
         <div class="pw-rules mb-12">
           <div class="pw-rule" [class.pass]="rules().minLength">
-            <span class="pw-rule-icon">{{ rules().minLength ? '✓' : '○' }}</span>
-            At least 8 characters
+            <span class="pw-rule-icon">{{ rules().minLength ? '✓' : '○' }}</span> At least 8 characters
           </div>
           <div class="pw-rule" [class.pass]="rules().hasUpper">
-            <span class="pw-rule-icon">{{ rules().hasUpper ? '✓' : '○' }}</span>
-            One uppercase letter (A–Z)
+            <span class="pw-rule-icon">{{ rules().hasUpper ? '✓' : '○' }}</span> One uppercase letter (A–Z)
           </div>
           <div class="pw-rule" [class.pass]="rules().hasLower">
-            <span class="pw-rule-icon">{{ rules().hasLower ? '✓' : '○' }}</span>
-            One lowercase letter (a–z)
+            <span class="pw-rule-icon">{{ rules().hasLower ? '✓' : '○' }}</span> One lowercase letter (a–z)
           </div>
           <div class="pw-rule" [class.pass]="rules().hasNumber">
-            <span class="pw-rule-icon">{{ rules().hasNumber ? '✓' : '○' }}</span>
-            One number (0–9)
+            <span class="pw-rule-icon">{{ rules().hasNumber ? '✓' : '○' }}</span> One number (0–9)
           </div>
           <div class="pw-rule" [class.pass]="rules().hasSpecial">
-            <span class="pw-rule-icon">{{ rules().hasSpecial ? '✓' : '○' }}</span>
-            One special character (!&#64;#$%...)
+            <span class="pw-rule-icon">{{ rules().hasSpecial ? '✓' : '○' }}</span> One special character (!&#64;#$%...)
           </div>
         </div>
       }
 
+      <!-- CONFIRM PASSWORD -->
       <label class="form-label">Confirm Password <span class="required">*</span></label>
       <div class="password-wrapper mb-4">
         <input
@@ -137,20 +159,18 @@
           autocomplete="new-password"
           (keyup.enter)="register()"
           required />
-        <button type="button" class="eye-btn" (click)="showConfirm.set(!showConfirm())" [disabled]="loading()" tabindex="-1" [attr.aria-label]="showConfirm() ? 'Hide password' : 'Show password'">
+        <button type="button" class="eye-btn" (click)="showConfirm.set(!showConfirm())" [disabled]="loading()" tabindex="-1">
           <svg *ngIf="!showConfirm()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           <svg *ngIf="showConfirm()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
         </button>
       </div>
       <div class="field-error-area mb-12">
         @if (confirmError()) {
-          <span class="field-err">{{ confirmError() }}</span>
-        }
-        @if (!confirmError() && confirmPassword().length > 0 && password() === confirmPassword()) {
-          <span class="field-ok">✓ Passwords match</span>
+          <span class="field-err">⚠ {{ confirmError() }}</span>
         }
       </div>
 
+      <!-- SUBMIT ERROR -->
       <div class="validation-area">
         @if (error()) {
           <div class="err-msg">⚠️ {{ error() }}</div>
@@ -164,9 +184,9 @@
         {{ loading() ? 'Creating account…' : 'Create Account' }}
       </button>
 
-   <div class="login-footer">
-  <p class="login-links">Already have an account? <a routerLink="/login">Sign In</a></p>
-</div>
+      <div class="login-footer">
+        <p class="login-links">Already have an account? <a routerLink="/login">Sign In</a></p>
+      </div>
     }
   </div>
 </div>

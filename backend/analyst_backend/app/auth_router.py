@@ -603,4 +603,20 @@ def change_password(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not update password: {e}")
 
+    # ── Send password-changed confirmation email ──────────────────────────
+    try:
+        from app.email_service import send_email
+        send_email(
+            to=user["email"],
+            subject="Your Password Has Been Changed — Predictive Analytics",
+            html_body=f"""
+            <h2>Password Changed Successfully</h2>
+            <p>Hi {user["name"]},</p>
+            <p>Your password was just changed successfully. You can now log in with your new password.</p>
+            <p>If you did not make this change, please contact IT Support immediately.</p>
+            """,
+        )
+    except Exception as e:
+        log.warning("Password-changed confirmation email failed (non-fatal): %s", e)
+
     return {"message": "Password changed successfully"}

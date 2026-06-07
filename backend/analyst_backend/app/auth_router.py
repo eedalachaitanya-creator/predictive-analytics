@@ -38,19 +38,7 @@ log = logging.getLogger("auth")
 
 
 # ── Reusable dependency: get current user from token ────────────────────────
-# Other routers import this to know WHO is making the request.
-# Usage in another router:
-#   from app.auth_router import get_current_user
-#   @router.post("/something")
-#   def do_something(user: dict = Depends(get_current_user)):
-#       print(user["clientAccess"])  # → ["CLT-001"]
-
 def get_current_user(authorization: Optional[str] = Header(default=None)) -> dict:
-    """
-    FastAPI dependency that extracts the current user from the Bearer token.
-    If the token is missing or invalid, raises 401.
-    Returns the full user dict (id, email, name, role, clientAccess).
-    """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
@@ -61,7 +49,6 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
 
 
 def _ensure_tokens_table():
-    """Create active_tokens table if it doesn't exist."""
     try:
         with engine.connect() as conn:
             conn.execute(text("""
@@ -74,26 +61,13 @@ def _ensure_tokens_table():
             """))
             conn.commit()
     except Exception:
-        pass  # table may already exist
+        pass
 
-# Create table on module load
 _ensure_tokens_table()
 
 
 def _make_token(user_id: str) -> str:
-    """Generate an opaque session token and store it in the database.
-
-    The token is 256 bits straight from the OS CSPRNG via
-    ``secrets.token_urlsafe(32)`` (URL-safe, 43 chars) — unguessable by
-    construction. This replaces the prior ``sha256(user_id + uuid4 + timestamp)``
-    which, while effectively random, derived its entropy indirectly. The token is
-    an opaque server-side session key (NOT a JWT): it carries no user data and is
-    validated / revoked via the ``active_tokens`` table. Old sha256 tokens already
-    in active_tokens stay valid until they expire — the format change is forward-
-    only and never invalidates a live session.
-    """
     token = secrets.token_urlsafe(32)
-
     try:
         with engine.connect() as conn:
             conn.execute(
@@ -104,17 +78,14 @@ def _make_token(user_id: str) -> str:
                 """),
                 {"token": token, "uid": user_id},
             )
-            # Clean up expired tokens while we're here
             conn.execute(text("DELETE FROM active_tokens WHERE expires_at < NOW()"))
             conn.commit()
     except Exception as e:
         log.error("Could not store token: %s", e)
-
     return token
 
 
 def _find_user_by_token(token: str) -> Optional[dict]:
-    """Look up a user by their active token — reads from database."""
     try:
         with engine.connect() as conn:
             row = conn.execute(
@@ -130,7 +101,6 @@ def _find_user_by_token(token: str) -> Optional[dict]:
 
 
 def _revoke_token(token: str):
-    """Remove a token from the database."""
     try:
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM active_tokens WHERE token = :token"), {"token": token})
@@ -140,7 +110,6 @@ def _revoke_token(token: str):
 
 
 def _get_user_by_id(user_id: str) -> Optional[dict]:
-    """Fetch a user from the database by user_id."""
     try:
         with engine.connect() as conn:
             row = conn.execute(
@@ -164,7 +133,6 @@ def _get_user_by_id(user_id: str) -> Optional[dict]:
 
 
 def _get_user_by_email(email: str) -> Optional[dict]:
-    """Fetch a user from the database by email."""
     try:
         with engine.connect() as conn:
             row = conn.execute(
@@ -187,34 +155,19 @@ def _get_user_by_email(email: str) -> Optional[dict]:
         return None
 
 
-# ── Request / Response models ────────────────────────────────────────────────
 class LoginRequest(BaseModel):
     email: str
     password: str
-    # Which portal the user picked: 'super_admin' or 'client'.
     loginRole: Optional[str] = None
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
-
 @router.post("/auth/login")
 def login(req: LoginRequest, request: Request):
-    """
-    Authenticate user with email and password.
-    Reads from the 'users' table in PostgreSQL.
-
-    If loginRole is provided:
-    - 'super_admin' → user must have role super_admin
-    - 'client'      → user must have role client_user
-    This ensures super_admins use the Super Admin tab and clients use the
-    Client tab.
-    """
-    from app.audit_logger import log_audit_event  # local import to avoid circular
+    from app.audit_logger import log_audit_event
 
     user = _get_user_by_email(req.email)
 
     if not user or not verify_password(req.password, user["password"]):
-        # Audit failed-login: no user session yet, so user_id is null
         log_audit_event(
             request,
             action_type="login",
@@ -224,9 +177,6 @@ def login(req: LoginRequest, request: Request):
         )
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Lazy password migration: this account authenticated, but if it still has a
-    # legacy PLAINTEXT password, transparently upgrade it to a bcrypt hash now.
-    # Best-effort — a migration write must never block a valid login.
     if not is_hashed(user["password"]):
         try:
             with engine.begin() as conn:
@@ -246,12 +196,8 @@ def login(req: LoginRequest, request: Request):
             user_email=user["email"],
             outcome="failure",
         )
-        raise HTTPException(status_code=403, detail="Your account has been deactivated. Contact support.")
+        raise HTTPException(status_code=403, detail="Your account has been deactivated. Contact your administrator.")
 
-    # ── Role validation based on which tab they used ──────────────
-    # Only two roles exist: super_admin and client_user. We accept the
-    # legacy 'admin' wire value as an alias for 'super_admin' so old
-    # frontends don't break mid-rollout.
     portal = req.loginRole
     if portal == "admin":
         portal = "super_admin"
@@ -285,9 +231,6 @@ def login(req: LoginRequest, request: Request):
                 detail="This is the Client login. Please use the Super Admin tab to sign in.",
             )
 
-    # ── Client users cannot log in once every client they have access to
-    # ── has been soft-deleted (client_config.is_active = FALSE). Super
-    # ── admins are exempt — they need to stay able to reactivate clients.
     if user["role"] != "super_admin" and "*" not in (user["clientAccess"] or []):
         access = user["clientAccess"] or []
         if not access:
@@ -307,9 +250,6 @@ def login(req: LoginRequest, request: Request):
                     params,
                 ).scalar() or 0
         except Exception:
-            # If the column is missing (migration not yet applied) fall open
-            # rather than lock every user out. The client_router's module-load
-            # _ensure_soft_delete_columns should have added it already.
             active_count = len(access)
         if active_count == 0:
             log_audit_event(
@@ -322,14 +262,12 @@ def login(req: LoginRequest, request: Request):
             )
             raise HTTPException(
                 status_code=403,
-                detail="Your client account has been deactivated. Contact support.",
+                detail="Your client account has been deactivated. Contact your administrator.",
             )
 
-    # ── Generate tokens (stored in database, survive restarts) ──
     token = _make_token(user["id"])
     refresh_token = _make_token(user["id"])
 
-    # ── Update last_login timestamp ───────────────────────────────
     try:
         with engine.connect() as conn:
             conn.execute(
@@ -338,10 +276,8 @@ def login(req: LoginRequest, request: Request):
             )
             conn.commit()
     except Exception:
-        pass  # non-critical
+        pass
 
-    # Audit the successful login. Use the user's first client_access entry
-    # as the scoping client_id (super_admins with "*" land under NULL/SYSTEM).
     audit_client = None
     if user["clientAccess"] and user["clientAccess"] != ["*"] and user["role"] != "super_admin":
         audit_client = user["clientAccess"][0]
@@ -374,15 +310,12 @@ def login(req: LoginRequest, request: Request):
 
 @router.get("/auth/me")
 def get_me(authorization: Optional[str] = Header(default=None)):
-    """Validate token and return current user info."""
     if not authorization:
         raise HTTPException(status_code=401, detail="No authorization header")
-
     token = authorization.replace("Bearer ", "")
     user = _find_user_by_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
     return {
         "id": user["id"],
         "email": user["email"],
@@ -395,13 +328,11 @@ def get_me(authorization: Optional[str] = Header(default=None)):
 
 @router.post("/auth/logout")
 def logout(request: Request, authorization: Optional[str] = Header(default=None)):
-    """Remove token from active sessions (database)."""
-    from app.audit_logger import log_audit_event  # local import to avoid circular
+    from app.audit_logger import log_audit_event
 
     user_for_audit = None
     if authorization:
         token = authorization.replace("Bearer ", "")
-        # Snap the user BEFORE revoking, otherwise _find_user_by_token returns None.
         user_for_audit = _find_user_by_token(token)
         _revoke_token(token)
 
@@ -419,16 +350,12 @@ def logout(request: Request, authorization: Optional[str] = Header(default=None)
 
 @router.post("/auth/refresh")
 def refresh_token(body: dict):
-    """Swap refresh token for a new access token."""
     refresh = body.get("refreshToken", "")
     user = _find_user_by_token(refresh)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    # Remove old refresh token
     _revoke_token(refresh)
-
-    # Issue new tokens (stored in database automatically by _make_token)
     new_token = _make_token(user["id"])
     new_refresh = _make_token(user["id"])
 
@@ -449,31 +376,11 @@ def refresh_token(body: dict):
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Forgot password
-# ---------------------------------------------------------------------------
-# Resets the user's password to a freshly generated 12-character string and
-# returns it to the caller so the UI can show it in a modal. No email is sent.
-#
-# Security notes:
-#   - Passwords are stored as plaintext in `users.password_hash` today (see
-#     migration_users_table.sql line 13). That's a project-wide convention,
-#     not a forgot-password quirk. When the project switches to bcrypt, this
-#     endpoint and /auth/login both need to move together.
-#   - We deliberately return a 404 for unknown emails instead of a generic
-#     success response. Email enumeration is acceptable for the current
-#     stage of the product; UX wins over hiding which emails exist. Change
-#     this to a generic message before going to production.
-#   - All existing tokens for the user are revoked, forcing any open sessions
-#     to re-log in with the new password.
-# ═══════════════════════════════════════════════════════════════════════════
-
 class ForgotPasswordRequest(BaseModel):
     email: str
 
 
 def _generate_temp_password(length: int = 12) -> str:
-    """Return a readable random password (no ambiguous chars like 0/O, 1/l/I)."""
     import secrets
     import string
     alphabet = "".join(
@@ -484,15 +391,6 @@ def _generate_temp_password(length: int = 12) -> str:
 
 @router.post("/auth/forgot-password")
 def forgot_password(req: ForgotPasswordRequest):
-    """
-    Generate a temporary password, save it, and return it in the response.
-
-    Flow:
-      1. Look up the user by email (case-insensitive).
-      2. 404 if unknown, 403 if deactivated.
-      3. Otherwise: generate new password, UPDATE users.password_hash,
-         DELETE all active_tokens for this user, return the new password.
-    """
     email_trimmed = (req.email or "").strip()
     if not email_trimmed:
         raise HTTPException(status_code=400, detail="Email is required")
@@ -507,7 +405,7 @@ def forgot_password(req: ForgotPasswordRequest):
     if not user.get("is_active", True):
         raise HTTPException(
             status_code=403,
-            detail="This account has been deactivated. Contact support.",
+            detail="This account has been deactivated. Contact your administrator.",
         )
 
     new_password = _generate_temp_password()
@@ -516,7 +414,7 @@ def forgot_password(req: ForgotPasswordRequest):
         with engine.begin() as conn:
             conn.execute(
                 text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
-                {"pw": hash_password(new_password), "uid": user["id"]},  # store hash; email the cleartext
+                {"pw": hash_password(new_password), "uid": user["id"]},
             )
             conn.execute(
                 text("DELETE FROM active_tokens WHERE user_id = :uid"),
@@ -538,15 +436,27 @@ def forgot_password(req: ForgotPasswordRequest):
             to=user["email"],
             subject="Your Temporary Password — Predictive Analytics",
             html_body=f"""
-            <h2>Password Reset</h2>
-            <p>Hi {user["name"]},</p>
-            <p>A temporary password has been generated for your account:</p>
-            <p style="font-size:20px;font-weight:bold;letter-spacing:2px;
-                      background:#f0f4ff;padding:12px 20px;border-radius:8px;
-                      display:inline-block">{new_password}</p>
-            <p>All existing sessions have been logged out. Sign in with this password and change it immediately.</p>
-            <p>If you did not request this, contact IT Support immediately.</p>
-            """,
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
+  <div style="background:#1a56db;padding:24px 32px">
+    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Predictive Analytics</div>
+    <div style="color:#c7d9ff;margin-top:4px;font-size:13px">Churn Prediction &amp; Retention Platform</div>
+  </div>
+  <div style="padding:32px">
+    <h2 style="color:#1a1a1a;margin:0 0 16px;font-size:18px">Password Reset Request</h2>
+    <p style="color:#444;line-height:1.6;margin:0 0 12px">Hi {user["name"]},</p>
+    <p style="color:#444;line-height:1.6;margin:0 0 20px">We received a request to reset your password. Your temporary password is below:</p>
+    <div style="background:#f0f4ff;border:1px solid #c7d9ff;border-radius:8px;padding:16px 24px;margin:0 0 24px;text-align:center">
+      <div style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Temporary Password</div>
+      <div style="font-size:24px;font-weight:bold;letter-spacing:3px;color:#1a56db">{new_password}</div>
+    </div>
+    <p style="color:#444;line-height:1.6;margin:0 0 12px">All existing sessions have been logged out. Please sign in with this temporary password and change it immediately.</p>
+    <p style="color:#c0392b;font-size:13px;line-height:1.6;margin:0">&#9888;&#65039; If you did not request this password reset, please contact your administrator immediately.</p>
+  </div>
+  <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #e0e0e0;text-align:center">
+    <p style="margin:0;font-size:12px;color:#888">&copy; 2026 Predictive Analytics &middot; This is an automated message, please do not reply.</p>
+  </div>
+</div>
+""",
         )
     except Exception as e:
         log.warning("Forgot-password email failed (non-fatal): %s", e)
@@ -559,6 +469,8 @@ def forgot_password(req: ForgotPasswordRequest):
             "it, and any open sessions have been logged out."
         ),
     }
+
+
 # ── Change Password ───────────────────────────────────────────────────────────
 class ChangePasswordRequest(BaseModel):
     current_password: str
@@ -606,15 +518,31 @@ def change_password(
     # ── Send password-changed confirmation email ──────────────────────────
     try:
         from app.email_service import send_email
+        from datetime import datetime, timezone
+        changed_at = datetime.now(timezone.utc).strftime("%d %B %Y at %H:%M UTC")
         send_email(
             to=user["email"],
             subject="Your Password Has Been Changed — Predictive Analytics",
             html_body=f"""
-            <h2>Password Changed Successfully</h2>
-            <p>Hi {user["name"]},</p>
-            <p>Your password was just changed successfully. You can now log in with your new password.</p>
-            <p>If you did not make this change, please contact IT Support immediately.</p>
-            """,
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
+  <div style="background:#1a56db;padding:24px 32px">
+    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Predictive Analytics</div>
+    <div style="color:#c7d9ff;margin-top:4px;font-size:13px">Churn Prediction &amp; Retention Platform</div>
+  </div>
+  <div style="padding:32px">
+    <h2 style="color:#1a1a1a;margin:0 0 16px;font-size:18px">Password Changed Successfully</h2>
+    <p style="color:#444;line-height:1.6;margin:0 0 12px">Hi {user["name"]},</p>
+    <p style="color:#444;line-height:1.6;margin:0 0 20px">Your account password has been changed successfully. You can now log in using your new password.</p>
+    <div style="background:#f0fff4;border:1px solid #9ae6b4;border-radius:8px;padding:16px 24px;margin:0 0 24px">
+      <p style="margin:0;font-size:14px;color:#276749">&#9989; Your password was updated on {changed_at}</p>
+    </div>
+    <p style="color:#c0392b;font-size:13px;line-height:1.6;margin:0">&#9888;&#65039; If you did not make this change, please contact your administrator immediately as your account may be compromised.</p>
+  </div>
+  <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #e0e0e0;text-align:center">
+    <p style="margin:0;font-size:12px;color:#888">&copy; 2026 Predictive Analytics &middot; This is an automated message, please do not reply.</p>
+  </div>
+</div>
+""",
         )
     except Exception as e:
         log.warning("Password-changed confirmation email failed (non-fatal): %s", e)

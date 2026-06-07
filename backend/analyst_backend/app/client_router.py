@@ -473,8 +473,8 @@ def _send_welcome_email(
           <td style="padding:20px 40px;border-top:1px solid #eef0f5;background:#fafbfd;">
             <p style="margin:0;font-size:11px;color:#aaa;line-height:1.6;text-align:center;">
               This email was sent because an account was created at Predictive Analytics.<br/>
-              If you did not register, please contact support immediately.<br/>
-              &copy; 2025 Predictive Analytics. All rights reserved.
+              If you did not register, please contact your administrator immediately.<br/>
+              &copy; 2026 Predictive Analytics. All rights reserved.
             </p>
           </td>
         </tr>
@@ -496,8 +496,8 @@ def _send_welcome_email(
         f"  Login Email  : {to_email}\n"
         f"  Temp Password: {password}\n\n"
         f"Sign in at: http://localhost:4200/login\n\n"
-        f"If you did not register, please contact support immediately.\n"
-        f"© 2025 Predictive Analytics. All rights reserved."
+        f"If you did not register, please contact your administrator immediately.\n"
+        f"© 2026 Predictive Analytics. All rights reserved."
     )
 
     try:

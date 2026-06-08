@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
+import { environment } from '../../environments/environment';
 import {
   BatchInfoResponse,
   CommitResponse,
@@ -95,6 +96,15 @@ export class UploadService {
 
   uploadedCount(): number {
     return Object.values(this.uploads()).filter(u => u?.status === 'success').length;
+  }
+
+  /** Absolute URL of the downloadable sample CSV template for a master type.
+   *  Backed by GET /api/v1/uploads/sample/{masterType}, which generates the
+   *  template (the exact columns in order + example rows) from the backend's
+   *  canonical schema — so it always matches what the upload validator expects.
+   *  Rendered as an <a [href] download> on each upload tile. */
+  sampleUrl(masterType: MasterType): string {
+    return `${environment.apiUrl}/uploads/sample/${masterType}`;
   }
 
   // ── Batch lifecycle ──────────────────────────────────────────

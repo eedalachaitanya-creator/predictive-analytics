@@ -26,6 +26,7 @@ HOW IT WORKS (NEW BATCH FLOW):
 
 import os
 import io
+import csv
 import re
 import uuid
 import logging
@@ -33,7 +34,7 @@ from datetime import datetime
 
 import pandas as pd
 from sqlalchemy import text
-from fastapi import APIRouter, File, Form, UploadFile, Query, HTTPException, Header, Request, Depends
+from fastapi import APIRouter, File, Form, UploadFile, Query, HTTPException, Header, Request, Depends, Response
 from typing import Optional
 
 from app.database import engine
@@ -298,6 +299,118 @@ def _assert_file_has_real_data(df: pd.DataFrame, master_type: str, filename: str
             f"({', '.join(present)}). Please upload a file with actual data."
         ),
     )
+
+
+# ── Sample CSV templates (downloadable from each upload tile) ────────────────
+# Clients don't know our exact column names / order, so each upload module
+# offers a "Download sample CSV" link. The template is generated FROM
+# MASTER_TYPE_TO_TABLE — the same dict the validator reads — so the sample can
+# never drift from what actually passes validation (single source of truth).
+# client_id is intentionally omitted: it's auto-injected from the auth token on
+# upload, and _read_file_to_df explicitly excludes it from column matching.
+def _sample_value(col: str, i: int) -> str:
+    """A realistic placeholder for one column on example row `i` (0-based).
+
+    Picked by column-name heuristics so the template shows clients the expected
+    FORMAT — ISO dates, money with 2dp, boolean style, id style — not just bare
+    headers. Every column gets a non-blank value so the template itself passes
+    the `_assert_file_has_real_data` guard.
+    """
+    c = col.lower()
+    n = i + 1
+    # booleans (email_opt_in / sms_opt_in / active / not_available)
+    if c in ("email_opt_in", "sms_opt_in", "active", "not_available"):
+        return "true" if i % 2 == 0 else "false"
+    if c.endswith("email"):
+        return f"customer{n}@example.com"
+    if c.endswith("_date"):                       # ISO 8601, per the upload notice
+        return f"2026-{(i % 9) + 1:02d}-15"
+    if c.endswith("_usd"):   # every money column ends in _usd; "price_id" is an id, not money
+        return f"{n * 10 + 9.99:.2f}"
+    if "phone" in c or "contact_no" in c:
+        return f"+1-555-01{n:02d}"
+    if c == "rating":
+        return str((i % 5) + 1)
+    if c in ("quantity", "qty_min", "qty_max", "order_item_count", "resolution_time_hrs"):
+        return str(n * 5)
+    if c in ("order_status", "item_status", "status"):
+        return ("completed", "pending", "shipped")[i % 3]
+    if c == "sentiment":
+        return ("positive", "neutral", "negative")[i % 3]
+    if c == "priority":
+        return ("high", "medium", "low")[i % 3]
+    if c == "payment_method":
+        return ("credit_card", "paypal", "debit_card")[i % 3]
+    if c in ("channel", "registration_channel"):
+        return ("web", "mobile", "store")[i % 3]
+    if c == "preferred_device":
+        return ("mobile", "desktop", "tablet")[i % 3]
+    if c == "ticket_type":
+        return ("billing", "delivery", "product")[i % 3]
+    if c == "country_code":
+        return "US"
+    if c == "state":
+        return ("TX", "CA", "NY")[i % 3]
+    if c == "city":
+        return ("Dallas", "San Jose", "New York")[i % 3]
+    if c == "zip_code":
+        return f"7{n:04d}"
+    if c.endswith("address"):
+        return f"{100 + n} Main St"
+    if c == "coupon_code":
+        return f"SAVE{n * 5}"
+    if c == "sku":
+        return f"SKU-{n:05d}"
+    if c == "qty_range_label":
+        return ("1-10", "11-50", "51-100")[i % 3]
+    if c == "category_hint":
+        return ("Electronics", "Apparel", "Home")[i % 3]
+    if c.endswith("_text"):
+        return ("Great product!", "Works as expected.", "Would buy again.")[i % 3]
+    if c.endswith("description"):
+        return "Sample description"
+    if c == "customer_name":
+        return ("John Doe", "Jane Smith", "Sam Lee")[i % 3]
+    if c == "product_name":
+        return ("Wireless Mouse", "USB-C Cable", "Laptop Stand")[i % 3]
+    if c == "brand_name":
+        return ("Acme", "Globex", "Initech")[i % 3]
+    if c == "vendor_name":
+        return ("Acme Supply Co", "Globex Distribution", "Initech Traders")[i % 3]
+    if c == "category_name":
+        return ("Electronics", "Apparel", "Home & Kitchen")[i % 3]
+    if c == "sub_category_name":
+        return ("Accessories", "Cables", "Stands")[i % 3]
+    if c == "sub_sub_category_name":
+        return ("Mice", "USB-C", "Laptop")[i % 3]
+    if c.endswith("_id"):                          # generic id with a readable prefix
+        base = c[:-3]
+        prefix = {
+            "customer": "CUST", "order": "ORD", "line_item": "LI", "product": "PROD",
+            "category": "CAT", "sub_category": "SUBCAT", "sub_sub_category": "SSC",
+            "brand": "BRND", "vendor": "VEND", "review": "REV", "ticket": "TKT",
+            "price": "PRC", "product_price": "PPRC", "pv": "PV",
+        }.get(base) or (base.upper().replace("_", "")[:4] or "ID")
+        return f"{prefix}-{n:05d}"
+    return f"sample_{c}"
+
+
+def build_sample_csv(master_type: str, n_rows: int = 2) -> str:
+    """Return a sample CSV (header + `n_rows` example rows) for a master type.
+
+    Headers come from MASTER_TYPE_TO_TABLE in the canonical order, minus
+    client_id (auto-injected on upload). Raises ValueError for unknown types.
+    """
+    if master_type not in MASTER_TYPE_TO_TABLE:
+        raise ValueError(f"Unknown master type: {master_type}")
+    _, expected_cols = MASTER_TYPE_TO_TABLE[master_type]
+    headers = [c for c in expected_cols if c != "client_id"]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    for i in range(n_rows):
+        writer.writerow([_sample_value(c, i) for c in headers])
+    return buf.getvalue()
 
 
 # Tables that affect the materialized view — refresh after commit if these were loaded
@@ -903,6 +1016,31 @@ def discard_batch(
         "batchId": batch_id,
         "rowsDeleted": total_deleted,
     }
+
+
+@router.get("/uploads/sample/{master_type}")
+def download_sample_template(master_type: str):
+    """Download a sample CSV template for a master type.
+
+    Public (no auth/tenant): the template is schema metadata only — the exact
+    columns and order we expect, with a couple of example rows showing the value
+    formats. No client data is involved (client_id is auto-injected on upload and
+    intentionally omitted here). Declared as GET /uploads/sample/{type}; it does
+    not collide with the POST/DELETE /uploads/{type} wildcards (different method).
+    """
+    if master_type not in VALID_MASTER_TYPES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown master type: {master_type}. "
+                   f"Valid types: {sorted(VALID_MASTER_TYPES)}",
+        )
+    csv_text = build_sample_csv(master_type)
+    filename = f"{master_type}_sample_template.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/uploads/{master_type}")

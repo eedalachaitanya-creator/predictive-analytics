@@ -35,6 +35,33 @@
   white-space: nowrap;
 }
 
+/* Format badges (.xlsx / .csv) row, plus the per-tile "Download sample CSV"
+   link pushed to the right edge so it reads as a clear call-to-action without
+   crowding the badges. Styled like .col-chip for visual consistency. */
+.file-type-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.sample-link {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  text-decoration: none;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #EBF1FB;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sample-link:hover { background: #dfe9fb; text-decoration: underline; }
+
 /* ─────────────────────────────────────────────────────────────
    "Ready to Save" and "All Done" panels
    Client-friendly replacements for the old Pending Batch / Commit

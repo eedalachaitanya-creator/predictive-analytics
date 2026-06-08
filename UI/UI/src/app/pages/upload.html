@@ -142,6 +142,14 @@
                 @for (fmt of m.formats; track fmt) {
                   <span class="badge blue">{{ fmt }}</span>
                 }
+                <!-- Sample CSV template: clients don't know our exact columns/
+                     order, so each tile links to a downloadable example generated
+                     from the backend's canonical schema (always matches what the
+                     validator expects). Native download via Content-Disposition. -->
+                <a class="sample-link" [href]="uploadSvc.sampleUrl(m.key)" download
+                   title="Download a sample CSV with the exact columns and order to use">
+                  ⬇ Sample CSV
+                </a>
               </div>
 
               <!-- Uploading state -->

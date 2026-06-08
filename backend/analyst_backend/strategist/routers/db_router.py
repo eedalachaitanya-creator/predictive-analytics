@@ -457,3 +457,35 @@ async def scout_products(
         logger.error("GET /scout-products failed: %s", exc)
         return {"count": 0, "products": [], "error": str(exc)}
     
+
+# ---------------------------------------------------------------------------
+# GET /price-history-products — search product names in price_history
+# Used by Market Trends autocomplete
+# ---------------------------------------------------------------------------
+
+@router.get("/price-history-products", summary="Search product names in price_history for Market Trends autocomplete")
+async def price_history_products(
+    q:     str = Query(default="", description="Search filter"),
+    limit: int = Query(default=10, le=50),
+) -> dict:
+    """Search distinct product names from price_history table for Market Trends autocomplete."""
+    try:
+        pool = await get_scout_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT product_name
+                FROM price_history
+                WHERE $1 = '' OR LOWER(product_name) LIKE '%' || LOWER($1) || '%'
+                ORDER BY product_name
+                LIMIT $2
+                """,
+                q.strip(), limit,
+            )
+        return {
+            "count":    len(rows),
+            "products": [r["product_name"] for r in rows],
+        }
+    except Exception as exc:
+        logger.error("GET /price-history-products failed: %s", exc)
+        return {"count": 0, "products": [], "error": str(exc)}

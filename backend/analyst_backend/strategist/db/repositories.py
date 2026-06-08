@@ -57,8 +57,8 @@ class PriceHistoryRepo:
     async def get_trend(
         conn: asyncpg.Connection,
         product_name: str,
-        short_window_days: int = 1,
-        long_window_days:  int = 3,
+        short_window_days: int = 14,
+        long_window_days:  int = 30,
     ) -> str:
         """
         Determine market trend for a product by comparing recent vs older prices.
@@ -80,10 +80,10 @@ class PriceHistoryRepo:
         row = await conn.fetchrow(
             """
             SELECT
-                AVG(price) FILTER (WHERE scraped_at >= $2) AS short_avg,
-                AVG(price) FILTER (WHERE scraped_at >= $3) AS long_avg,
-                COUNT(*)   FILTER (WHERE scraped_at >= $2) AS short_count,
-                COUNT(*)   FILTER (WHERE scraped_at >= $3) AS long_count
+                AVG(price) FILTER (WHERE scraped_at >= $2)                        AS short_avg,
+                AVG(price) FILTER (WHERE scraped_at >= $3 AND scraped_at < $2)    AS long_avg,
+                COUNT(*)   FILTER (WHERE scraped_at >= $2)                        AS short_count,
+                COUNT(*)   FILTER (WHERE scraped_at >= $3 AND scraped_at < $2)    AS long_count
             FROM price_history
             WHERE product_name = $1
               AND scraped_at  >= $3

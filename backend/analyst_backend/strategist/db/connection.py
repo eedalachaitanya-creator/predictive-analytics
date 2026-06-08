@@ -63,12 +63,17 @@ async def create_pools() -> None:
     Create asyncpg connection pools on application startup.
     Called once by the FastAPI lifespan context manager.
 
-    Pool sizing:
-      Scout pool:   min=1, max=5  (mostly reads, lower concurrency)
-      Analyst pool: min=2, max=10 (reads + writes, higher concurrency)
+    No min_size/max_size limits — asyncpg opens connections on demand
+    and closes them when idle. This prevents connection exhaustion on
+    the DB server during development (frequent uvicorn restarts) and
+    on QA where multiple developers share the same Postgres instance.
+
+    max_inactive_connection_lifetime=60 ensures idle connections are
+    automatically closed after 60 seconds and returned to the OS,
+    cleaning up stale connections from previous uvicorn restarts.
 
     If both DSNs point to the same host/database, the scout pool is reused
-    for analyst queries — avoids exhausting connection slots on small instances.
+    for analyst queries — avoids duplicate connections on small instances.
     """
     global _scout_pool, _analyst_pool
 
@@ -79,9 +84,10 @@ async def create_pools() -> None:
     _scout_pool = await asyncpg.create_pool(
         dsn=scout_dsn,
         min_size=1,
-        max_size=5,
+        max_size=10,
         command_timeout=30,
-        statement_cache_size=0,   # required for pgBouncer compatibility
+        statement_cache_size=0,              # required for pgBouncer compatibility
+        max_inactive_connection_lifetime=60, # auto-close idle connections after 60s
     )
     logger.info("Scout pool ready.")
 
@@ -90,10 +96,11 @@ async def create_pools() -> None:
         logger.info("Connecting to Analyst DB (separate instance) …")
         _analyst_pool = await asyncpg.create_pool(
             dsn=analyst_dsn,
-            min_size=2,
+            min_size=1,
             max_size=10,
             command_timeout=30,
             statement_cache_size=0,
+            max_inactive_connection_lifetime=60, # auto-close idle connections after 60s
         )
         logger.info("Analyst pool ready.")
     else:

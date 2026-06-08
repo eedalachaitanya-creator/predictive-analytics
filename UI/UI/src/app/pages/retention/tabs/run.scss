@@ -34,16 +34,112 @@
 .empty-icon { font-size: 40px; }
 .empty-sub { font-size: 12px; }
 .run-results { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Offer card ───────────────────────────────────────────────────── */
 .offer-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color .15s, opacity .15s; }
 .offer-card.escalated { border-color: #F59E0B; }
 .offer-card.selected { border-color: #6366F1; background: #F5F3FF; }
 .offer-card.deselected { opacity: 0.45; }
-.offer-header { display: flex; align-items: center; padding: 12px 14px; }
+
+.offer-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  gap: 8px;
+}
 .offer-header:hover { background: var(--bg-hover, rgba(0,0,0,.02)); }
-.offer-header-content { display: flex; justify-content: space-between; align-items: center; flex: 1; cursor: pointer; }
-.offer-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.offer-right { display: flex; align-items: center; gap: 10px; }
-.esc-badge { background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+
+.offer-header-content {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  cursor: pointer;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Left side — customer info — takes remaining space */
+.offer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Right side — fixed layout so everything aligns across all rows */
+.offer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Fixed width discount box — same size for all rows */
+.discount-edit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: white;
+  border: 1.5px solid #6366F1;
+  border-radius: 6px;
+  padding: 3px 6px;
+  width: 68px;
+  flex-shrink: 0;
+}
+
+.discount-input {
+  width: 30px;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366F1;
+  text-align: right;
+  background: transparent;
+}
+
+.discount-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6366F1;
+  flex-shrink: 0;
+}
+
+/* Message Only pill — same fixed width as discount box */
+.discount-pill-zero {
+  background: #f3f4f6;
+  color: #6b7280;
+  font-style: italic;
+  font-size: 12px;
+  width: 68px;
+  text-align: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 1.5px solid #e5e7eb;
+}
+
+/* Fixed width churn probability — aligns across all rows */
+.churn-prob {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 120px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.expand-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+}
+
+.esc-badge { background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
 .channel-icon { font-size: 12px; color: var(--text-muted); }
 .discount-badge { background: #F0FDF4; color: #15803D; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
 .prob { font-size: 12px; color: var(--text-muted); }
@@ -52,7 +148,17 @@
 .offer-message { font-size: 13px; color: var(--text-primary); line-height: 1.6; margin-bottom: 10px; padding: 10px; background: white; border-radius: 6px; border: 1px solid var(--border); }
 .offer-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted); }
 .offer-stats { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted); }
-.offer-checkbox { margin-right: 10px; width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; accent-color: #6366F1; }
+.offer-checkbox { margin-right: 2px; width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; accent-color: #6366F1; }
+
+/* ── Tier pill ────────────────────────────────────────────────────── */
+.tier-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: #EDE9FE; color: #5B21B6; white-space: nowrap; }
+
+/* ── Channel pill ─────────────────────────────────────────────────── */
+.channel-pill { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+/* ── Customer ID ──────────────────────────────────────────────────── */
+.customer-id { font-size: 13px; font-weight: 600; color: var(--text-primary); font-family: monospace; white-space: nowrap; }
+
 .s-val-list {
   display: flex;
   flex-direction: column;
@@ -69,7 +175,6 @@
     .sub-val { color: #111827; font-weight: 600; }
   }
 }
-.discount-pill-zero { background: #f3f4f6 !important; color: #6b7280 !important; font-style: italic; }
 
 /* ── Selection card ───────────────────────────────────────────────── */
 .selection-card {
@@ -87,6 +192,7 @@
   flex-direction: column;
   gap: 10px;
 }
+
 .selection-info {
   display: flex;
   justify-content: space-between;
@@ -120,31 +226,3 @@
 }
 .send-btn:hover    { opacity: .9; }
 .send-btn:disabled { opacity: .5; cursor: not-allowed; }
-
-/* ── Discount edit input ──────────────────────────────────────────── */
-.discount-edit {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  background: white;
-  border: 1.5px solid #6366F1;
-  border-radius: 6px;
-  padding: 2px 6px;
-}
-
-.discount-input {
-  width: 44px;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6366F1;
-  text-align: right;
-  background: transparent;
-}
-
-.discount-unit {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6366F1;
-}

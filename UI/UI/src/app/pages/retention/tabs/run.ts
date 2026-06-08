@@ -57,8 +57,13 @@ export class RetentionRunTab {
     }).subscribe({
       next: (res) => {
         this.result.set(res);
-        // Auto-select all customers after preview
-        const allIds = new Set(res.interventions.map(i => i.customer_id));
+        // Auto-select only customers with actual discounts
+        // Re-engagement (0% discount) customers are unchecked by default
+        const allIds = new Set(
+          res.interventions
+            .filter(i => i.discount_pct > 0)
+            .map(i => i.customer_id)
+        );
         this.selectedIds.set(allIds);
         this.loading.set(false);
       },

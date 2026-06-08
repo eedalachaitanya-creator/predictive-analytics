@@ -57,8 +57,8 @@ class PriceHistoryRepo:
     async def get_trend(
         conn: asyncpg.Connection,
         product_name: str,
-        short_window_days: int = 14,
-        long_window_days:  int = 30,
+        short_window_days: int = 1,
+        long_window_days:  int = 3,
     ) -> str:
         """
         Determine market trend for a product by comparing recent vs older prices.
@@ -100,7 +100,7 @@ class PriceHistoryRepo:
         long_count  = row["long_count"]  or 0
 
         # Need at least 2 data points in each window to be reliable
-        if short_count < 2 or long_count < 2:
+        if short_count < 1 or long_count < 1:
             return "stable"
 
         short_avg = float(row["short_avg"])

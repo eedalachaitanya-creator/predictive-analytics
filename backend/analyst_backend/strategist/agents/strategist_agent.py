@@ -182,7 +182,7 @@ class StrategistAgent:
             rec = self._process_product(
                     product          = product,
                     our_costs        = request.our_costs,
-                    market_trends    = market_trends,
+                    market_trend     = trend,
                     client_priority  = request.client_priority,
                     customer_segment = request.customer_segment,
                     churn_lookup     = churn_lookup,
@@ -205,7 +205,7 @@ class StrategistAgent:
         self,
         product:         ScoutProduct,
         our_costs:       dict[str, float],
-        market_trends:   dict[str, str],
+        market_trend:    str,
         client_priority: Optional[str],
         customer_segment:Optional[str],
         churn_lookup:    dict[str, ChurnScore],
@@ -470,6 +470,7 @@ class StrategistAgent:
                 floor_price, comp_min, comp_avg, comp_median, true_cost,
                 raw_cogs, market_trend, margin_pct, client_priority,
                 customer_segment, flag, warnings, platform_breakdown,
+                currency_symbol,
             ),
             client_note          = self._client_note(strategy, suggested, margin_pct, flag),
             customer_note        = self._customer_note(
@@ -495,7 +496,7 @@ class StrategistAgent:
         self, strategy, suggested, pre_retention, target, floor,
         comp_min, comp_avg, comp_median, true_cost, raw_cogs,
         market_trend, margin_pct, client_priority, customer_segment,
-        flag, warnings, platform_breakdown,
+        flag, warnings, platform_breakdown, currency_symbol="₹",
     ) -> str:
         """Build a detailed, multi-part reasoning string for internal use."""
 

@@ -46,7 +46,7 @@
             [disabled]="sending() || selectedCount() === 0"
             (click)="sendSelected()">
             @if (sending()) { ⏳ &nbsp;Sending... }
-            @else { 🚀 &nbsp;Send to Selected ({{ selectedCount() }}) }
+            @else { 🚀 &nbsp;Send Offers ({{ selectedCount() }}) }
           </button>
         </div>
         <div class="selection-hint">
@@ -141,7 +141,7 @@
                   <span class="discount-pill discount-pill-zero"
                     title="No discount — click to add one"
                     (click)="setDiscount(item.customer_id, '0'); $event.stopPropagation()">
-                    Re-engagement
+                    Message Only
                   </span>
                 } @else {
                   <div class="discount-edit" (click)="$event.stopPropagation()">
@@ -157,7 +157,7 @@
                 @if (item.discount_pct > 0) {
                   <span class="discount-pill">{{ fmtPct(item.discount_pct) }} discount</span>
                 } @else {
-                  <span class="discount-pill discount-pill-zero">Re-engagement</span>
+                  <span class="discount-pill discount-pill-zero">Message Only</span>
                 }
               }
               <span class="churn-prob">{{ fmtProb(item.churn_probability) }} churn risk</span>

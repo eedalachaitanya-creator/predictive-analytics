@@ -23,10 +23,14 @@ export class StrategistTrendTab implements OnInit {
   history  = signal<MarketTrend[]>([]);
   products = signal<string[]>([]);
 
+  // Autocomplete state
+  suggestions     = signal<{ name: string; sku: string; saved_cost: number }[]>([]);
+  suggestionsOpen = signal(false);
+  private searchTimeout: any;
+
   ngOnInit() { this.loadProducts(); }
 
   loadProducts() {
-    // Load product names from entity_listings via sample-request endpoint
     this.svc.getSampleRequest(this.clientId).subscribe({
       next: (res: any) => {
         const names = (res?.scout_output?.products || []).map((p: any) => p.name);
@@ -36,10 +40,42 @@ export class StrategistTrendTab implements OnInit {
     });
   }
 
+  onInput(value: string) {
+    this.query.set(value);
+
+    if (this.searchTimeout) clearTimeout(this.searchTimeout);
+
+    if (!value || value.trim().length < 2) {
+      this.suggestions.set([]);
+      this.suggestionsOpen.set(false);
+      return;
+    }
+
+    this.searchTimeout = setTimeout(() => {
+      this.svc.searchProducts(this.clientId, value.trim()).subscribe(res => {
+        this.suggestions.set(res.products || []);
+        this.suggestionsOpen.set((res.products || []).length > 0);
+      });
+    }, 250);
+  }
+
+  pickSuggestion(name: string) {
+    this.query.set(name);
+    this.suggestions.set([]);
+    this.suggestionsOpen.set(false);
+    this.lookup(name);
+  }
+
+  onBlur() {
+    setTimeout(() => this.suggestionsOpen.set(false), 200);
+  }
+
   lookup(name?: string) {
     const q = name || this.query().trim();
     if (!q) return;
     this.query.set(q);
+    this.suggestions.set([]);
+    this.suggestionsOpen.set(false);
     this.loading.set(true);
     this.error.set('');
     this.result.set(null);
@@ -50,8 +86,8 @@ export class StrategistTrendTab implements OnInit {
         this.history.update(h => [res, ...h.filter(x => x.product_name !== res.product_name)].slice(0, 10));
         this.loading.set(false);
       },
-      error: (err) => {
-        this.error.set('Product not found in price history. Please check the product name.');
+      error: () => {
+        this.error.set('Product not found in price history. Run the Price Monitor first to collect data.');
         this.loading.set(false);
       }
     });

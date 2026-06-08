@@ -3,7 +3,8 @@ export const environment = {
   // apiUrl: 'http://10.0.0.14:8017/api/v1',
   apiUrl: 'http://localhost:8000/api/v1',
   appVersion: '4.0.0',
-  scoutApiUrl: 'http://10.0.0.14:8017',
+  // scoutApiUrl: 'http://10.0.0.14:8017',
+  scoutApiUrl: 'http://localhost:8000',
   // Set to true to use built-in mock data (no backend needed).
   // Set to false when the real backend is running.
   //

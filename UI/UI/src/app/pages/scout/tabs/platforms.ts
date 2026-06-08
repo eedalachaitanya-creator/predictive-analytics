@@ -64,7 +64,12 @@ export class ScoutPlatformsTab implements OnInit, OnDestroy {
     // Generate a UUID for this attempt. The frontend owns the ID so the
     // Cancel button can post to /websites/cancel/{id} without waiting for
     // the backend to round-trip an ID first. Same pattern as Search.
-    const requestId = crypto.randomUUID();
+    const requestId = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
     this.currentRequestId.set(requestId);
 
     this.adding.set(true);

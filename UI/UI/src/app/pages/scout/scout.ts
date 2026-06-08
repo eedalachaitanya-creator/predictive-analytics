@@ -39,11 +39,12 @@ export class ScoutComponent {
   private router = inject(Router);
 
   tabs: TabDef[] = [
-    { id: 'chat',      label: 'Chat',          icon: '💬', path: '/app/scout/chat' },
     { id: 'monitor',   label: 'Price Monitor', icon: '📈', path: '/app/scout/monitor' },
     { id: 'search',    label: 'Search',        icon: '🔍', path: '/app/scout/search' },
     { id: 'compare',   label: 'Compare',       icon: '⚖️', path: '/app/scout/compare' },
     { id: 'platforms', label: 'Platforms',     icon: '🌐', path: '/app/scout/platforms' },
+    { id: 'chat',      label: 'Chat',          icon: '💬', path: '/app/scout/chat' },
+
   ];
 
   // activeTab is now DERIVED from the URL, not stored as its own state.

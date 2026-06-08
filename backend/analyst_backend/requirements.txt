@@ -67,3 +67,5 @@ beautifulsoup4
 # crashed the agent mid-invocation. Direct SDK is stable across langchain versions.
 # Pinning <3.0.0 because v3 restructured the module layout.
 langfuse>=2.40.0,<3.0.0
+langchain-openai==1.1.14
+openai==2.32.0

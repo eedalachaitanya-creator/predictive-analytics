@@ -91,7 +91,12 @@ export class ScoutSearchTab implements OnInit {
     // in its cancellation registry. crypto.randomUUID is widely supported
     // (Chrome 92+, Firefox 95+, Safari 15.4+) — covers the targeted dev/user
     // browsers. No polyfill needed.
-    this.currentRequestId = crypto.randomUUID();
+    this.currentRequestId = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
     this.wasCancelled = false;
 
     this.searching.set(true);
@@ -177,7 +182,12 @@ export class ScoutSearchTab implements OnInit {
 
     // Same cancellation pattern as single search — generate a request_id,
     // pass it to the upload, and wire up Cancel via shared cancel() method.
-    this.currentRequestId = crypto.randomUUID();
+    this.currentRequestId = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
     this.wasCancelled = false;
 
     this.searching.set(true);

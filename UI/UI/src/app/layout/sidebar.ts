@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../services/auth.service';
+import { SidebarService } from '../services/sidebar.service';
 
 interface NavItem { path: string; label: string; icon: string; }
 interface NavGroup { label: string; icon: string; pathPrefixes: string[]; children: NavItem[]; }
@@ -17,6 +18,16 @@ interface NavGroup { label: string; icon: string; pathPrefixes: string[]; childr
 export class SidebarComponent {
   auth   = inject(AuthService);
   router = inject(Router);
+  sidebarService = inject(SidebarService);
+
+  isSidebarOpen = false;
+
+
+  ngOnInit() {
+    this.sidebarService.sidebarOpen$.subscribe(state => {
+      this.isSidebarOpen = state;
+    });
+  }
 
   analystGroup: NavGroup = {
     label: 'Analyst Agent',
@@ -27,10 +38,10 @@ export class SidebarComponent {
       '/app/chat', '/app/cost-tracking',
    ],
     children: [
+      { path: '/app/dashboard',     label: 'Dashboard',       icon: '📊' },
       { path: '/app/upload',        label: 'Upload Data',     icon: '📤' },
       { path: '/app/validation',    label: 'Validation',      icon: '✅' },
-      { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' },
-      { path: '/app/dashboard',     label: 'Dashboard',       icon: '📊' },
+      { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' }, 
       { path: '/app/churn-scores',  label: 'Churn Scores',    icon: '📈' },
       { path: '/app/downloads',     label: 'Downloads',       icon: '📥' },
       { path: '/app/chat',          label: 'Agent Chat',      icon: '🤖' },
@@ -253,4 +264,13 @@ export class SidebarComponent {
       }
     });
   }
+  toggleSidebar() {
+    this.isSidebarOpen  = !this.isSidebarOpen ;
+  } 
+
+  closeSidebar() {
+    this.isSidebarOpen  = false ;
+  }
+
+  
 }

@@ -252,44 +252,213 @@ app-root { display: block; height: 100vh; }
        </div>
      }
 */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
+.modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+.modal-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 440px; max-width: 100%; box-shadow: 0 20px 48px rgba(0,0,0,.22); }
+.modal-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.modal-sub { margin: 0 0 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+
+.sidebar { width: 260px; height: 100vh; position: fixed; left: 0; top: 0; background: #111; color: #fff; transition: 0.3s;  transform: translateX(0);  z-index: 1000; }
+.shell-main { margin-left: 250px; transition: margin-left 0.3s ease; }
+ 
+button.status-toggle { padding: 3px 5px;}
+.sidebar-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
+.menu-btn { display: none; }
+.sidebar span.nav-label { color: #4a5e80 !important;}
+
+.grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 28px; }
+.retention-page {padding: 0px;}
+
+@media (max-width: 992px) {
+  .sidebar { transform: translateX(-100%); width: 260px; }
+  .sidebar.open { transform: translateX(0); }
+  .shell-main { margin-left: 0; }
+  .menu-btn { display: block; padding: 0px 10px; font-size: 20px; background: no-repeat; border-radius: 3px; border-color: #ccc }
+  .topbar-meta {display: none;}
+  .topbar-left{display: flex; gap: 20px; align-items: center;}
+
+  .data-table thead, .client-cost-table thead, .ct-table, .drilldown-table  { display: none;  }
+  .data-table td, .data-table tbody, .data-table tr, .client-cost-table tbody, .client-cost-table tr, .ct-table tr, .ct-table tbody, .drilldown-table tr, .drilldown-table tbody {    display: block;    width: 100%;  }
+  .data-table td::before, .client-cost-table::before, .ct-table::before {content: attr(data-label); font-weight: bold; display: block; margin-bottom: 4px; color: #666;}
+  .client-cost-table td:first-child, .client-cost-table .td:last-child td  {text-align: right;}
+  table td {border-bottom: 1px solid #eee;position: relative; padding: 2% 2% 2% 33% !important; word-break: break-all; min-height: 38px;}
+  td:before {position: absolute; /*top: 6px;*/ left: 6px;width: 33%;padding-right: 10px;white-space: nowrap; font-weight: 600;}
+
+   .grid-3, .grid-4 {    grid-template-columns: repeat(2, 1fr);  }
+
+    .user-table td:nth-of-type(1):before { content: "#"; }
+    .user-table td:nth-of-type(2):before { content: "Name"; }
+    .user-table td:nth-of-type(3):before { content: "Email"; }
+    .user-table td:nth-of-type(4):before { content: "Role"; }
+    .user-table td:nth-of-type(5):before { content: "Client Access"; }
+    .user-table td:nth-of-type(6):before { content: "Last Login"; }
+    .user-table td:nth-of-type(7):before { content: "Status"; }
+
+    .clientsummary-table td:nth-of-type(1):before { content: "Client"; }
+    .clientsummary-table td:nth-of-type(2):before { content: "Customers"; }
+    .clientsummary-table td:nth-of-type(3):before { content: "Orders"; }
+    .clientsummary-table td:nth-of-type(4):before { content: "Churn %"; }
+    .clientsummary-table td:nth-of-type(5):before { content: "High Value"; } 
+
+    .client-cost-table td:nth-of-type(1):before { content: "Client"; }
+    .client-cost-table td:nth-of-type(2):before { content: "Today"; }
+    .client-cost-table td:nth-of-type(3):before { content: "Last 30d"; }
+    .client-cost-table td:nth-of-type(4):before { content: "All-Time Calls"; }
+    .client-cost-table td:nth-of-type(5):before { content: "All-Time Cost"; }
+    .client-cost-table td:nth-of-type(6):before { content: "Avg / Call"; }
+    .client-cost-table td:nth-of-type(7):before { content: "Over Budget"; }
+    .client-cost-table td:nth-of-type(8):before { content: "Last Call"; } 
+
+    .audit-table td:nth-of-type(1):before { content: "#"; }
+    .audit-table td:nth-of-type(2):before { content: "Timestamp"; }  
+    .audit-table td:nth-of-type(3):before { content: "User"; }  
+    .audit-table td:nth-of-type(4):before { content: "Client"; }  
+    .audit-table td:nth-of-type(5):before { content: "Action"; }  
+    .audit-table td:nth-of-type(6):before { content: "Details"; }  
+    .audit-table td:nth-of-type(7):before { content: "IP"; }  
+    .audit-table td:nth-of-type(8):before { content: "Outcome"; }
+    
+    .churn-table td:nth-of-type(1):before { content: "Rank"; }
+    .churn-table td:nth-of-type(2):before { content: "Customer"; }
+    .churn-table td:nth-of-type(3):before { content: "Churn Probability"; }   
+    .churn-table td:nth-of-type(4):before { content: "Risk"; }   
+    .churn-table td:nth-of-type(5):before { content: "Orders"; }   
+    .churn-table td:nth-of-type(6):before { content: "Spend"; }   
+    .churn-table td:nth-of-type(7):before { content: "Tier"; }   
+    .churn-table td:nth-of-type(8):before { content: "Top Driver"; } 
+
+    .clients-table td:nth-of-type(1):before { content: "ID"; }
+    .clients-table td:nth-of-type(2):before { content: "Client Name"; }
+    .clients-table td:nth-of-type(3):before { content: "Code"; }   
+    .clients-table td:nth-of-type(4):before { content: "Registered"; }   
+    .clients-table td:nth-of-type(5):before { content: "Status"; }   
+    .clients-table td:nth-of-type(6):before { content: "Action"; }
+     
+    .dataset-table td:nth-of-type(1):before { content: "Dataset"; }
+    .dataset-table td:nth-of-type(2):before { content: "Table (DB)"; }
+    .dataset-table td:nth-of-type(3):before { content: "Row Count"; }
+    .dataset-table td:nth-of-type(4):before { content: "Last Updated"; }
+    .dataset-table td:nth-of-type(5):before { content: "Action"; }
+
+    .ct-table td:nth-of-type(1):before { content: "Model"; }
+    .ct-table td:nth-of-type(2):before { content: "Calls"; }
+    .ct-table td:nth-of-type(3):before { content: "Total tokens"; }
+    .ct-table td:nth-of-type(4):before { content: "Total cost"; } 
+
+    .recentcalls-table td:nth-of-type(1):before { content: "When"; }
+    .recentcalls-table td:nth-of-type(2):before { content: "Call type"; }
+    .recentcalls-table td:nth-of-type(3):before { content: "Model"; }
+    .recentcalls-table td:nth-of-type(4):before { content: "Tokens"; } 
+    .recentcalls-table td:nth-of-type(5):before { content: "Cost"; } 
+    .recentcalls-table td:nth-of-type(6):before { content: "Tokens"; } 
+    .recentcalls-table td:nth-of-type(7):before { content: "Status"; } 
+
+    .drilldown-table td:nth-of-type(1):before { content: "Customer"; }
+    .drilldown-table td:nth-of-type(2):before { content: "Tier"; }
+    .drilldown-table td:nth-of-type(3):before { content: "Orders"; }
+    .drilldown-table td:nth-of-type(4):before { content: "Spend"; } 
+    .drilldown-table td:nth-of-type(5):before { content: "Avg Order"; } 
+    .drilldown-table td:nth-of-type(6):before { content: "Days Since"; } 
+    .drilldown-table td:nth-of-type(7):before { content: "R / F / M"; } 
+    .drilldown-table td:nth-of-type(8):before { content: "Churn Prob"; } 
+    .drilldown-table td:nth-of-type(9):before { content: "Risk"; } 
+    .drilldown-table td:nth-of-type(10):before { content: "Status"; } 
+
+    .validation-table  td:nth-of-type(1):before { content: "#"; }
+    .validation-table  td:nth-of-type(2):before { content: "Table / Master"; }
+    .validation-table  td:nth-of-type(3):before { content: "Group"; }
+    .validation-table  td:nth-of-type(4):before { content: "Rows"; } 
+    .validation-table  td:nth-of-type(5):before { content: "Cols"; } 
+    .validation-table  td:nth-of-type(6):before { content: "Missing"; } 
+    .validation-table  td:nth-of-type(7):before { content: "Dup IDs"; } 
+    .validation-table  td:nth-of-type(8):before { content: "Date Err"; } 
+    .validation-table  td:nth-of-type(9):before { content: "Status"; }  
+
+ 
+    .column-table  td:nth-of-type(1):before { content: "Column"; }
+    .column-table  td:nth-of-type(2):before { content: "Non-Null"; }
+    .column-table  td:nth-of-type(3):before { content: "Unique"; }
+    .column-table  td:nth-of-type(4):before { content: "Sample Value"; }
+    .column-table  td:nth-of-type(5):before { content: "Required"; }
+    .column-table  td:nth-of-type(6):before { content: "Nulls"; }
+    .column-table  td:nth-of-type(7):before { content: "Status"; } 
+
+    .interventions-table td:nth-of-type(1):before { content: "Customer"; }
+    .interventions-table td:nth-of-type(2):before { content: "Risk"; }
+    .interventions-table td:nth-of-type(3):before { content: "Channel"; }
+    .interventions-table td:nth-of-type(4):before { content: "Discount"; }
+    .interventions-table td:nth-of-type(5):before { content: "Churn Prob"; }
+    .interventions-table td:nth-of-type(6):before { content: "Escalated"; }
+    .interventions-table td:nth-of-type(7):before { content: "Status"; } 
+    .interventions-table td:nth-of-type(8):before { content: "Created"; } 
+    .interventions-table td:nth-of-type(9):before { content: "Action"; } 
+
+
+    .recentproducts-table td:nth-of-type(1):before { content: ""; }
+    .recentproducts-table td:nth-of-type(2):before { content: "Product"; }
+    .recentproducts-table td:nth-of-type(3):before { content: "Platform"; }
+    .recentproducts-table td:nth-of-type(4):before { content: "Old Price"; }
+    .recentproducts-table td:nth-of-type(5):before { content: "New Price"; }
+    .recentproducts-table td:nth-of-type(6):before { content: "Change"; }
+    .recentproducts-table td:nth-of-type(7):before { content: "When"; } 
+    
+    .history-inner td:nth-of-type(1):before { content: "Platform"; }
+    .history-inner td:nth-of-type(2):before { content: "Price"; }
+    .history-inner td:nth-of-type(3):before { content: "Date"; }
+
+    .platforms-table td:nth-of-type(1):before { content: "Status"; }
+    .platforms-table td:nth-of-type(2):before { content: "Name"; }
+    .platforms-table td:nth-of-type(3):before { content: "Search URL"; }
+    .platforms-table td:nth-of-type(4):before { content: "Actions"; }
+    
+    .search-table td:nth-of-type(1):before { content: "Platform"; }
+    .search-table td:nth-of-type(2):before { content: "Product"; }
+    .search-table td:nth-of-type(3):before { content: "Price"; }
+    .search-table td:nth-of-type(4):before { content: "Availability"; }
+    .search-table td:nth-of-type(5):before { content: "Updated"; } 
+
+
+    .context-table  td:nth-of-type(1):before { content: "Customer"; }
+    .context-table  td:nth-of-type(2):before { content: "Product"; }
+    .context-table  td:nth-of-type(3):before { content: "Strategy"; }
+    .context-table  td:nth-of-type(4):before { content: "Suggested Price"; }
+    .context-table  td:nth-of-type(5):before { content: "Pre-retention Price"; }
+    .context-table  td:nth-of-type(6):before { content: "Discount Applied"; }
+    .context-table  td:nth-of-type(7):before { content: "Churn Prob"; }
+    .context-table  td:nth-of-type(8):before { content: "Risk Tier"; }
+    .context-table  td:nth-of-type(9):before { content: "Created At"; } 
+
+    .runs-table  td:nth-of-type(1):before { content: "Run ID"; }
+    .runs-table  td:nth-of-type(2):before { content: "Products"; }
+    .runs-table  td:nth-of-type(3):before { content: "Retention"; }
+    .runs-table  td:nth-of-type(4):before { content: "Latency"; }
+    .runs-table  td:nth-of-type(5):before { content: "Cost"; }
+    .runs-table  td:nth-of-type(6):before { content: "Time"; }
+
+    .business-table  td:nth-of-type(1):before { content: "Segment"; }
+    .business-table  td:nth-of-type(2):before { content: "RFM Condition"; }
+    .business-table  td:nth-of-type(3):before { content: "Recommended Focus"; }
+    .business-table  td:nth-of-type(4):before { content: "Active"; } 
+
+
+    .vendor-table  td:nth-of-type(1):before { content: "Parameter"; }
+    .vendor-table  td:nth-of-type(2):before { content: "Current Value"; }
+    .vendor-table  td:nth-of-type(3):before { content: "Description"; } 
 }
 
-.modal-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 28px;
-  width: 440px;
-  max-width: 100%;
-  box-shadow: 0 20px 48px rgba(0,0,0,.22);
+@media (max-width: 767px) {
+.topbar-right{display: none !important;}
+.param-row {flex-direction: column;}
+.shell-content {padding-left: 28px !important;}
 }
-
-.modal-title {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
+  
+/* Mobile */
+@media (max-width: 576px) {
+  .grid-2, .grid-3, .grid-4, .grid-5 {
+    grid-template-columns: 1fr;
+  }
+  .grid-container, .score-summary, .rec-layout, .trend-layout, .run-layout {
+    grid-template-columns: auto !important;
 }
-
-.modal-sub {
-  margin: 0 0 18px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 18px;
+.scout-page, .strategist-page{padding: 0px !important;}
 }

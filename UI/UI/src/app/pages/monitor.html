@@ -3,7 +3,7 @@
        (KPI cards, Live Job Queue, Recent Run History, Performance Summary)
        was removed because there is no pipeline_runs table or async job
        queue backing those sections — they were hardcoded demo data. -->
-  <div class="section-heading">💰 LLM Cost Tracking (LangFuse)</div>
+  <div class="section-heading">💰 LLM Cost Tracking (LangFuse) sd</div>
   <div class="card mb-24" style="padding:24px">
     @if (costLoading()) {
       <div style="text-align:center;color:var(--text-muted);padding:16px">Loading cost tracking info...</div>
@@ -72,7 +72,7 @@
       </div>
     } @else {
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <table class=" data-table client-cost-table"  style="width:100%;border-collapse:collapse;font-size:13px">
           <thead style="background:var(--surface-alt, #f8fafc);border-bottom:2px solid var(--border)">
             <tr>
               <th style="padding:12px 16px;text-align:left;font-weight:600">Client</th>

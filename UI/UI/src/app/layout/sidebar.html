@@ -1,7 +1,12 @@
-<aside class="sidebar">
+
+<!-- OVERLAY (mobile only) -->
+<div class="sidebar-overlay" *ngIf="isSidebarOpen"  (click)="closeSidebar()">
+</div>
+ 
+<aside class="sidebar" [class.open]="isSidebarOpen">
   <div class="sb-logo">
     <div class="sb-logo-title">📊 <span>Predictive</span> Analytics</div>
-    <div class="sb-logo-sub">{{ auth.getClientName() }} · {{ auth.getClientId() }}</div>
+    <!-- <div class="sb-logo-sub">{{ auth.getClientName() }} · {{ auth.getClientId() }}</div> -->
   </div>
 
   @if (!auth.isSuperAdmin()) {
@@ -163,7 +168,7 @@
 </aside>
 
 @if (logoutConfirmOpen()) {
-  <div class="modal-backdrop" (click)="cancelLogout()">
+  <div class="modal-backdrop"  >
     <div class="modal-card" (click)="$event.stopPropagation()">
       <h3 class="modal-title">🚪 Sign Out</h3>
       <p class="modal-sub">Are you sure you want to sign out?</p>
@@ -176,7 +181,7 @@
 }
 
 @if (changePassOpen()) {
-  <div class="sb-modal-backdrop" (click)="closeChangePassword()">
+  <div class="sb-modal-backdrop" >
     <div class="sb-modal-card" (click)="$event.stopPropagation()">
       <h3 class="modal-title">🔑 Change Password</h3>
       <p class="modal-sub">Enter your current (or temporary) password, then set a new one.</p>

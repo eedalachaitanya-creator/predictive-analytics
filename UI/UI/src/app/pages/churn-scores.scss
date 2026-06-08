@@ -1,20 +1,6 @@
 // ── Summary Cards ──────────────────────────────────────
-.score-summary {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 14px;
-  margin-bottom: 20px;
-}
-
-.summary-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 18px 16px;
-  text-align: center;
-  cursor: pointer;
-  transition: var(--transition);
-
+.score-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; }
+.summary-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 16px; text-align: center; cursor: pointer; transition: var(--transition);
   &:hover { border-color: var(--border-bright); transform: translateY(-1px); }
   &.active { border-color: var(--accent-blue); background: rgba(26,111,212,.06); }
   &.high .summary-value { color: #EF4444; }
@@ -22,268 +8,52 @@
   &.low .summary-value { color: #10B981; }
   &.avg .summary-value { color: var(--accent-blue); }
 }
-
-.summary-value {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-}
-
-.summary-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-// Small muted line under the label clarifying what each metric actually
-// is (e.g. "probability ≥ 0.65", "mean — not % HIGH"). Hover tooltips on
-// the card give the longer explanation.
-.summary-sub {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 3px;
-  opacity: .85;
-  letter-spacing: .01em;
-}
-
-// ── Filter Bar ──────────────────────────────────────────
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-.search-box {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-  min-width: 250px;
-
+.summary-value { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+.summary-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.summary-sub { font-size: 10px; color: var(--text-muted); margin-top: 3px; opacity: .85; letter-spacing: .01em; }
+.filter-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.search-box { display: flex; gap: 8px; flex: 1; min-width: 250px;
   input { flex: 1; max-width: 350px; }
 }
+.filter-pills { display: flex; gap: 8px; }
+.pill-clear { background: none; border: none; color: inherit; font-size: 14px; cursor: pointer; margin-left: 4px; padding: 0 2px; }
+.page-info { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
-.filter-pills {
-  display: flex;
-  gap: 8px;
-}
-
-.pill-clear {
-  background: none;
-  border: none;
-  color: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  margin-left: 4px;
-  padding: 0 2px;
-}
-
-.page-info {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-// ── Table ──────────────────────────────────────────────
-
-/* Scroll wrapper around the 9-column churn table.
-   The parent .card has overflow:hidden (global style), but the scrollbars
-   live INSIDE this wrapper at its bottom + right edges, so they're not
-   clipped.
-
-   - Horizontal scroll: the table has min-width:1040px; when the viewport
-     is narrower, this wrapper scrolls sideways instead of columns
-     collapsing.
-   - Vertical scroll (NEW): page size is now 100 rows; rather than growing
-     the whole page to ~3000px tall, the wrapper caps at 70vh and scrolls
-     internally. The table header uses position:sticky so it stays visible
-     while the user scrolls customers.
-
-   max-height:70vh keeps the page header + summary cards + filters + first
-   rows all on screen at once; the user scrolls within the table only. */
-.churn-scroll {
-  overflow-x: auto;
-  overflow-y: auto;                        // NEW — was hidden, now vertical scrolls internally
-  max-height: 70vh;                         // NEW — cap table height so it scrolls instead of pushing the page
-  -webkit-overflow-scrolling: touch;       // momentum scroll on iOS trackpads
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-bright, #cbd5e1) transparent;
-
-  // Width applies to vertical scrollbar; height applies to horizontal.
-  &::-webkit-scrollbar        { width: 8px; height: 8px; }
-  &::-webkit-scrollbar-track  { background: transparent; }
-  &::-webkit-scrollbar-thumb  {
-    background: var(--border-bright, #cbd5e1);
-    border-radius: 4px;
-  }
+ .churn-scroll { overflow-x: auto; overflow-y: auto; max-height: 70vh; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: var(--border-bright, #cbd5e1); border-radius: 4px; }
   &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 }
-
-/* Sticky table header so column labels stay visible while the user
-   scrolls through 100 customers. The background matches the default
-   table header so it doesn't show rows bleeding through. z-index:2 keeps
-   the header above probability-bar fills and the per-row detail panel. */
-.churn-scroll .churn-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg-card, #ffffff);
-  box-shadow: inset 0 -1px 0 var(--border, #e2e8f0);  // bottom divider
-}
-
-.churn-table {
-  min-width: 1040px;   // 9 cols: rank(50) + cust(180) + prob(160) + risk(90) + orders(70) + spend(90) + tier(100) + driver(180) + expand(40) ≈ 960, +padding
-
+.churn-scroll .churn-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-card, #ffffff); box-shadow: inset 0 -1px 0 var(--border, #e2e8f0); }
+.churn-table {  
   th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
-
-  // Prevent cells from wrapping into tiny columns; let the scrollbar
-  // handle narrow viewports instead. The driver-cell already has its
-  // own ellipsis rule below, which still wins for that column.
   td { white-space: nowrap; }
-
-  tr {
-    cursor: pointer;
-    transition: background 0.15s;
+  tr { cursor: pointer; transition: background 0.15s;
     &:hover { background: rgba(26,111,212,.03); }
     &.selected { background: rgba(26,111,212,.06); }
     &.high-risk { border-left: 3px solid #EF4444; }
   }
 }
+.rank-cell { font-weight: 700; color: var(--text-muted); font-size: 12px; width: 50px; }
+.customer-name { font-weight: 600; font-size: 13px; }
+.customer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; } 
+.prob-value { font-weight: 700; font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+.prob-bar { height: 6px; background: var(--bg-base); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+.prob-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.driver-cell { font-size: 11px; color: var(--text-secondary); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.rank-cell {
-  font-weight: 700;
-  color: var(--text-muted);
-  font-size: 12px;
-  width: 50px;
-}
-
-.customer-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.customer-id {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
-}
-
-// ── Probability Bar ────────────────────────────────────
-.prob-cell {
-  min-width: 140px;
-}
-
-.prob-value {
-  font-weight: 700;
-  font-size: 14px;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.prob-bar {
-  height: 6px;
-  background: var(--bg-base);
-  border-radius: 3px;
-  margin-top: 4px;
-  overflow: hidden;
-}
-
-.prob-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-.driver-cell {
-  font-size: 11px;
-  color: var(--text-secondary);
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-// ── Detail Panel ───────────────────────────────────────
-.detail-row td {
-  padding: 0 !important;
-  border: none !important;
-  white-space: normal !important;   // override .churn-table td nowrap so the detail panel's labels/values wrap normally
-}
-
-.detail-panel {
-  background: linear-gradient(135deg, #F8FAFF 0%, #F0F6FF 100%);
-  border: 1px solid rgba(26,111,212,.12);
-  border-radius: 8px;
-  margin: 4px 8px 12px;
-  padding: 20px;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-}
-
+.detail-row td { padding: 0 !important; border: none !important; white-space: normal !important; }
+.detail-panel { background: linear-gradient(135deg, #F8FAFF 0%, #F0F6FF 100%); border: 1px solid rgba(26,111,212,.12); border-radius: 8px; margin: 4px 8px 12px; padding: 20px; }
+.detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .detail-section {
-  .detail-title {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent-blue);
-    margin-bottom: 10px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid rgba(26,111,212,.12);
-  }
+  .detail-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-blue); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(26,111,212,.12); }
 }
-
-.detail-item {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  padding: 3px 0;
-
-  .dl {
-    color: var(--text-muted);
-    font-size: 11px;
-  }
+.detail-item { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0;
+  .dl { color: var(--text-muted); font-size: 11px; }
 }
-
-.detail-meta {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-muted);
-  text-align: right;
-}
-
-// ── Pagination ─────────────────────────────────────────
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 20px;
-  padding: 12px 0;
-}
-
-.page-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-// ── Empty / Loading States ─────────────────────────────
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
-}
-
-.loading-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
-}
+.detail-meta { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); text-align: right; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; padding: 12px 0; }
+.page-label { font-size: 13px; color: var(--text-secondary); }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.loading-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }

@@ -5,12 +5,13 @@ import { Router, NavigationEnd } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs/operators';
+import { SidebarService } from '../services/sidebar.service'; 
 
 const META: Record<string, { title: string; meta: string }> = {
   upload:     { title: '📤 Upload Data',           meta: 'Upload all 11 master files' },
   validation: { title: '✅ Validation Preview',     meta: 'Quality checks run after each upload' },
   settings:   { title: '⚙️ Configure & Run',       meta: 'Configure pipeline rules and start processing' },
-  dashboard:  { title: '📊 Output Dashboard',        meta: 'Pipeline results' },
+  dashboard:  { title: '📊  Dashboard',        meta: 'Pipeline results' },
   downloads:  { title: '📥 Downloads',               meta: 'Export your results' },
   chat:       { title: '🤖 Agent Chat',              meta: 'Ask questions about your data' },
   clients:    { title: '👥 Client Management',       meta: 'Admin Console · Manage all retail clients' },
@@ -32,6 +33,8 @@ const ADMIN_PAGES = new Set(['clients', 'users', 'monitor', 'analytics', 'audit'
 export class TopbarComponent {
   auth   = inject(AuthService);
   router = inject(Router);
+  sidebarService = inject(SidebarService);
+ 
 
   private activeKey = toSignal(
     this.router.events.pipe(
@@ -123,4 +126,13 @@ export class TopbarComponent {
       }
     });
   }
+    toggleSidebar() {
+    this.sidebarService.toggle();
+  }
+
+  closeSidebar() {
+    this.sidebarService.close();
+  }
+
 }
+ 

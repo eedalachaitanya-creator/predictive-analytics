@@ -134,7 +134,7 @@
 
     <div class="action-row">
       <button class="btn outline sm" (click)="saveCosts()">💾 Save Costs</button>
-      <button class="run-btn" [disabled]="loading()" (click)="run()">
+      <button class="btn primary" [disabled]="loading()" (click)="run()">
         @if (loading()) { ⏳ &nbsp;Analysing... }
         @else { 🧠 &nbsp;Get Price Recommendations }
       </button>

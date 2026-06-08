@@ -26,7 +26,7 @@
 
       @if (error()) { <div class="error-bar">{{ error() }}</div> }
 
-      <button class="run-btn" [disabled]="loading()" (click)="run()">
+      <button class="btn primary" [disabled]="loading()" (click)="run()">
         @if (loading()) { ⏳ &nbsp;Loading offers... }
         @else { 🔍 &nbsp;Preview Offers }
       </button>
@@ -42,7 +42,7 @@
               {{ allSelected() ? 'Deselect All' : 'Select All' }}
             </button>
           </div>
-          <button class="send-btn"
+          <button class=" btn primary"
             [disabled]="sending() || selectedCount() === 0"
             (click)="sendSelected()">
             @if (sending()) { ⏳ &nbsp;Sending... }
@@ -84,7 +84,7 @@
       </div>
     }
   </div>
-
+<div style="max-height: 415px; overflow-y: auto; border: 1px solid #d8e2f0; padding: 10px; padding: 10px; background: #fff; border-radius: 10px;">
   <div class="run-results">
     @if (loading()) {
       <div class="loading-state">
@@ -178,5 +178,6 @@
         }
       </div>
     }
+  </div>
   </div>
 </div>

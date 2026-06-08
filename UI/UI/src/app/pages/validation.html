@@ -84,7 +84,7 @@
             <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(Click a row for column details)</span>
           </div>
         </div>
-        <table class="data-table">
+        <table class="data-table validation-table">
           <thead>
             <tr>
               <th>#</th><th>Table / Master</th><th>Group</th><th>Rows</th><th>Cols</th>
@@ -144,7 +144,7 @@
         } @else if (cols().length === 0) {
           <div style="padding:28px;text-align:center;color:var(--text-muted)">No column data available</div>
         } @else {
-          <table class="data-table">
+          <table class="data-table column-table" >
             <thead>
               <tr>
                 <!-- "Type" column removed 2026-04-24: clients don't need to

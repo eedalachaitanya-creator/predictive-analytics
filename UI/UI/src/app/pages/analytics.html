@@ -25,7 +25,7 @@
     <!-- "Pipeline Runs · Last 30 days" KPI was removed: there is no
          pipeline_runs log table, so the number was hardcoded to 0. -->
     <div class="section-heading">A. Platform-Wide Summary</div>
-    <div class="grid-4 mb-28">
+    <div class="grid-4 mb-24">
       <div class="stat-card">
         <div class="stat-value text-green">{{ kpis()?.activeClients }}</div>
         <div class="stat-label">Active Clients</div>
@@ -102,7 +102,7 @@
            backend and carried no real information. -->
       <div class="card mb-24">
         <div class="card-header"><div class="card-title">📋 Client Summary Table</div></div>
-        <table class="data-table">
+        <table class="data-table clientsummary-table">
           <thead><tr><th>Client</th><th>Customers</th><th>Orders</th><th>Churn %</th><th>High Value</th></tr></thead>
           <tbody>
             @for (c of clients(); track c.clientId) {

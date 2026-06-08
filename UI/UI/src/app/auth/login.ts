@@ -79,7 +79,7 @@ export class LoginComponent {
         if (this.auth.isSuperAdmin()) {
           this.router.navigate(['/app/clients']);
         } else {
-          this.router.navigate(['/app/upload']);
+          this.router.navigate(['/app/dashboard']);
         }
       },
       error: (err) => {

@@ -75,8 +75,8 @@
 
   <!-- Business Segment Rules -->
   <div class="card mb-20">
-    <div class="card-header"><div class="card-title">💼 Business Segment Rules — RFM-based classification logic</div></div>
-    <table class="data-table">
+    <div class="card-header "><div class="card-title">💼 Business Segment Rules — RFM-based classification logic</div></div>
+    <table class="data-table business-table">
       <thead><tr><th>Segment</th><th>RFM Condition</th><th>Recommended Focus</th><th>Active</th></tr></thead>
       <tbody>
         @for (s of segments; track s.name) {
@@ -96,7 +96,7 @@
   <!-- Vendor / Client Config -->
   <div class="card mb-20">
     <div class="card-header"><div class="card-title">⚙️ Vendor / Client Config — core pipeline parameters</div></div>
-    <table class="data-table">
+    <table class="data-table vendor-table">
       <!-- "Type" column removed 2026-04-24: clients don't need to see
            internal type info on the business-facing settings view. The
            v.type field is still on each row object so an admin view

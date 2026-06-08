@@ -24,7 +24,7 @@ export class SidebarComponent {
     pathPrefixes: [
       '/app/upload', '/app/validation', '/app/settings',
       '/app/dashboard', '/app/churn-scores', '/app/downloads',
-      '/app/chat', '/app/cost-tracking', '/app/outreach',
+      '/app/chat', '/app/cost-tracking',
    ],
     children: [
       { path: '/app/upload',        label: 'Upload Data',     icon: '📤' },
@@ -35,7 +35,6 @@ export class SidebarComponent {
       { path: '/app/downloads',     label: 'Downloads',       icon: '📥' },
       { path: '/app/chat',          label: 'Agent Chat',      icon: '🤖' },
       { path: '/app/cost-tracking', label: 'Cost Tracking',   icon: '💰' },
-      { path: '/app/outreach',      label: 'Outreach Emails', icon: '📧' },
     ],
   };
 

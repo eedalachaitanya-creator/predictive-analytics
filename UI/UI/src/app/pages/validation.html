@@ -153,7 +153,7 @@
                      API / dev console can surface it if anyone ever needs
                      it. -->
                 <th>Column</th><th>Non-Null</th><th>Unique</th>
-                <th>Sample Value</th><th>Required</th><th>Nulls</th><th>Status</th>
+                <th>Required</th><th>Nulls</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -162,7 +162,6 @@
                   <td>{{ c.col }}</td>
                   <td>{{ c.nonNull }}</td>
                   <td>{{ c.unique }}</td>
-                  <td><code>{{ c.sample }}</code></td>
                   <td>{{ c.req ? '✅' : '—' }}</td>
                   <td>{{ c.nullCount }}</td>
                   <td>

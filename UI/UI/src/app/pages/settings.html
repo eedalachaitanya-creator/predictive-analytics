@@ -39,7 +39,7 @@
         <div>
           <div class="radio-label">◉ Quartile &nbsp;<span class="badge blue">Recommended</span></div>
           <div class="radio-desc">System automatically divides customers into 4 equal bands (25th / 50th / 75th percentile) based on net spend. Thresholds recalculate on every run.</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Auto: Top 25% → 💎 Platinum &nbsp;|&nbsp; 25–50% → 🥇 Gold &nbsp;|&nbsp; 50–75% → 🥈 Silver &nbsp;|&nbsp; Bottom 25% → 🥉 Bronze</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Auto (by spend percentile): 75% &amp; above → 💎 Platinum &nbsp;|&nbsp; 50–75% → 🥇 Gold &nbsp;|&nbsp; 25–50% → 🥈 Silver &nbsp;|&nbsp; below 25% → 🥉 Bronze</div>
         </div>
       </div>
       <div class="radio-option" [class.selected]="tierMethod()==='custom'" (click)="tierMethod.set('custom')">
@@ -73,18 +73,9 @@
     </div>
   </div>
 
-  <!-- Business Segment Rules -->
-  <div class="card mb-20">
-    <div class="card-header "><div class="card-title">💼 Business Segment Rules — RFM-based classification logic</div></div>
-    <table class="data-table business-table">
-      <thead><tr><th>Segment</th><th>RFM Condition</th><th>Recommended Focus</th><th>Active</th></tr></thead>
-      <tbody>
-        @for (s of segments; track s.name) {
-          <tr><td>{{s.name}}</td><td><code>{{s.cond}}</code></td><td>{{s.focus}}</td><td><span class="badge green">✅</span></td></tr>
-        }
-      </tbody>
-    </table>
-  </div>
+  <!-- Customer Categories table removed 2026-06-08 (CTO): the segment view duplicated
+       the dashboard's Order Activity card and added confusion, so it was dropped. -->
+
 
   <!-- Value Proposition Rules card was removed 2026-04-24:
        per-tier × per-risk discount templates are owned by the Retention

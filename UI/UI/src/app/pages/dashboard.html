@@ -86,101 +86,12 @@
 
     <!-- B. Charts -->
     <div class="section-heading">B. Visual Summaries</div>
-    <div class="grid-2 mb-24">
-      <div class="card">
-        <div class="card-header"><div class="card-title">📊 Retention / Segment Distribution</div></div>
-        <div style="padding:18px">
-          @if (segments().length) {
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Click a segment to see customers</div>
-            @for (s of segments(); track s.label) {
-              <div class="seg-bar-row seg-clickable" [class.seg-active]="expandedSegment() === s.label" (click)="toggleSegment(s.label)">
-                <span class="seg-label">{{ s.label }}</span>
-                <div class="seg-track">
-                  <div class="seg-fill" [style.width]="s.pct + '%'" [style.background]="s.color">{{ s.count }}</div>
-                </div>
-                <span class="seg-pct">{{ s.pct | number:'1.1-1' }}%</span>
-                <span class="seg-arrow">{{ expandedSegment() === s.label ? '▼' : '▶' }}</span>
-              </div>
-
-              <!-- Expanded customer table for this segment -->
-              @if (expandedSegment() === s.label) {
-                <div class="seg-drilldown">
-                  @if (segmentLoading()) {
-                    <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">Loading customers...</div>
-                  } @else if (segmentCustomers().length === 0) {
-                    <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">No customers in this segment</div>
-                  } @else {
-                    <!-- Horizontal scroll wrapper: the 10-column table has a
-                         min-width that doesn't fit on narrow viewports, so we
-                         let the user scroll sideways instead of clipping. -->
-                    <div class="drilldown-scroll">
-                      <table class="drilldown-table">
-                        <thead>
-                          <tr>
-                            <th>Customer</th>
-                            <th>Tier</th>
-                            <th>Orders</th>
-                            <th>Spend</th>
-                            <th>Avg Order</th>
-                            <th>Days Since</th>
-                            <th>R / F / M</th>
-                            <th>Churn Prob</th>
-                            <th>Risk</th>
-                            <th>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          @for (c of segmentCustomers(); track c.customerId) {
-                            <tr>
-                              <td>
-                                <div style="font-weight:600;font-size:13px">{{ c.customerName }}</div>
-                                <div style="font-size:11px;color:var(--text-muted)">{{ c.customerId }}</div>
-                              </td>
-                              <td><span class="badge" [class]="c.customerTier === 'Platinum' ? 'purple' : c.customerTier === 'Gold' ? 'yellow' : c.customerTier === 'Silver' ? 'gray' : 'brown'">{{ c.customerTier | tierLabel }}</span></td>
-                              <td>{{ c.totalOrders }}</td>
-                              <td>{{ formatCurrency(c.totalSpend) }}</td>
-                              <td>{{ formatCurrency(c.avgOrderValue) }}</td>
-                              <td>{{ c.daysSinceLastOrder }}d</td>
-                              <td class="font-mono" style="font-size:11px">{{ c.rfmRecency }}/{{ c.rfmFrequency }}/{{ c.rfmMonetary }}</td>
-                              <td>
-                                @if (c.churnProbability !== null) {
-                                  {{ (c.churnProbability * 100) | number:'1.1-1' }}%
-                                } @else {
-                                  —
-                                }
-                              </td>
-                              <td>
-                                @if (c.riskTier && c.riskTier !== 'N/A') {
-                                  <span class="badge" [class]="riskClass(c.riskTier)">{{ c.riskTier }}</span>
-                                } @else {
-                                  —
-                                }
-                              </td>
-                              <td><span class="badge" [class]="c.churnLabel === 'Churned' ? 'red' : 'green'">{{ c.churnLabel }}</span></td>
-                            </tr>
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                    <div style="padding:8px 12px;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border)">
-                      <span>{{ segmentTotal() }} customers · Page {{ segmentPage() }} of {{ segmentTotalPages() }}</span>
-                      <button class="btn ghost sm" [disabled]="segmentPage()===1" (click)="segmentPrev()">◀ Prev</button>
-                      <button class="btn ghost sm" [disabled]="segmentPage()===segmentTotalPages()" (click)="segmentNext()">Next ▶</button>
-                    </div>
-                  }
-                </div>
-              }
-            }
-          } @else {
-            <div class="text-muted" style="font-size:13px;padding:12px 0">No segment data available</div>
-          }
-        </div>
-      </div>
+    <div class="mb-24">
       <div class="card"
-           [title]="'Recency-based split: Lapsed = last non-cancelled order is at least ' + (kpis()?.churnWindowDays ?? 90) + ' days old; Recently Active = newer than that. This is different from the ML churn prediction on the Churn Scores page.'">
+           [title]="'Based on last order date — NOT the ML model. Lapsed = no order in the last ' + (kpis()?.churnWindowDays ?? 90) + ' days; Recently Purchased = ordered within that window; Slowing Down = still ordering but recency is dropping. Covers ALL customers, so totals differ from the Churn Scores page, which counts only ML-scored customers.'">
         <div class="card-header">
-          <div class="card-title">🔴 Order Activity (past {{ kpis()?.churnWindowDays ?? 90 }} days)</div>
-          <div class="card-subtitle">Recency-based · not the ML prediction</div>
+          <div class="card-title">🛒 Purchase Recency (last {{ kpis()?.churnWindowDays ?? 90 }} days)</div>
+          <div class="card-subtitle">By last order date · not the churn-risk model · {{ activityTotal() }} customers</div>
         </div>
         <div style="padding:18px">
           @for (c of churnBreakdown(); track c.label) {

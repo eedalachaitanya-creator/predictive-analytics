@@ -77,16 +77,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   error = signal('');
 
   // Static display data
-  segments = [
-    { name:'Champions',      cond:'R=5 · F\u22654 · M\u22654', focus:'Upsell premium / loyalty rewards',    active:true },
-    { name:'Loyal Customers',cond:'F\u22654',              focus:'Exclusive offers, early access',       active:true },
-    { name:'Potential Loyal',cond:'R\u22653 · F=2-3',      focus:'Onboarding series, nurture',           active:true },
-    { name:'At-Risk',        cond:'R=2 · F\u22653',        focus:'Win-back campaigns, discount',         active:true },
-    { name:'Hibernating',    cond:'R\u22642 · F\u22643',        focus:'Re-engagement / low-cost nudge',       active:true },
-    { name:'New Customers',  cond:'R=5 · F=1',        focus:'Welcome flow, product education',      active:true },
-    { name:'Lost Customers', cond:'R=1 · F\u22642',        focus:'Final win-back or suppress',           active:true },
-    { name:'Casual Shoppers',cond:'RFM total 6\u201311',   focus:'Seasonal promotions, awareness',       active:true },
-  ];
+  // segments array removed 2026-06-08 — Customer Categories table dropped (CTO).
 
   // vpRules array removed 2026-04-24 — see settings.html for the full
   // rationale. Per-tier × per-risk discount templates are now owned by the

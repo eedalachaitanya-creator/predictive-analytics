@@ -6,21 +6,26 @@ import { TierLabelService } from '../services/tier-label.service';
 import { TierLabelPipe } from '../pipes/tier-label.pipe';
 
 const SEGMENT_COLORS: Record<string, string> = {
-  'Champions':          'linear-gradient(90deg,#8B5CF6,#6D28D9)',
-  'Loyal Customers':    'linear-gradient(90deg,#3B82F6,#2563EB)',
-  "Can't Lose Them":    'linear-gradient(90deg,#EF4444,#DC2626)',
-  'At Risk':            'linear-gradient(90deg,#F59E0B,#D97706)',
-  'New Customers':      'linear-gradient(90deg,#10B981,#059669)',
-  'Potential Loyalists': 'linear-gradient(90deg,#06B6D4,#0891B2)',
-  'Hibernating':        'linear-gradient(90deg,#64748B,#475569)',
-  'Needs Attention':    'linear-gradient(90deg,#F97316,#EA580C)',
+  'Good':     'linear-gradient(90deg,#10B981,#059669)',
+  'At-Risk':  'linear-gradient(90deg,#F59E0B,#D97706)',
+  'Churned':  'linear-gradient(90deg,#EF4444,#B91C1C)',
 };
 
 const CHURN_COLORS: Record<string, string> = {
   'Churned':    'linear-gradient(90deg,#EF4444,#B91C1C)',
   'At-Risk':    'linear-gradient(90deg,#F59E0B,#D97706)',
+  'Active':     'linear-gradient(90deg,#3B82F6,#2563EB)',
   'Returning':  'linear-gradient(90deg,#10B981,#059669)',
   'Active / New':'linear-gradient(90deg,#3B82F6,#2563EB)',
+};
+
+// Friendly display names for the Purchase-Recency card so it reads as an
+// order-recency view, clearly distinct from the ML risk tiers on the Churn
+// Scores page. Keyed by the backend churnBreakdown label.
+const RECENCY_LABELS: Record<string, string> = {
+  'Active':  'Recently Purchased',
+  'At-Risk': 'Slowing Down',
+  'Churned': 'Lapsed',
 };
 
 const TIER_COLORS: Record<string, string> = {
@@ -52,9 +57,15 @@ export class DashboardComponent implements OnInit {
 
   churnBreakdown = computed(() =>
     (this.svc.data()?.churnBreakdown ?? []).map(s => ({
-      ...s, color: CHURN_COLORS[s.label] ?? 'linear-gradient(90deg,#64748B,#475569)'
+      ...s,
+      color: CHURN_COLORS[s.label] ?? 'linear-gradient(90deg,#64748B,#475569)',
+      label: RECENCY_LABELS[s.label] ?? s.label,   // friendly recency name
     }))
   );
+
+  // Total customers in the recency view — shown on the card so it's clear this
+  // covers ALL customers, unlike the ML-scored count on the Churn Scores page.
+  activityTotal = computed(() => this.churnBreakdown().reduce((n, c) => n + c.count, 0));
 
   tiers = computed(() =>
     (this.svc.data()?.tiers ?? []).map(t => ({

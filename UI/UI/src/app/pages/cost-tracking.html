@@ -140,7 +140,6 @@
               <tr>
                 <th>When</th>
                 <th>Call type</th>
-                <th>Model</th>
                 <th class="right">Tokens</th>
                 <th class="right">Cost</th>
                 <th class="right">Status</th>
@@ -151,7 +150,6 @@
                 <tr>
                   <td>{{ fmtDateTime(row.created_at) }}</td>
                   <td><span class="ct-tag">{{ row.call_type }}</span></td>
-                  <td><code>{{ row.model }}</code></td>
                   <td class="right">{{ fmtTokens(row.tokens) }}</td>
                   <td class="right">{{ fmtUsd(row.cost) }}</td>
                   <td class="right">
@@ -173,7 +171,7 @@
 
     <!-- ── Config panel ── -->
     <div class="card ct-config-card">
-      <div class="ct-section-title">⚙️ Pricing & Budget (from env / langfuse_tracker.py)</div>
+      <div class="ct-section-title">⚙️ Pricing & Budget (current rates)</div>
       <div class="ct-config-grid">
         <div>
           <div class="ct-config-label">Budget per call</div>

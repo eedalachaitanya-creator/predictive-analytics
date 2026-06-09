@@ -24,7 +24,7 @@ from sqlalchemy import create_engine
 # Imported as module-level names so tests can monkeypatch the seams.
 from ml.temporal_dataset import build_dataset, ensure_snapshots_table
 from ml.train_temporal import run as train_temporal_run
-from ml.score_temporal import score as score_temporal
+from ml.score_temporal import score as score_temporal, export_scores_to_disk
 from ml.leakage_gate import LeakageGateError
 
 logger = logging.getLogger("ml.temporal_pipeline")
@@ -78,6 +78,19 @@ def run_or_fallback(
                 engine, client_id,
                 db_url=db_url, bundle_path=result["bundle_path"], write=True,
             )
+            # The legacy Stage-7 wrote churn_scores.{csv,json} on disk, but we
+            # just overwrote the churn_scores TABLE with temporal predictions.
+            # Stage-12 copies the DISK files into pipeline_outputs (what the
+            # Downloads page serves), so re-derive them from the now-temporal
+            # table to keep downloads in lock-step with the dashboard. Best-effort:
+            # a disk-export failure must never downgrade a successful temporal run
+            # to a fallback (the DB scores are already temporal).
+            try:
+                export_scores_to_disk(engine, client_id)
+            except Exception as exc:  # noqa: BLE001 — export is non-critical
+                logger.warning("temporal_pipeline[%s]: churn_scores disk export "
+                               "failed (Downloads may show legacy scores): %s",
+                               client_id, exc)
 
         pr = (result.get("metrics") or {}).get("pr_auc")
         pr_str = f" pr_auc={pr:.4f}" if isinstance(pr, (int, float)) else ""

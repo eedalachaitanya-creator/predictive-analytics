@@ -289,3 +289,72 @@ def score(
         logger.info("score: wrote %s temporal rows to churn_scores (client_id=%s, %s)",
                     n, client_id, mv)
     return score_df
+
+
+def export_scores_to_disk(
+    engine_or_conn: Any,
+    client_id: str,
+    *,
+    output_dir: Any = None,
+) -> Tuple[Optional[Path], Optional[Path]]:
+    """Regenerate the downloadable ``churn_scores.{csv,json}`` from the
+    authoritative ``churn_scores`` table — keeping the Downloads page in
+    lock-step with the dashboard.
+
+    WHY THIS EXISTS: the live pipeline's legacy Stage-7 (``ml.predict``) writes
+    the on-disk ``churn_scores.{csv,json}``; the temporal Stage-8 only overwrites
+    the DB TABLE. Stage-12 (``save_all_output_files``) then copies the DISK files
+    into ``pipeline_outputs`` — what the Downloads page actually serves. Without
+    this step a temporal run leaves the download showing the STALE LEGACY scores
+    while the dashboard (which reads the table) shows the temporal ones. Deriving
+    the files from the same ``churn_scores`` rows the dashboard reads makes the
+    two sources structurally incapable of diverging.
+
+    The export is enriched with the context columns the legacy export carried
+    (tier / spend / orders / rating / RFM) via a LEFT JOIN to
+    ``mv_customer_features`` and re-uses ``ml.predict.save_scores_csv`` /
+    ``save_scores_json``, so the on-disk shape is identical to the legacy one.
+
+    Returns ``(csv_path, json_path)``, or ``(None, None)`` when the tenant has no
+    scored rows. ``output_dir`` overrides the default ``ml/output/`` location
+    (used by tests); the live pipeline leaves it None.
+    """
+    from sqlalchemy import text
+    from ml.predict import save_scores_csv, save_scores_json
+
+    sql = text(
+        """
+        SELECT cs.client_id,
+               cs.customer_id,
+               cs.churn_probability,
+               cs.risk_tier               AS risk_level,
+               mv.customer_tier,
+               mv.total_spend_usd,
+               mv.total_orders,
+               mv.avg_order_value_usd,
+               mv.avg_rating,
+               mv.days_since_last_order,
+               mv.rfm_total_score,
+               cs.driver_1, cs.driver_2, cs.driver_3,
+               cs.model_version
+          FROM churn_scores cs
+          LEFT JOIN mv_customer_features mv
+                 ON mv.client_id = cs.client_id
+                AND mv.customer_id = cs.customer_id
+         WHERE cs.client_id = :cid
+         ORDER BY cs.churn_probability DESC
+        """
+    )
+    score_df = pd.read_sql(sql, engine_or_conn, params={"cid": client_id})
+    if score_df.empty:
+        logger.warning("export_scores_to_disk: no churn_scores for client_id=%s — "
+                       "nothing to export", client_id)
+        return None, None
+
+    csv_target = None if output_dir is None else Path(output_dir) / "churn_scores.csv"
+    json_target = None if output_dir is None else Path(output_dir) / "churn_scores.json"
+    csv_path = save_scores_csv(score_df, csv_target)
+    json_path = save_scores_json(score_df, json_target)
+    logger.info("export_scores_to_disk: wrote %d rows → %s, %s",
+                len(score_df), csv_path, json_path)
+    return csv_path, json_path

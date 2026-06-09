@@ -1,5 +1,12 @@
+// Fixed-height page: fill the shell's scroll region (.shell-content) so the
+// table card scrolls internally (sticky header) and the pagination stays
+// pinned at the bottom — no whole-page scroll to reach "Next". Scoped to this
+// component via Emulated encapsulation; the global .page-anim only adds the
+// fade animation, so this just layers layout on top.
+.page-anim { height: 100%; display: flex; flex-direction: column; }
+
 // ── Summary Cards ──────────────────────────────────────
-.score-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; }
+.score-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; flex-shrink: 0; }
 .summary-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 16px; text-align: center; cursor: pointer; transition: var(--transition);
   &:hover { border-color: var(--border-bright); transform: translateY(-1px); }
   &.active { border-color: var(--accent-blue); background: rgba(26,111,212,.06); }
@@ -11,7 +18,7 @@
 .summary-value { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
 .summary-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 .summary-sub { font-size: 10px; color: var(--text-muted); margin-top: 3px; opacity: .85; letter-spacing: .01em; }
-.filter-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; flex-shrink: 0; }
 .search-box { display: flex; gap: 8px; flex: 1; min-width: 250px;
   input { flex: 1; max-width: 350px; }
 }
@@ -19,7 +26,12 @@
 .pill-clear { background: none; border: none; color: inherit; font-size: 14px; cursor: pointer; margin-left: 4px; padding: 0 2px; }
 .page-info { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
- .churn-scroll { overflow-x: auto; overflow-y: auto; max-height: 70vh; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+// The table card fills the leftover vertical space and clips its rounded
+// corners (global .card already has overflow:hidden); the scroll wrapper
+// inside it takes the height so rows scroll under the sticky header.
+.card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+ .churn-scroll { overflow-x: auto; overflow-y: auto; flex: 1; min-height: 0; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
   &::-webkit-scrollbar { width: 8px; height: 8px; }
   &::-webkit-scrollbar-track { background: transparent; }
   &::-webkit-scrollbar-thumb { background: var(--border-bright, #cbd5e1); border-radius: 4px; }
@@ -53,7 +65,7 @@
   .dl { color: var(--text-muted); font-size: 11px; }
 }
 .detail-meta { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); text-align: right; }
-.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; padding: 12px 0; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; padding: 12px 0; flex-shrink: 0; }
 .page-label { font-size: 13px; color: var(--text-secondary); }
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .loading-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }

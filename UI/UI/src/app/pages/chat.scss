@@ -2,8 +2,11 @@
 .chat-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 2rem);
-  max-height: calc(100vh - 2rem);
+  /* Fill the shell's scroll region (.shell-content), NOT the viewport.
+     Using 100vh here overshot by the topbar (58px) + content padding (56px),
+     so the whole page scrolled and the input fell below the fold. Sizing to
+     100% keeps the page static and lets .messages-area scroll internally. */
+  height: 100%;
   background: #f8fafc;
   border-radius: 12px;
   overflow: hidden;

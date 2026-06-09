@@ -269,6 +269,8 @@ button.status-toggle { padding: 3px 5px;}
 .grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 28px; }
 .retention-page {padding: 0px;}
 
+.interventions-table tbody td{background: #fff;}
+
 @media (max-width: 992px) {
   .sidebar { transform: translateX(-100%); width: 260px; }
   .sidebar.open { transform: translateX(0); }
@@ -444,6 +446,18 @@ button.status-toggle { padding: 3px 5px;}
     .vendor-table  td:nth-of-type(1):before { content: "Parameter"; }
     .vendor-table  td:nth-of-type(2):before { content: "Current Value"; }
     .vendor-table  td:nth-of-type(3):before { content: "Description"; } 
+
+    
+    .products-table  td:nth-of-type(1):before { content: "Product"; }
+    .products-table  td:nth-of-type(2):before { content: "amazon.in"; }
+    .products-table  td:nth-of-type(3):before { content: "beato"; }
+    .products-table  td:nth-of-type(4):before { content: "myntra"; } 
+    .products-table  td:nth-of-type(4):before { content: "nykaa"; } 
+
+}
+@media (max-width: 991px) {
+  .grid-5 {grid-template-columns: repeat(3, 1fr);}
+  .grid-container {    grid-template-columns: repeat(2, 1fr);}
 }
 
 @media (max-width: 767px) {
@@ -457,8 +471,9 @@ button.status-toggle { padding: 3px 5px;}
   .grid-2, .grid-3, .grid-4, .grid-5 {
     grid-template-columns: 1fr;
   }
-  .grid-container, .score-summary, .rec-layout, .trend-layout, .run-layout {
+  .grid-container, .rec-layout, .trend-layout, .run-layout {
     grid-template-columns: auto !important;
 }
+.score-summary {grid-template-columns: repeat(2, 1fr);}
 .scout-page, .strategist-page{padding: 0px !important;}
 }

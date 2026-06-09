@@ -3,165 +3,44 @@
 .chart-placeholder { height:180px; background:linear-gradient(135deg,#EBF1FB 0%,#F0F6FF 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:12px; border:1px dashed var(--border-bright); }
 
 /* ── Clickable Segment Bars ──────────────────────────────────────── */
-.seg-clickable {
-  cursor: pointer;
-  border-radius: 6px;
-  padding: 4px 6px;
-  margin: 0 -6px;
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: rgba(59, 130, 246, 0.06);
-  }
+.seg-clickable { cursor: pointer; border-radius: 6px; padding: 4px 6px; margin: 0 -6px; transition: background 0.15s ease;
+  &:hover { background: rgba(59, 130, 246, 0.06); }
 }
-
-.seg-active {
-  background: rgba(59, 130, 246, 0.1) !important;
-}
-
-.seg-arrow {
-  font-size: 10px;
-  color: var(--text-muted);
-  width: 16px;
-  text-align: center;
-  flex-shrink: 0;
-}
+.seg-active { background: rgba(59, 130, 246, 0.1) !important; }
+.seg-arrow { font-size: 10px; color: var(--text-muted); width: 16px; text-align: center; flex-shrink: 0; }
 
 /* ── Drill-down Expandable Table ─────────────────────────────────── */
-.seg-drilldown {
-  margin: 4px 0 12px 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-surface, #fff);
-  // NOTE: intentionally NOT using overflow:hidden here — that would clip
-  // the horizontal scrollbar on the child .drilldown-scroll wrapper.
-  // Rounded corners are preserved by the child wrapper's own border-radius.
-  animation: slideDown 0.2s ease;
-}
+.seg-drilldown { margin: 4px 0 12px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface, #fff); animation: slideDown 0.2s ease; }
 
 @keyframes slideDown {
   from { opacity: 0; max-height: 0; }
   to   { opacity: 1; max-height: 600px; }
 }
-
-/* Scroll wrapper around the segment drilldown table.
-   The table has a min-width big enough to show all 10 columns
-   comfortably; when the viewport (or this card) is narrower than that,
-   the wrapper becomes horizontally scrollable instead of clipping
-   the right-most columns.
-
-   Vertical scroll (NEW): per CTO direction, segment pages now show 100
-   customers at a time instead of 10. Rather than growing the card to
-   fit all 100 rows, this wrapper caps at 60vh and scrolls vertically.
-   The table header uses position:sticky (see .drilldown-table th below)
-   so column labels stay visible while scrolling. */
-.drilldown-scroll {
-  overflow-x: auto;
-  overflow-y: auto;                        // NEW — was hidden, now scrolls vertically
-  max-height: 60vh;                         // NEW — cap so 100 rows scroll instead of pushing the page
-  -webkit-overflow-scrolling: touch;       // momentum scroll on iOS
-  border-radius: 8px;                      // keep rounded corners
-  // Subtle scrollbar so it's discoverable but not ugly
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-bright, #cbd5e1) transparent;
-
-  // width applies to vertical scrollbar, height applies to horizontal
-  &::-webkit-scrollbar        { width: 8px; height: 8px; }
-  &::-webkit-scrollbar-track  { background: transparent; }
-  &::-webkit-scrollbar-thumb  {
-    background: var(--border-bright, #cbd5e1);
-    border-radius: 4px;
-  }
+ 
+.drilldown-scroll { overflow-x: auto; overflow-y: auto; max-height: 60vh; -webkit-overflow-scrolling: touch; border-radius: 8px; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: var(--border-bright, #cbd5e1); border-radius: 4px; }
   &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 }
 
-.drilldown-table {
-  width: 100%;
-  min-width: 860px;              // ~10 columns × ~86px — forces scroll on narrow screens
-  border-collapse: collapse;
-  font-size: 12px;
-
-  th {
-    background: var(--bg-muted, #f8fafc);
-    padding: 8px 10px;
-    text-align: left;
-    font-weight: 600;
-    font-size: 11px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-
-    // Keep the header row visible while scrolling vertically (if any)
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
-
-  td {
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border-light, #f1f5f9);
-    vertical-align: middle;
-    white-space: nowrap;         // prevents cells from wrapping into tiny columns
-  }
-
-  tbody tr:hover {
-    background: rgba(59, 130, 246, 0.04);
-  }
-
-  tbody tr:last-child td {
-    border-bottom: none;
-  }
+.drilldown-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 12px;
+  th { background: var(--bg-muted, #f8fafc); padding: 8px 10px; text-align: left; font-weight: 600; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border-light, #f1f5f9); vertical-align: middle; white-space: nowrap; }
+  tbody tr:hover { background: rgba(59, 130, 246, 0.04); }
+  tbody tr:last-child td { border-bottom: none; }
 }
-
-/* Badge color additions for tiers */
 .badge.purple { background: #EDE9FE; color: #7C3AED; }
 .badge.brown  { background: #FEF3C7; color: #92400E; }
-
-/* ── Detail Data Tabs: scroll wrapper ────────────────────────────────
-   Applies only to the table inside "C. Detail Data Tabs" on the dashboard.
-   The global .data-table has no min-width, so on narrow viewports columns
-   like Net / Status get clipped by the parent .card (overflow:hidden).
-   .detail-table is a scoped subclass that adds a min-width only here,
-   and .detail-tabs-scroll is the scrollable container around it.
-
-   Vertical scroll (NEW): per CTO direction, detail tabs now return 100
-   rows per page instead of 10. Rather than growing the card to fit all
-   100 rows, this wrapper caps at 60vh and scrolls vertically. Column
-   headers stay visible via position:sticky on .data-table th (scoped
-   rule below).                                                        */
-.detail-tabs-scroll {
-  overflow-x: auto;
-  overflow-y: auto;                        // NEW — was hidden, now vertical scrolls
-  max-height: 60vh;                         // NEW — cap so 100 rows scroll instead of pushing the page
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-bright, #cbd5e1) transparent;
-
-  &::-webkit-scrollbar        { width: 8px; height: 8px; }
-  &::-webkit-scrollbar-track  { background: transparent; }
-  &::-webkit-scrollbar-thumb  {
-    background: var(--border-bright, #cbd5e1);
-    border-radius: 4px;
-  }
+ 
+.detail-tabs-scroll { overflow-x: auto; overflow-y: auto; max-height: 60vh; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: var(--border-bright, #cbd5e1); border-radius: 4px; }
   &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 }
-
-/* Sticky header row for the Detail Data Tabs table.
-   Without this, scrolling 100 rows would lose the column labels.
-   z-index:2 keeps the header above badges and status-pill backgrounds. */
-.detail-tabs-scroll .detail-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg-muted, #f8fafc);
-  box-shadow: inset 0 -1px 0 var(--border, #e2e8f0);  // bottom divider
-}
-
-.detail-table {
-  min-width: 960px;              // 8 cols: orderId(180) + customer(140) + date(160) + items(60) + gross(90) + disc(90) + net(90) + status(120) ≈ 930 + padding
-
+.detail-tabs-scroll .detail-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-muted, #f8fafc); box-shadow: inset 0 -1px 0 var(--border, #e2e8f0); }
+.detail-table { min-width: 960px;
   th { white-space: nowrap; }
-  td { white-space: nowrap; }    // stops long order IDs / dates from wrapping into cramped columns
+  td { white-space: nowrap; }
 }

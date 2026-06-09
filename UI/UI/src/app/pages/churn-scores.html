@@ -48,7 +48,7 @@
              [ngModel]="searchQuery()"
              (ngModelChange)="searchQuery.set($event)"
              (keyup.enter)="onSearch()" />
-      <button class="btn outline sm" (click)="onSearch()">Search</button>
+      <button class="btn primary" (click)="onSearch()">Search</button>
       @if (searchQuery()) {
         <button class="btn ghost sm" (click)="clearSearch()">Clear</button>
       }

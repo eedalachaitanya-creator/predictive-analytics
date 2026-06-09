@@ -1,55 +1,10 @@
-// .scout-page {
-//    padding: 16px 32px 28px;
-// }
-
-.scout-header {
-  margin-bottom: 22px;
+ 
+.scout-header { margin-bottom: 22px; }
+.scout-title { font-family: 'Space Grotesk', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; color: var(--text-primary); }
+.scout-subtitle { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.scout-tabs { margin-bottom: 24px; }
+.scout-tabs .pt { display: flex; align-items: center; gap: 6px; text-decoration: none; color: inherit;
+  &:hover, &:focus, &:visited, &.active { text-decoration: none; color: inherit; }
 }
-
-.scout-title {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  color: var(--text-primary);
-}
-
-.scout-subtitle {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.scout-tabs {
-  margin-bottom: 24px;
-}
-
-.scout-tabs .pt {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  // The pill tabs became <a> elements (switched from <div> to enable
-  // routerLink navigation). Browsers apply default blue color and an
-  // underline to anchors — override both, and cover every interaction
-  // state because :hover/:visited/:focus each re-apply defaults if not
-  // explicitly overridden.
-  text-decoration: none;
-  color: inherit;
-
-  &:hover,
-  &:focus,
-  &:visited,
-  &.active {
-    text-decoration: none;
-    color: inherit;
-  }
-}
-
-.tab-icon {
-  font-size: 14px;
-}
-
-.tab-content {
-  animation: pageFade 0.18s ease;
-}
+.tab-icon { font-size: 14px; }
+.tab-content { animation: pageFade 0.18s ease; }

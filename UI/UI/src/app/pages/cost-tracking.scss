@@ -1,212 +1,60 @@
 // ── Cost Tracking page ─────────────────────────────────────────────────
 
-.ct-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
+.ct-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.ct-actions { display: flex; align-items: center; gap: 10px; }
 
-.ct-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.ct-pill {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-
-  &.ct-pill-ok,     &-ok     { background: #e8f7ed; color: #1e7e34; }
-  &.ct-pill-warn,   &-warn   { background: #fff4e0; color: #b37400; }
+.ct-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
+  &.ct-pill-ok, &-ok { background: #e8f7ed; color: #1e7e34; }
+  &.ct-pill-warn, &-warn { background: #fff4e0; color: #b37400; }
   &.ct-pill-danger, &-danger { background: #fde7e7; color: #b02a2a; }
-  &.ct-pill-muted,  &-muted  { background: #eef0f3; color: #6b7280; }
+  &.ct-pill-muted, &-muted { background: #eef0f3; color: #6b7280; }
 }
 
 // ── Banner ──
-.ct-banner {
-  padding: 14px 18px;
-  margin-bottom: 16px;
-  background: #fff8e1;
-  border-left: 4px solid #f0b400;
-  font-size: 13px;
-
-  code {
-    background: #fff2c2;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 12px;
-  }
+.ct-banner { padding: 14px 18px; margin-bottom: 16px; background: #fff8e1; border-left: 4px solid #f0b400; font-size: 13px;
+  code { background: #fff2c2; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
 }
 
 // ── KPI row ──
-.ct-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-bottom: 20px;
-
-  @media (max-width: 960px) {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.ct-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;
+  @media (max-width: 960px) { grid-template-columns: repeat(2, 1fr); }
 }
 
-.ct-kpi {
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border, #e6e8ec);
-  border-radius: 10px;
-  padding: 16px 18px;
-
-  &.ct-kpi-avg {
-    background: linear-gradient(135deg, #f4f7ff 0%, #eaf0ff 100%);
-    border-color: #d6e0ff;
-  }
+.ct-kpi { background: var(--card-bg, #fff); border: 1px solid var(--border, #e6e8ec); border-radius: 10px; padding: 16px 18px;
+  &.ct-kpi-avg { background: linear-gradient(135deg, #f4f7ff 0%, #eaf0ff 100%); border-color: #d6e0ff; }
 }
 
-.ct-kpi-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--text-muted, #6b7280);
-  margin-bottom: 6px;
-}
-
-.ct-kpi-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text, #1a1f2e);
-  line-height: 1.1;
-}
-
-.ct-kpi-sub {
-  font-size: 11px;
-  color: var(--text-muted, #6b7280);
-  margin-top: 4px;
-}
+.ct-kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted, #6b7280); margin-bottom: 6px; }
+.ct-kpi-value { font-size: 22px; font-weight: 700; color: var(--text, #1a1f2e); line-height: 1.1; }
+.ct-kpi-sub { font-size: 11px; color: var(--text-muted, #6b7280); margin-top: 4px; }
 
 // ── Section titles (shared across chart + tables + config) ──
-.ct-section-title {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 14px;
-  color: var(--text, #1a1f2e);
-}
+.ct-section-title { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text, #1a1f2e); }
 
 // ── Chart card ──
-.ct-chart-card {
-  padding: 20px 22px;
-  margin-bottom: 16px;
-}
-
-.ct-chart {
-  display: block;
-  max-width: 100%;
-  height: auto;
-
-  .ct-grid {
-    stroke: #eef0f3;
-    stroke-width: 1;
-    stroke-dasharray: 3 3;
-  }
-
-  .ct-trendline {
-    fill: none;
-    stroke: #4c6ef5;
-    stroke-width: 2;
-    stroke-linejoin: round;
-  }
-
-  .ct-dot {
-    fill: #4c6ef5;
-    stroke: #fff;
-    stroke-width: 1.5;
-  }
-
-  .ct-axis-label {
-    font-size: 10px;
-    fill: #6b7280;
-    text-anchor: middle;
-  }
+.ct-chart-card { padding: 20px 22px; margin-bottom: 16px; }
+.ct-chart { display: block; max-width: 100%; height: auto;
+  .ct-grid { stroke: #eef0f3; stroke-width: 1; stroke-dasharray: 3 3; }
+  .ct-trendline { fill: none; stroke: #4c6ef5; stroke-width: 2; stroke-linejoin: round; }
+  .ct-dot { fill: #4c6ef5; stroke: #fff; stroke-width: 1.5; }
+  .ct-axis-label { font-size: 10px; fill: #6b7280; text-anchor: middle; }
 }
 
 // ── Tables ──
-.ct-table-card {
-  padding: 20px 22px;
-  margin-bottom: 16px;
-}
-
-.ct-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-
-  th, td {
-    padding: 10px 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--border, #eef0f3);
-  }
-
-  th {
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--text-muted, #6b7280);
-    background: #fafbfc;
-  }
-
+.ct-table-card { padding: 20px 22px; margin-bottom: 16px; }
+.ct-table { width: 100%; border-collapse: collapse; font-size: 13px;
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border, #eef0f3); }
+  th { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted, #6b7280); background: #fafbfc; }
   td.right, th.right { text-align: right; }
-
   tr:last-child td { border-bottom: none; }
-
-  code {
-    background: #f4f6fa;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 12px;
-  }
+  code { background: #f4f6fa; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 }
-
-.ct-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #eef2ff;
-  color: #3b4bdc;
-  font-size: 11px;
-  font-weight: 500;
-}
+.ct-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #eef2ff; color: #3b4bdc; font-size: 11px; font-weight: 500; }
 
 // ── Config grid ──
-.ct-config-card {
-  padding: 20px 22px;
+.ct-config-card {  padding: 20px 22px;}
+.ct-config-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  @media (max-width: 760px) { grid-template-columns: repeat(2, 1fr); }
 }
-
-.ct-config-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-
-  @media (max-width: 760px) {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-.ct-config-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted, #6b7280);
-  margin-bottom: 4px;
-}
-
-.ct-config-value {
-  font-size: 15px;
-  font-weight: 600;
-}
+.ct-config-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted, #6b7280); margin-bottom: 4px; }
+.ct-config-value { font-size: 15px; font-weight: 600; }

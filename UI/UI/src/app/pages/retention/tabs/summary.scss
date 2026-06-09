@@ -48,3 +48,8 @@
 .stat-icon { font-size: 28px; }
 .stat-val { font-size: 20px; font-weight: 700; color: var(--text-primary); }
 .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+@media (max-width: 767px) {
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .stat-row { grid-template-columns: 1fr; }
+}

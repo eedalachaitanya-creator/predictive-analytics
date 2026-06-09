@@ -41,103 +41,27 @@
 .offer-card.selected { border-color: #6366F1; background: #F5F3FF; }
 .offer-card.deselected { opacity: 0.45; }
 
-.offer-header {
-  display: flex;
-  align-items: center;
-  padding: 12px 14px;
-  gap: 8px;
-}
+.offer-header { display: flex; align-items: center; padding: 12px 14px; gap: 8px; }
 .offer-header:hover { background: var(--bg-hover, rgba(0,0,0,.02)); }
-
-.offer-header-content {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  cursor: pointer;
-  gap: 8px;
-  min-width: 0;
-}
+.offer-header-content { display: flex; align-items: center; flex: 1; cursor: pointer; gap: 8px; min-width: 0; }
 
 /* Left side — customer info — takes remaining space */
-.offer-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
+.offer-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow: hidden; }
 
 /* Right side — fixed layout so everything aligns across all rows */
-.offer-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
+.offer-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 /* Fixed width discount box — same size for all rows */
-.discount-edit {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  background: white;
-  border: 1.5px solid #6366F1;
-  border-radius: 6px;
-  padding: 3px 6px;
-  width: 68px;
-  flex-shrink: 0;
-}
-
-.discount-input {
-  width: 30px;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6366F1;
-  text-align: right;
-  background: transparent;
-}
-
-.discount-unit {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6366F1;
-  flex-shrink: 0;
-}
+.discount-edit { display: flex; align-items: center; justify-content: center; gap: 2px; background: white; border: 1.5px solid #6366F1; border-radius: 6px; padding: 3px 6px; width: 68px; flex-shrink: 0; }
+.discount-input { width: 30px; border: none; outline: none; font-size: 13px; font-weight: 600; color: #6366F1; text-align: right; background: transparent; }
+.discount-unit { font-size: 12px; font-weight: 600; color: #6366F1; flex-shrink: 0; }
 
 /* Message Only pill — same fixed width as discount box */
-.discount-pill-zero {
-  background: #f3f4f6;
-  color: #6b7280;
-  font-style: italic;
-  font-size: 12px;
-  width: 68px;
-  text-align: center;
-  padding: 4px 6px;
-  border-radius: 6px;
-  flex-shrink: 0;
-  border: 1.5px solid #e5e7eb;
-}
+.discount-pill-zero { background: #f3f4f6; color: #6b7280; font-style: italic; font-size: 12px; width: 68px; text-align: center; padding: 4px 6px; border-radius: 6px; flex-shrink: 0; border: 1.5px solid #e5e7eb; }
 
 /* Fixed width churn probability — aligns across all rows */
-.churn-prob {
-  font-size: 12px;
-  color: var(--text-muted);
-  width: 120px;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.expand-arrow {
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  width: 12px;
-  text-align: center;
-}
+.churn-prob { font-size: 12px; color: var(--text-muted); width: 120px; text-align: right; flex-shrink: 0; }
+.expand-arrow { font-size: 10px; color: var(--text-muted); flex-shrink: 0; width: 12px; text-align: center; }
 
 .esc-badge { background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
 .channel-icon { font-size: 12px; color: var(--text-muted); }
@@ -159,70 +83,19 @@
 /* ── Customer ID ──────────────────────────────────────────────────── */
 .customer-id { font-size: 13px; font-weight: 600; color: var(--text-primary); font-family: monospace; white-space: nowrap; }
 
-.s-val-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 14px;
-  text-align: left;
-
-  .sub-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-
+.s-val-list { display: flex; flex-direction: column; gap: 4px; font-size: 14px; text-align: left;
+  .sub-row { display: flex; justify-content: space-between; gap: 8px;
     .sub-label { color: #6b7280; text-transform: capitalize; }
     .sub-val { color: #111827; font-weight: 600; }
   }
 }
 
 /* ── Selection card ───────────────────────────────────────────────── */
-.selection-card {
-  background: var(--bg-card);
-  border: 1px solid #6366F1;
-  border-radius: 10px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.selection-header {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.selection-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.selection-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.selection-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.send-btn {
-  width: 100%;
-  padding: 10px 16px;
-  background: #6366F1;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity .15s;
-}
+.selection-card { background: var(--bg-card); border: 1px solid #6366F1; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.selection-header { display: flex; flex-direction: column; gap: 10px; }
+.selection-info { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.selection-count { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.selection-hint { font-size: 12px; color: var(--text-muted); }
+.send-btn { width: 100%; padding: 10px 16px; background: #6366F1; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: opacity .15s; }
 .send-btn:hover    { opacity: .9; }
 .send-btn:disabled { opacity: .5; cursor: not-allowed; }

@@ -11,6 +11,14 @@ interface ClientRow {
   created_at: string | null;
   is_active: boolean;
   deactivated_at: string | null;
+  // Organization details (NULL for tenants created before the onboarding form).
+  address: string | null;
+  city: string | null;
+  state_province: string | null;
+  postal_code: string | null;
+  country: string | null;
+  contact_email: string | null;
+  company_phone: string | null;
 }
 
 interface DataOverviewRow {
@@ -38,6 +46,29 @@ interface TableDataResponse {
   offset: number;
 }
 
+// Fields captured by the "Add New Client" form (organization details + admin
+// account). Mirrors the backend AdminCreateClientRequest contract exactly.
+type AddField =
+  | 'organization_name' | 'address' | 'city' | 'state_province'
+  | 'postal_code' | 'country' | 'company_contact_email' | 'company_phone'
+  | 'admin_name' | 'admin_phone' | 'admin_email' | 'password';
+
+// Country options for the dropdown (ISO short names, alphabetical).
+const COUNTRIES: string[] = [
+  'Argentina', 'Australia', 'Austria', 'Bangladesh', 'Belgium', 'Brazil',
+  'Bulgaria', 'Canada', 'Chile', 'China', 'Colombia', 'Croatia', 'Czechia',
+  'Denmark', 'Egypt', 'Estonia', 'Finland', 'France', 'Germany', 'Ghana',
+  'Greece', 'Hong Kong', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Ireland',
+  'Israel', 'Italy', 'Japan', 'Jordan', 'Kenya', 'Kuwait', 'Latvia', 'Lithuania',
+  'Luxembourg', 'Malaysia', 'Mexico', 'Morocco', 'Netherlands', 'New Zealand',
+  'Nigeria', 'Norway', 'Oman', 'Pakistan', 'Peru', 'Philippines', 'Poland',
+  'Portugal', 'Qatar', 'Romania', 'Saudi Arabia', 'Singapore', 'Slovakia',
+  'Slovenia', 'South Africa', 'South Korea', 'Spain', 'Sri Lanka', 'Sweden',
+  'Switzerland', 'Taiwan', 'Thailand', 'Turkey', 'Ukraine',
+  'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay',
+  'Vietnam', 'Other',
+];
+
 @Component({
   selector: 'app-clients',
   standalone: true,
@@ -52,6 +83,9 @@ export class ClientsComponent implements OnInit {
   clients  = signal<ClientRow[]>([]);
   loading  = signal(true);
   selected = signal<ClientRow | null>(null);
+  // Client-detail is shown in a modal popup (not an inline panel) so the
+  // super-admin gets clear feedback that "View" worked.
+  showClientModal = signal(false);
 
   activeClients   = computed(() => this.clients().filter(c => c.is_active));
   inactiveClients = computed(() => this.clients().filter(c => !c.is_active));
@@ -68,75 +102,71 @@ export class ClientsComponent implements OnInit {
 
   setStatusFilter(f: 'all' | 'active' | 'inactive') {
     this.statusFilter.set(f);
-    const sel = this.selected();
-    if (sel && !this.visibleClients().some(c => c.client_id === sel.client_id)) {
-      const fallback = this.visibleClients()[0] ?? null;
-      if (fallback) this.selectClient(fallback);
-      else { this.selected.set(null); this.overview.set(null); }
-    }
   }
 
   readonly isSuperAdmin = this.auth.isSuperAdmin;
 
-  // ── Add-client form state ─────────────────────────────────────────────
+  // ── Add-client form state (organization details + administrator account) ──
   showAddForm  = signal(false);
   showPassword = signal(false);
-  addForm      = signal({ client_name: '', client_code: '', contact_name: '', contact_email: '', password: '' });
+  addForm      = signal<Record<AddField, string>>({
+    organization_name: '', address: '', city: '', state_province: '',
+    postal_code: '', country: '', company_contact_email: '', company_phone: '',
+    admin_name: '', admin_phone: '', admin_email: '', password: '',
+  });
+  addTouched   = signal<Partial<Record<AddField, boolean>>>({});
   addSaving    = signal(false);
   addError     = signal('');
   addSuccess   = signal<string>('');
 
-  // ── Touched flags — one per field ─────────────────────────────────────
-  addNameTouched     = signal(false);
-  addCodeTouched     = signal(false);
-  addContactTouched  = signal(false);
-  addEmailTouched    = signal(false);
-  addPassTouched     = signal(false);
+  // Country options for the dropdown.
+  readonly countries = COUNTRIES;
 
-  // ── Validation regexes ────────────────────────────────────────────────
-  private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{3,}$/;
-  private readonly CODE_RE  = /^[A-Za-z0-9]+$/;
+  // ── Validation regexes (kept in lock-step with the backend validator) ──
+  private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  private readonly PHONE_RE = /^\d{10,12}$/;   // 10–12 digits (no separators)
 
-  // ── Inline computed errors ────────────────────────────────────────────
-  addNameError = computed(() => {
-    if (!this.addNameTouched()) return '';
-    if (!this.addForm().client_name.trim()) return 'Company name is required.';
-    return '';
+  // Raw errors for ALL fields (ignores touched) — single source for both the
+  // displayed errors and submit-gating, so they can never disagree.
+  private computeAddErrors(f: Record<AddField, string>): Partial<Record<AddField, string>> {
+    const e: Partial<Record<AddField, string>> = {};
+    const req = (k: AddField, label: string) => { if (!f[k].trim()) e[k] = `${label} is required.`; };
+    req('organization_name', 'Organization name');
+    req('address', 'Address');
+    req('city', 'City');
+    req('state_province', 'State / Province');
+    req('postal_code', 'Zip / Postal code');
+    req('country', 'Country');
+    req('admin_name', 'Admin name');
+
+    const cce = f.company_contact_email.trim();
+    if (!cce || !this.EMAIL_RE.test(cce)) e.company_contact_email = 'Enter a valid company contact email.';
+    const ae = f.admin_email.trim();
+    if (!ae || !this.EMAIL_RE.test(ae)) e.admin_email = 'Enter a valid admin login email.';
+
+    const cp = f.company_phone.trim();
+    if (!cp) e.company_phone = 'Company phone is required.';
+    else if (!this.PHONE_RE.test(cp)) e.company_phone = 'Phone must be 10–12 digits.';
+    const ap = f.admin_phone.trim();
+    if (!ap) e.admin_phone = 'Admin phone is required.';
+    else if (!this.PHONE_RE.test(ap)) e.admin_phone = 'Phone must be 10–12 digits.';
+
+    const p = f.password;
+    if (!(p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p) && /[^A-Za-z0-9]/.test(p)))
+      e.password = 'Min 8 characters with an uppercase letter, a number, and a special character.';
+    return e;
+  }
+
+  // Errors to DISPLAY — only for fields the user has touched.
+  addErrors = computed<Partial<Record<AddField, string>>>(() => {
+    const all = this.computeAddErrors(this.addForm());
+    const touched = this.addTouched();
+    const shown: Partial<Record<AddField, string>> = {};
+    (Object.keys(all) as AddField[]).forEach(k => { if (touched[k]) shown[k] = all[k]!; });
+    return shown;
   });
 
-  addCodeError = computed(() => {
-    if (!this.addCodeTouched()) return '';
-    const code = this.addForm().client_code.trim();
-    if (!code) return 'Company code is required (e.g. TARGET, COSTCO).';
-    if (code.length > 10) return 'Company code must be 10 characters or less.';
-    if (!this.CODE_RE.test(code)) return 'Letters and numbers only — no special characters.';
-    return '';
-  });
-
-  addContactError = computed(() => {
-    if (!this.addContactTouched()) return '';
-    if (!this.addForm().contact_name.trim()) return 'Contact name is required.';
-    return '';
-  });
-
-  addEmailError = computed(() => {
-    if (!this.addEmailTouched()) return '';
-    const v = this.addForm().contact_email.trim();
-    if (!v) return 'Contact email is required.';
-    if (!this.EMAIL_RE.test(v)) return 'Please enter a valid email (e.g. jane@target.com).';
-    return '';
-  });
-
-  addPassError = computed(() => {
-    if (!this.addPassTouched()) return '';
-    const p = this.addForm().password;
-    if (!p) return 'Password is required.';
-    if (p.length < 8) return 'Must be at least 8 characters.';
-    if (!/[A-Z]/.test(p)) return 'Must contain at least one uppercase letter.';
-    if (!/[0-9]/.test(p)) return 'Must contain at least one number.';
-    if (!/[^A-Za-z0-9]/.test(p)) return 'Must contain at least one special character (e.g. !@#$%).';
-    return '';
-  });
+  addFormValid = computed(() => Object.keys(this.computeAddErrors(this.addForm())).length === 0);
 
   // ── Delete-client state ───────────────────────────────────────────────
   deleteConfirmId = signal<string | null>(null);
@@ -171,8 +201,6 @@ export class ClientsComponent implements OnInit {
       next: (data) => {
         this.clients.set(data);
         this.loading.set(false);
-        const firstActive = data.find(c => c.is_active) ?? null;
-        if (firstActive) this.selectClient(firstActive);
       },
       error: () => { this.loading.set(false); }
     });
@@ -181,6 +209,18 @@ export class ClientsComponent implements OnInit {
   selectClient(c: ClientRow) {
     this.selected.set(c);
     this.fetchOverview(c.client_id);
+  }
+
+  // "View" opens the detail as a modal popup (clear feedback the click worked),
+  // loading that client's data overview on demand.
+  viewClient(c: ClientRow) {
+    this.selectClient(c);
+    this.showClientModal.set(true);
+  }
+
+  closeClientModal() {
+    this.showClientModal.set(false);
+    this.closeDataView();   // also dismiss any nested data viewer so no orphan modal lingers
   }
 
   fetchOverview(clientId: string) {
@@ -217,6 +257,21 @@ export class ClientsComponent implements OnInit {
 
   formatCount(n: number): string {
     return (n ?? 0).toLocaleString('en-US');
+  }
+
+  // Multi-line address block for the clients table: street / "City, ST 12345" /
+  // country. Drops empty parts so pre-onboarding tenants (NULL org columns)
+  // render nothing rather than stray commas.
+  addressLines(c: ClientRow): string[] {
+    const lines: string[] = [];
+    if (c.address?.trim()) lines.push(c.address.trim());
+    const cityZip = [
+      c.city?.trim(),
+      [c.state_province?.trim(), c.postal_code?.trim()].filter(Boolean).join(' '),
+    ].filter(Boolean).join(', ');
+    if (cityZip) lines.push(cityZip);
+    if (c.country?.trim()) lines.push(c.country.trim());
+    return lines;
   }
 
   openDataView(table: string, label: string) {
@@ -289,16 +344,15 @@ export class ClientsComponent implements OnInit {
 
   // ── Add a new client ──────────────────────────────────────────────────
   openAddForm() {
-    this.addForm.set({ client_name: '', client_code: '', contact_name: '', contact_email: '', password: '' });
+    this.addForm.set({
+      organization_name: '', address: '', city: '', state_province: '',
+      postal_code: '', country: '', company_contact_email: '', company_phone: '',
+      admin_name: '', admin_phone: '', admin_email: '', password: '',
+    });
+    this.addTouched.set({});
     this.addError.set('');
     this.addSuccess.set('');
     this.showPassword.set(false);
-    // Reset all touched flags
-    this.addNameTouched.set(false);
-    this.addCodeTouched.set(false);
-    this.addContactTouched.set(false);
-    this.addEmailTouched.set(false);
-    this.addPassTouched.set(false);
     this.showAddForm.set(true);
   }
 
@@ -309,36 +363,23 @@ export class ClientsComponent implements OnInit {
     this.showPassword.set(false);
   }
 
-  updateAddField(field: 'client_name' | 'client_code' | 'contact_name' | 'contact_email' | 'password', value: string) {
+  updateAddField(field: AddField, value: string) {
     this.addForm.update(f => ({ ...f, [field]: value }));
   }
 
-  private addFormValid(): boolean {
-    const f = this.addForm();
-    return (
-      !!f.client_name.trim() &&
-      !!f.client_code.trim() &&
-      f.client_code.length <= 10 &&
-      this.CODE_RE.test(f.client_code) &&
-      !!f.contact_name.trim() &&
-      !!f.contact_email.trim() &&
-      this.EMAIL_RE.test(f.contact_email.trim()) &&
-      f.password.length >= 8 &&
-      /[A-Z]/.test(f.password) &&
-      /[0-9]/.test(f.password) &&
-      /[^A-Za-z0-9]/.test(f.password)
-    );
+  touchAdd(field: AddField) {
+    this.addTouched.update(t => ({ ...t, [field]: true }));
+  }
+
+  private touchAllAdd() {
+    const all: Partial<Record<AddField, boolean>> = {};
+    (Object.keys(this.addForm()) as AddField[]).forEach(k => { all[k] = true; });
+    this.addTouched.set(all);
   }
 
   saveNewClient() {
-    // Touch all fields so inline errors appear
-    this.addNameTouched.set(true);
-    this.addCodeTouched.set(true);
-    this.addContactTouched.set(true);
-    this.addEmailTouched.set(true);
-    this.addPassTouched.set(true);
+    this.touchAllAdd();          // reveal every inline error
     this.addError.set('');
-
     if (!this.addFormValid()) return;
 
     this.addSaving.set(true);
@@ -348,7 +389,7 @@ export class ClientsComponent implements OnInit {
       next: (res) => {
         this.addSaving.set(false);
         this.addSuccess.set(
-          `✅ Client "${res.client_name}" created! Client ID: ${res.client_id} · Welcome email sent to ${this.addForm().contact_email}.`
+          `✅ Client "${res.client_name}" created! Client ID: ${res.client_id} · Invite email sent to ${this.addForm().admin_email}.`
         );
         this.showAddForm.set(false);
         this.showPassword.set(false);

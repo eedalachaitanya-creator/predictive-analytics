@@ -55,6 +55,37 @@
 .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 24px; }
 .modal-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 24px 24px 20px; box-shadow: 0 20px 48px rgba(0,0,0,.22); width: 440px; max-width: 100%; }
 .modal-card.data-viewer-card { width: min(1200px, 95vw); }
+/* The detail popup scrolls its BODY, not the rounded card itself — otherwise the
+   native scrollbar paints over the 14px corners and squares them off. The card
+   clips (overflow:hidden) so the body's scrollbar is rounded with the card; the
+   header stays pinned so Close is always reachable. */
+.modal-card.client-detail-card {
+  width: min(900px, 95vw);
+  max-height: 88vh;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.client-detail-card .cdc-header {
+  flex: 0 0 auto;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.client-detail-card .cdc-body {
+  flex: 1 1 auto;
+  min-height: 0;            /* allow the flex child to shrink so it can scroll */
+  overflow-y: auto;
+  padding: 20px 24px 24px;
+  scrollbar-width: thin;    /* Firefox */
+}
+.client-detail-card .cdc-body::-webkit-scrollbar { width: 10px; }
+.client-detail-card .cdc-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
 .modal-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
 .modal-sub { margin: 0 0 14px; font-size: 12px; color: var(--text-secondary); }
 .data-viewer-scroll { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card);
@@ -72,6 +103,18 @@
 .form-input.input-error { border-color: #DC2626 !important; background: rgba(220, 38, 38, 0.03);
   &:focus { box-shadow: 0 0 0 3px rgba(220,38,38,.12) !important; }
 }
+/* Add-client modal: 12 fields → cap height and scroll the inner BODY (header
+   stays pinned) so the modal never runs off-screen and the rounded corners stay
+   intact (the card clips; the body scrollbar is clipped to the radius). */
+.modal-card.add-client-modal { width: min(820px, 95vw); padding: 0; overflow: hidden; max-height: 90vh; display: flex; }
+.add-client-modal .add-client-card { display: flex; flex-direction: column; min-height: 0; max-height: 90vh; width: 100%; margin: 0; border: none; box-shadow: none; border-radius: 14px; }
+.add-client-modal .add-client-head { flex: 0 0 auto; }
+.add-client-modal .add-client-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+
+/* Multi-line address block in the clients table (street / City, ST 12345 / country). */
+.clients-table .addr-cell { line-height: 1.45; font-size: 13px; }
+.clients-table .addr-cell .addr-country { color: var(--text-muted); font-size: 12px; }
+
 .field-err-inline { font-size: 12px; color: #DC2626; font-weight: 500; margin-top: 5px; }
 
 @media screen and (min-width:992px) {

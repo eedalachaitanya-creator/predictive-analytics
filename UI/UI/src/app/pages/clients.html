@@ -39,14 +39,13 @@
 
   @if (showAddForm()) {
    <div class="modal-backdrop"  >
-    <div class="modal-card" (click)="$event.stopPropagation()">
+    <div class="modal-card add-client-modal" (click)="$event.stopPropagation()">
       <div class="add-client-card mb-24">
       <div class="add-client-head">
         <div class="ach-left">
           <div class="ach-icon" aria-hidden="true">✨</div>
           <div>
             <div class="ach-title">Add New Client</div>
-            <div class="ach-sub">Create a tenant workspace and its first user account in one step.</div>
           </div>
         </div>
         <button class="btn outline sm" (click)="closeAddForm()" [disabled]="addSaving()">✕ Cancel</button>
@@ -54,147 +53,148 @@
 
       <div class="add-client-body">
 
-        <!-- Section 1 · Company -->
+        <!-- Section 1 · Organization details -->
         <section class="form-section">
           <header class="form-section-head">
             <span class="fs-icon" aria-hidden="true">🏢</span>
             <div>
-              <h3 class="fs-title">Company Details</h3>
-              <p class="fs-hint">Basic identity for this tenant. The code becomes part of the client_id.</p>
+              <h3 class="fs-title">Organization Details</h3>
             </div>
           </header>
 
+          <div class="form-field">
+            <label class="form-label" for="ac-org">Organization Name <span class="required">*</span></label>
+            <input id="ac-org" class="form-input" [class.input-error]="addErrors().organization_name"
+                   type="text" placeholder="Enter Organization Name" autocomplete="organization"
+                   [ngModel]="addForm().organization_name" (ngModelChange)="updateAddField('organization_name', $event)"
+                   (blur)="touchAdd('organization_name')" [disabled]="addSaving()" required />
+            @if (addErrors().organization_name) { <div class="field-err-inline">⚠ {{ addErrors().organization_name }}</div> }
+          </div>
+
+          <div class="form-field">
+            <label class="form-label" for="ac-addr">Address <span class="required">*</span></label>
+            <input id="ac-addr" class="form-input" [class.input-error]="addErrors().address"
+                   type="text" placeholder="Enter Address" autocomplete="street-address"
+                   [ngModel]="addForm().address" (ngModelChange)="updateAddField('address', $event)"
+                   (blur)="touchAdd('address')" [disabled]="addSaving()" required />
+            @if (addErrors().address) { <div class="field-err-inline">⚠ {{ addErrors().address }}</div> }
+          </div>
+
           <div class="form-row two-col">
             <div class="form-field">
-              <label class="form-label" for="ac-name">
-                Company Name <span class="required">*</span>
-              </label>
-              <input id="ac-name"
-                     class="form-input"
-                     [class.input-error]="addNameError()"
-                     type="text"
-                     placeholder="e.g. Target Corporation"
-                     autocomplete="organization"
-                     [ngModel]="addForm().client_name"
-                     (ngModelChange)="updateAddField('client_name', $event)"
-                     (blur)="addNameTouched.set(true)"
-                     [disabled]="addSaving()"
-                     required />
-              @if (addNameError()) {
-                <div class="field-err-inline">⚠ {{ addNameError() }}</div>
-              }
+              <label class="form-label" for="ac-city">City <span class="required">*</span></label>
+              <input id="ac-city" class="form-input" [class.input-error]="addErrors().city"
+                     type="text" placeholder="Enter City"
+                     [ngModel]="addForm().city" (ngModelChange)="updateAddField('city', $event)"
+                     (blur)="touchAdd('city')" [disabled]="addSaving()" required />
+              @if (addErrors().city) { <div class="field-err-inline">⚠ {{ addErrors().city }}</div> }
             </div>
-
             <div class="form-field">
-              <label class="form-label" for="ac-code">
-                Company Code <span class="required">*</span>
-              </label>
-              <input id="ac-code"
-                     class="form-input font-mono"
-                     [class.input-error]="addCodeError()"
-                     type="text"
-                     placeholder="e.g. TARGET"
-                     maxlength="10"
-                     autocomplete="off"
-                     [ngModel]="addForm().client_code"
-                     (ngModelChange)="updateAddField('client_code', $event)"
-                     (blur)="addCodeTouched.set(true)"
-                     [disabled]="addSaving()"
-                     required />
-              @if (addCodeError()) {
-                <div class="field-err-inline">⚠ {{ addCodeError() }}</div>
-              }
-              @if (!addCodeError()) {
-                <div class="form-hint">Max 10 characters · auto-uppercased.</div>
-              }
+              <label class="form-label" for="ac-state">State / Province <span class="required">*</span></label>
+              <input id="ac-state" class="form-input" [class.input-error]="addErrors().state_province"
+                     type="text" placeholder="Enter State/Province"
+                     [ngModel]="addForm().state_province" (ngModelChange)="updateAddField('state_province', $event)"
+                     (blur)="touchAdd('state_province')" [disabled]="addSaving()" required />
+              @if (addErrors().state_province) { <div class="field-err-inline">⚠ {{ addErrors().state_province }}</div> }
+            </div>
+          </div>
+
+          <div class="form-row two-col">
+            <div class="form-field">
+              <label class="form-label" for="ac-zip">Zip / Postal Code <span class="required">*</span></label>
+              <input id="ac-zip" class="form-input" [class.input-error]="addErrors().postal_code"
+                     type="text" placeholder="Enter Zip / Postal Code" autocomplete="postal-code"
+                     [ngModel]="addForm().postal_code" (ngModelChange)="updateAddField('postal_code', $event)"
+                     (blur)="touchAdd('postal_code')" [disabled]="addSaving()" required />
+              @if (addErrors().postal_code) { <div class="field-err-inline">⚠ {{ addErrors().postal_code }}</div> }
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="ac-country">Country <span class="required">*</span></label>
+              <select id="ac-country" class="form-input" [class.input-error]="addErrors().country"
+                      [ngModel]="addForm().country" (ngModelChange)="updateAddField('country', $event)"
+                      (blur)="touchAdd('country')" [disabled]="addSaving()" required>
+                <option value="" disabled>Select a country…</option>
+                @for (c of countries; track c) { <option [value]="c">{{ c }}</option> }
+              </select>
+              @if (addErrors().country) { <div class="field-err-inline">⚠ {{ addErrors().country }}</div> }
+            </div>
+          </div>
+
+          <div class="form-row two-col">
+            <div class="form-field">
+              <label class="form-label" for="ac-ccemail">Company Contact Email <span class="required">*</span></label>
+              <input id="ac-ccemail" class="form-input" [class.input-error]="addErrors().company_contact_email"
+                     type="email" placeholder="Enter Contact Email" autocomplete="email"
+                     [ngModel]="addForm().company_contact_email" (ngModelChange)="updateAddField('company_contact_email', $event)"
+                     (blur)="touchAdd('company_contact_email')" [disabled]="addSaving()" required />
+              @if (addErrors().company_contact_email) { <div class="field-err-inline">⚠ {{ addErrors().company_contact_email }}</div> }
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="ac-cphone">Company Phone <span class="required">*</span></label>
+              <input id="ac-cphone" class="form-input" [class.input-error]="addErrors().company_phone"
+                     type="tel" inputmode="numeric" maxlength="12" placeholder="Enter Phone Number" autocomplete="tel"
+                     [ngModel]="addForm().company_phone" (ngModelChange)="updateAddField('company_phone', $event)"
+                     (blur)="touchAdd('company_phone')" [disabled]="addSaving()" required />
+              @if (addErrors().company_phone) { <div class="field-err-inline">⚠ {{ addErrors().company_phone }}</div> }
             </div>
           </div>
         </section>
 
-        <!-- Section 2 · Initial user -->
+        <!-- Section 2 · Administrator account -->
         <section class="form-section">
           <header class="form-section-head">
             <span class="fs-icon" aria-hidden="true">👤</span>
             <div>
-              <h3 class="fs-title">Initial Contact &amp; Login</h3>
-              <p class="fs-hint">This person gets the first client-user account. A welcome email with login details will be sent automatically.</p>
+              <h3 class="fs-title">Administrator Account</h3>
+              <p class="fs-hint">The first client-user. They sign in with the login email below and receive an invite email automatically.</p>
             </div>
           </header>
 
           <div class="form-row two-col">
             <div class="form-field">
-              <label class="form-label" for="ac-contact">
-                Contact Name <span class="required">*</span>
-              </label>
-              <input id="ac-contact"
-                     class="form-input"
-                     [class.input-error]="addContactError()"
-                     type="text"
-                     placeholder="e.g. Jane Smith"
-                     autocomplete="name"
-                     [ngModel]="addForm().contact_name"
-                     (ngModelChange)="updateAddField('contact_name', $event)"
-                     (blur)="addContactTouched.set(true)"
-                     [disabled]="addSaving()"
-                     required />
-              @if (addContactError()) {
-                <div class="field-err-inline">⚠ {{ addContactError() }}</div>
-              }
+              <label class="form-label" for="ac-adminname">Admin Name <span class="required">*</span></label>
+              <input id="ac-adminname" class="form-input" [class.input-error]="addErrors().admin_name"
+                     type="text" placeholder="Enter Admin Name" autocomplete="name"
+                     [ngModel]="addForm().admin_name" (ngModelChange)="updateAddField('admin_name', $event)"
+                     (blur)="touchAdd('admin_name')" [disabled]="addSaving()" required />
+              @if (addErrors().admin_name) { <div class="field-err-inline">⚠ {{ addErrors().admin_name }}</div> }
             </div>
-
             <div class="form-field">
-              <label class="form-label" for="ac-email">
-                Contact Email <span class="required">*</span>
-              </label>
-              <input id="ac-email"
-                     class="form-input"
-                     [class.input-error]="addEmailError()"
-                     type="email"
-                     placeholder="jane@target.com"
-                     autocomplete="email"
-                     [ngModel]="addForm().contact_email"
-                     (ngModelChange)="updateAddField('contact_email', $event)"
-                     (blur)="addEmailTouched.set(true)"
-                     [disabled]="addSaving()"
-                     required />
-              @if (addEmailError()) {
-                <div class="field-err-inline">⚠ {{ addEmailError() }}</div>
-              }
+              <label class="form-label" for="ac-adminphone">Admin Phone <span class="required">*</span></label>
+              <input id="ac-adminphone" class="form-input" [class.input-error]="addErrors().admin_phone"
+                     type="tel" inputmode="numeric" maxlength="12" placeholder="Enter Phone Number" autocomplete="tel"
+                     [ngModel]="addForm().admin_phone" (ngModelChange)="updateAddField('admin_phone', $event)"
+                     (blur)="touchAdd('admin_phone')" [disabled]="addSaving()" required />
+              @if (addErrors().admin_phone) { <div class="field-err-inline">⚠ {{ addErrors().admin_phone }}</div> }
             </div>
           </div>
 
           <div class="form-field">
-            <label class="form-label" for="ac-pw">
-              Temporary Password <span class="required">*</span>
-            </label>
+            <label class="form-label" for="ac-adminemail">Admin Login Email <span class="required">*</span></label>
+            <input id="ac-adminemail" class="form-input" [class.input-error]="addErrors().admin_email"
+                   type="email" placeholder="admin@company.com" autocomplete="email"
+                   [ngModel]="addForm().admin_email" (ngModelChange)="updateAddField('admin_email', $event)"
+                   (blur)="touchAdd('admin_email')" [disabled]="addSaving()" required />
+            @if (addErrors().admin_email) { <div class="field-err-inline">⚠ {{ addErrors().admin_email }}</div> }
+          </div>
+
+          <div class="form-field">
+            <label class="form-label" for="ac-pw">Temporary Password <span class="required">*</span></label>
             <div class="password-wrapper">
-              <input id="ac-pw"
-                     class="form-input font-mono"
-                     [class.input-error]="addPassError()"
+              <input id="ac-pw" class="form-input font-mono" [class.input-error]="addErrors().password"
                      [type]="showPassword() ? 'text' : 'password'"
-                     placeholder="Min 8 chars, uppercase, number, special"
-                     autocomplete="new-password"
-                     [ngModel]="addForm().password"
-                     (ngModelChange)="updateAddField('password', $event)"
-                     (blur)="addPassTouched.set(true)"
-                     [disabled]="addSaving()"
-                     required />
-              <button type="button"
-                      class="eye-btn"
-                      (click)="showPassword.set(!showPassword())"
-                      [disabled]="addSaving()"
-                      tabindex="-1"
+                     placeholder="Min 8 chars, uppercase, number, special" autocomplete="new-password"
+                     [ngModel]="addForm().password" (ngModelChange)="updateAddField('password', $event)"
+                     (blur)="touchAdd('password')" [disabled]="addSaving()" required />
+              <button type="button" class="eye-btn"
+                      (click)="showPassword.set(!showPassword())" [disabled]="addSaving()" tabindex="-1"
                       [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'">
                 <svg *ngIf="!showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 <svg *ngIf="showPassword()" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               </button>
             </div>
-            @if (addPassError()) {
-              <div class="field-err-inline">⚠ {{ addPassError() }}</div>
-            }
-            @if (!addPassError()) {
-              <div class="form-hint">Must be 8+ characters with at least one uppercase letter, one number, and one special character.</div>
-            }
+            @if (addErrors().password) { <div class="field-err-inline">⚠ {{ addErrors().password }}</div> }
+            @if (!addErrors().password) { <div class="form-hint">Must be 8+ characters with at least one uppercase letter, one number, and one special character.</div> }
           </div>
         </section>
 
@@ -240,8 +240,9 @@
           <tr>
             <th>ID</th>
             <th>Client Name</th>
-            <th>Code</th>
-            <th>Registered</th>
+            <th>Address</th>
+            <th>Contact Email</th>
+            <th>Phone</th>
             <th>Status</th>
             <th>Action</th>
             @if (isSuperAdmin()) { <th>Delete</th> }
@@ -253,8 +254,18 @@
                 [class.dim]="!c.is_active">
               <td class="font-mono">{{ c.client_id }}</td>
               <td>{{ c.client_name }}</td>
-              <td class="font-mono">{{ c.client_code }}</td>
-              <td style="font-size:12px">{{ formatDate(c.created_at) }}</td>
+              <td class="addr-cell">
+                @let lines = addressLines(c);
+                @if (lines.length) {
+                  @for (ln of lines; track $index; let last = $last) {
+                    <div [class.addr-country]="last && lines.length > 1">{{ ln }}</div>
+                  }
+                } @else {
+                  <span style="color:var(--text-muted)">—</span>
+                }
+              </td>
+              <td>{{ c.contact_email || '—' }}</td>
+              <td class="font-mono" style="font-size:12px">{{ c.company_phone || '—' }}</td>
               <td>
                 @if (c.is_active) {
                   <span class="status-pill status-active">● Active</span>
@@ -265,7 +276,7 @@
                   </span>
                 }
               </td>
-              <td><button class="btn outline sm" (click)="selectClient(c)">▶ View</button></td>
+              <td><button class="btn outline sm" (click)="viewClient(c)">▶ View</button></td>
               @if (isSuperAdmin()) {
                 <td>
                   @if (!c.is_active) {
@@ -301,7 +312,7 @@
           }
           @if (visibleClients().length === 0) {
             <tr>
-              <td [attr.colspan]="isSuperAdmin() ? 7 : 6"
+              <td [attr.colspan]="isSuperAdmin() ? 8 : 7"
                   style="text-align:center; padding:24px; color:var(--text-muted)">
                 @switch (statusFilter()) {
                   @case ('active')   { No active clients. }
@@ -315,9 +326,15 @@
       </table>
     </div>
 
-    @if (selected(); as s) {
-      <div class="section-heading">🔍 Client Detail — {{ s.client_id }} · {{ s.client_name }}</div>
+    @if (showClientModal() && selected(); as s) {
+     <div class="modal-backdrop" (click)="closeClientModal()">
+      <div class="modal-card client-detail-card" (click)="$event.stopPropagation()">
+       <div class="cdc-header flex-row" style="align-items:center; justify-content:space-between">
+         <h3 class="modal-title" style="margin:0">🔍 Client Detail — <span class="font-mono">{{ s.client_id }}</span> · {{ s.client_name }}</h3>
+         <button class="btn outline sm" (click)="closeClientModal()">✕ Close</button>
+       </div>
 
+       <div class="cdc-body">
       <div class="card mb-20" style="padding:20px">
         <div class="detail-row"><span class="detail-label">Client ID</span><span class="param-value font-mono">{{ s.client_id }}</span></div>
         <div class="detail-row"><span class="detail-label">Client Name</span><span>{{ s.client_name }}</span></div>
@@ -411,6 +428,9 @@
           </table>
         </div>
       }
+      </div>
+      </div>
+     </div>
     }
   }
 

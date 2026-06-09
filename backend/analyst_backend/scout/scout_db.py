@@ -124,12 +124,14 @@ class Database:
 
                 CREATE TABLE IF NOT EXISTS websites (
                     id         SERIAL PRIMARY KEY,
-                    name       TEXT UNIQUE NOT NULL,
+                    name       TEXT NOT NULL,
+                    client_id  TEXT NOT NULL DEFAULT '',
                     base_url   TEXT NOT NULL DEFAULT '',
                     search_url TEXT NOT NULL DEFAULT '',
                     encoding   TEXT NOT NULL DEFAULT 'plus',
                     active     BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (name, client_id)
                 )
             """)
             self._execute(conn, """
@@ -138,11 +140,12 @@ class Database:
                     id              SERIAL PRIMARY KEY,
                     product_name    TEXT NOT NULL,
                     platform        TEXT NOT NULL,
+                    client_id       TEXT NOT NULL DEFAULT '',
                     product_url     TEXT,
                     price           FLOAT,
                     product_details JSONB,
                     scraped_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    UNIQUE (product_name, platform)
+                    UNIQUE (product_name, platform, client_id)
                 )
             """)
             self._execute(conn, """
@@ -151,6 +154,7 @@ class Database:
                     id           SERIAL PRIMARY KEY,
                     product_name TEXT NOT NULL,
                     platform     TEXT NOT NULL,
+                    client_id    TEXT NOT NULL DEFAULT '',
                     price        NUMERIC(10,2) NOT NULL,
                     currency     TEXT NOT NULL DEFAULT 'INR',
                     url          TEXT,
@@ -168,6 +172,7 @@ class Database:
                     id             SERIAL PRIMARY KEY,
                     product_name   TEXT NOT NULL,
                     platform       TEXT NOT NULL,
+                    client_id      TEXT NOT NULL DEFAULT '',
                     old_price      NUMERIC(10,2),
                     new_price      NUMERIC(10,2) NOT NULL,
                     change_amount  NUMERIC(10,2),
@@ -191,6 +196,7 @@ class Database:
                     canonical_brand   TEXT,
                     canonical_variant TEXT,
                     query             TEXT NOT NULL,
+                    client_id         TEXT NOT NULL DEFAULT '',
                     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -206,6 +212,7 @@ class Database:
                     id           SERIAL PRIMARY KEY,
                     entity_id    UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
                     platform     TEXT NOT NULL,
+                    client_id    TEXT NOT NULL DEFAULT '',
                     product_url  TEXT NOT NULL,
                     title        TEXT NOT NULL,
                     price        NUMERIC(10,2),
@@ -215,7 +222,7 @@ class Database:
                     marketed_by  TEXT,
                     availability TEXT DEFAULT 'unknown',
                     last_seen    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    UNIQUE (entity_id, platform)
+                    UNIQUE (entity_id, platform, client_id)
                 )
             """)
             self._execute(conn, """
@@ -229,11 +236,12 @@ class Database:
                     id             SERIAL PRIMARY KEY,
                     product_name   TEXT NOT NULL,
                     platform       TEXT NOT NULL,
+                    client_id      TEXT NOT NULL DEFAULT '',
                     category       TEXT,
                     product_feats  JSONB,
                     platform_feats JSONB,
                     extracted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    UNIQUE (product_name, platform)
+                    UNIQUE (product_name, platform, client_id)
                 )
             """)
             conn.commit()
@@ -245,21 +253,28 @@ class Database:
 
     # ── Websites ──────────────────────────────────────────────────────
 
-    def get_active_websites(self) -> list[dict]:
+    def get_active_websites(self, client_id: str = "") -> list[dict]:
         with self._conn() as conn:
             return self._fetchall(
                 conn,
-                "SELECT * FROM websites WHERE active = TRUE ORDER BY name",
+                "SELECT * FROM websites WHERE active = TRUE AND client_id = %s ORDER BY name",
+                (client_id,),
             )
 
-    def get_all_websites(self) -> list[dict]:
+    def get_all_websites(self, client_id: str = "") -> list[dict]:
         with self._conn() as conn:
-            return self._fetchall(conn, "SELECT * FROM websites ORDER BY name")
+            return self._fetchall(
+                conn,
+                "SELECT * FROM websites WHERE client_id = %s ORDER BY name",
+                (client_id,),
+            )
 
-    def get_website_by_name(self, name: str) -> Optional[dict]:
+    def get_website_by_name(self, name: str, client_id: str = "") -> Optional[dict]:
         with self._conn() as conn:
             return self._fetchone(
-                conn, "SELECT * FROM websites WHERE name = %s", (name,)
+                conn,
+                "SELECT * FROM websites WHERE name = %s AND client_id = %s",
+                (name, client_id),
             )
 
     def add_website(
@@ -268,13 +283,14 @@ class Database:
         base_url:   str,
         search_url: str,
         encoding:   str = "plus",
+        client_id:  str = "",
     ) -> dict:
         with self._conn() as conn:
             self._execute(conn, """
-                INSERT INTO websites (name, base_url, search_url, encoding, active, created_at)
-                VALUES (%s, %s, %s, %s, TRUE, NOW())
-            """, (name, base_url, search_url, encoding))
-        return self.get_website_by_name(name)
+                INSERT INTO websites (name, client_id, base_url, search_url, encoding, active, created_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
+            """, (name, client_id, base_url, search_url, encoding))
+        return self.get_website_by_name(name, client_id)
 
     def update_website(
         self,
@@ -282,8 +298,9 @@ class Database:
         active:     bool,
         base_url:   Optional[str] = None,
         search_url: Optional[str] = None,
+        client_id:  str = "",
     ) -> Optional[dict]:
-        site = self.get_website_by_name(name)
+        site = self.get_website_by_name(name, client_id)
         if not site:
             return None
         b = base_url   if base_url   is not None else site["base_url"]
@@ -291,11 +308,11 @@ class Database:
         with self._conn() as conn:
             self._execute(conn, """
                 UPDATE websites SET base_url = %s, search_url = %s, active = %s
-                WHERE name = %s
-            """, (b, s, active, name))
-        return self.get_website_by_name(name)
+                WHERE name = %s AND client_id = %s
+            """, (b, s, active, name, client_id))
+        return self.get_website_by_name(name, client_id)
 
-    def delete_website(self, name: str) -> dict:
+    def delete_website(self, name: str, client_id: str = "") -> dict:
         """
         Permanently delete a website and ALL associated data:
           - websites row
@@ -312,7 +329,7 @@ class Database:
         Returns a dict of row counts per table, for logging and UI feedback.
         Raises ValueError if the website doesn't exist.
         """
-        if not self.get_website_by_name(name):
+        if not self.get_website_by_name(name, client_id):
             raise ValueError(f"Website '{name}' not found")
 
         counts = {}
@@ -320,39 +337,39 @@ class Database:
             with conn.cursor() as cur:
                 # Children first, parent last.
                 cur.execute(
-                    "DELETE FROM entity_listings WHERE platform = %s", (name,)
+                    "DELETE FROM entity_listings WHERE platform = %s AND client_id = %s", (name, client_id)
                 )
                 counts["entity_listings"] = cur.rowcount
 
-                # Clean up entities that now have zero listings on any platform
                 cur.execute("""
                     DELETE FROM entities
-                    WHERE id NOT IN (SELECT DISTINCT entity_id FROM entity_listings)
-                """)
+                    WHERE client_id = %s
+                    AND id NOT IN (SELECT DISTINCT entity_id FROM entity_listings WHERE client_id = %s)
+                """, (client_id, client_id))
                 counts["entities_orphaned"] = cur.rowcount
 
                 cur.execute(
-                    "DELETE FROM product_features WHERE platform = %s", (name,)
+                    "DELETE FROM product_features WHERE platform = %s AND client_id = %s", (name, client_id)
                 )
                 counts["product_features"] = cur.rowcount
 
                 cur.execute(
-                    "DELETE FROM price_alerts WHERE platform = %s", (name,)
+                    "DELETE FROM price_alerts WHERE platform = %s AND client_id = %s", (name, client_id)
                 )
                 counts["price_alerts"] = cur.rowcount
 
                 cur.execute(
-                    "DELETE FROM price_history WHERE platform = %s", (name,)
+                    "DELETE FROM price_history WHERE platform = %s AND client_id = %s", (name, client_id)
                 )
                 counts["price_history"] = cur.rowcount
 
                 cur.execute(
-                    "DELETE FROM product_results WHERE platform = %s", (name,)
+                    "DELETE FROM product_results WHERE platform = %s AND client_id = %s", (name, client_id)
                 )
                 counts["product_results"] = cur.rowcount
 
                 cur.execute(
-                    "DELETE FROM websites WHERE name = %s", (name,)
+                    "DELETE FROM websites WHERE name = %s AND client_id = %s", (name, client_id)
                 )
                 counts["websites"] = cur.rowcount
 
@@ -361,7 +378,7 @@ class Database:
 
     # ── Product results ───────────────────────────────────────────────
 
-    def save_product_result(self, row: dict, platforms: list[str]) -> None:
+    def save_product_result(self, row: dict, platforms: list[str], client_id: str = "") -> None:
         """
         Upsert each listing as a separate row in product_results.
         price is extracted from the normalised listing format:
@@ -402,9 +419,9 @@ class Database:
 
                 self._execute(conn, """
                     INSERT INTO product_results
-                        (product_name, platform, product_url, price, product_details, scraped_at)
-                    VALUES (%s, %s, %s, %s, %s::jsonb, NOW())
-                    ON CONFLICT (product_name, platform) DO UPDATE SET
+                        (product_name, platform, client_id, product_url, price, product_details, scraped_at)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, NOW())
+                    ON CONFLICT (product_name, platform, client_id) DO UPDATE SET
                         product_url     = EXCLUDED.product_url,
                         price           = EXCLUDED.price,
                         product_details = EXCLUDED.product_details,
@@ -412,6 +429,7 @@ class Database:
                 """, (
                     product_name,
                     platform,
+                    client_id,
                     product_url,
                     price,
                     json.dumps(product_details, default=str),
@@ -419,8 +437,9 @@ class Database:
 
     def get_all_products(
         self,
-        limit:  int = 0,   # 0 = no limit (preserves existing callers)
-        offset: int = 0,
+        limit:     int = 0,
+        offset:    int = 0,
+        client_id: str = "",
         ) -> tuple[list[dict], list[str], int]:
         """
         All tracked products from DB, grouped by product name.
@@ -437,8 +456,9 @@ class Database:
             rows = self._fetchall(conn, """
                 SELECT product_name, platform, price, product_url, product_details, scraped_at
                 FROM product_results
+                WHERE client_id = %s
                 ORDER BY scraped_at DESC
-            """)
+            """, (client_id,))
 
         products:     dict[str, dict] = {}
         platform_set: set[str]        = set()
@@ -494,6 +514,7 @@ class Database:
         price:        float,
         currency:     str = "INR",
         url:          str = "",
+        client_id:    str = "",
         ) -> Optional[dict]:
         """
         Save a price observation. Skips duplicates within the last hour.
@@ -525,32 +546,30 @@ class Database:
         with self._conn() as conn:
             self._execute(conn, """
                 INSERT INTO price_history
-                    (product_name, platform, price, currency, url, scraped_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
-            """, (product_name, platform, price, currency, url))
+                    (product_name, platform, client_id, price, currency, url, scraped_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            """, (product_name, platform, client_id, price, currency, url))
 
-        return self._detect_price_change(product_name, platform, last, price, url)
+        return self._detect_price_change(product_name, platform, last, price, url, client_id)
 
-    def get_last_price(self, product_name: str, platform: str) -> Optional[dict]:
+    def get_last_price(self, product_name: str, platform: str, client_id: str = "") -> Optional[dict]:
         """Most recent price record for a product+platform pair."""
-        # Defensive: callers that bypass save_price (e.g. direct lookups from
-        # tools.py or ad-hoc scripts) shouldn't have to remember to normalize.
-        # Normalizing here makes all reads safe regardless of caller discipline.
         product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             return self._fetchone(conn, """
                 SELECT price, currency, url, scraped_at
                 FROM price_history
-                WHERE product_name = %s AND platform = %s
+                WHERE product_name = %s AND platform = %s AND client_id = %s
                 ORDER BY scraped_at DESC
                 LIMIT 1
-            """, (product_name, platform))
+            """, (product_name, platform, client_id))
 
     def get_price_history(
         self,
         product_name: str,
         platform:     Optional[str] = None,
         limit:        int = 90,
+        client_id:    str = "",
     ) -> list[dict]:
         """
         Price history for a product.
@@ -565,18 +584,18 @@ class Database:
                 return self._fetchall(conn, """
                     SELECT platform, price, currency, url, scraped_at
                     FROM price_history
-                    WHERE product_name = %s AND platform = %s
+                    WHERE product_name = %s AND platform = %s AND client_id = %s
                     ORDER BY scraped_at DESC
                     LIMIT %s
-                """, (product_name, platform, limit))
+                """, (product_name, platform, client_id, limit))
             else:
                 return self._fetchall(conn, """
                     SELECT platform, price, currency, url, scraped_at
                     FROM price_history
-                    WHERE product_name = %s
+                    WHERE product_name = %s AND client_id = %s
                     ORDER BY platform, scraped_at DESC
                     LIMIT %s
-                """, (product_name, limit))
+                """, (product_name, client_id, limit))
 
     def _detect_price_change(
         self,
@@ -585,6 +604,7 @@ class Database:
         last:         Optional[dict],
         new_price:    float,
         url:          str,
+        client_id:    str = "",
     ) -> Optional[dict]:
         """
         Compare new price to last known price.
@@ -602,6 +622,7 @@ class Database:
                 change_percent= None,
                 direction     = "new",
                 url           = url,
+                client_id     = client_id,
             )
 
         old_price = float(last["price"])
@@ -616,6 +637,7 @@ class Database:
                 change_percent= None,
                 direction     = "available",
                 url           = url,
+                client_id     = client_id,
             )
 
         if old_price > 0 and new_price <= 0:
@@ -628,6 +650,7 @@ class Database:
                 change_percent= None,
                 direction     = "unavailable",
                 url           = url,
+                client_id     = client_id,
             )
 
         change_amount  = round(new_price - old_price, 2)
@@ -645,6 +668,7 @@ class Database:
             change_percent = change_percent,
             direction      = "up" if change_amount > 0 else "down",
             url            = url,
+            client_id      = client_id,
         )
 
     def _save_alert(
@@ -657,26 +681,27 @@ class Database:
         change_percent: Optional[float],
         direction:      str,
         url:            str,
+        client_id:      str = "",
     ) -> Optional[dict]:
         """Persist a price alert; deduplicates within a 5-minute window."""
         with self._conn() as conn:
             existing = self._fetchone(conn, """
                 SELECT id FROM price_alerts
-                WHERE product_name = %s AND platform = %s
+                WHERE product_name = %s AND platform = %s AND client_id = %s
                   AND new_price = %s AND direction = %s
                   AND detected_at > NOW() - INTERVAL '5 minutes'
-            """, (product_name, platform, new_price, direction))
+            """, (product_name, platform, client_id, new_price, direction))
             if existing:
                 return None
 
         with self._conn() as conn:
             self._execute(conn, """
                 INSERT INTO price_alerts
-                    (product_name, platform, old_price, new_price,
+                    (product_name, platform, client_id, old_price, new_price,
                      change_amount, change_percent, direction, url, detected_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """, (
-                product_name, platform, old_price, new_price,
+                product_name, platform, client_id, old_price, new_price,
                 change_amount, change_percent, direction, url,
             ))
 
@@ -702,6 +727,7 @@ class Database:
         unacknowledged_only: bool = False,
         limit:               int  = 50,
         offset:              int  = 0,
+        client_id:           str  = "",
     ) -> tuple[list[dict], int]:
         """
         Returns (rows, total_count).
@@ -733,20 +759,23 @@ class Database:
             if unacknowledged_only:
                 rows = self._fetchall(conn, f"""
                     {select_with_title}
-                    WHERE a.acknowledged = FALSE
+                    WHERE a.acknowledged = FALSE AND a.client_id = %s
                     ORDER BY a.detected_at DESC
                     LIMIT %s OFFSET %s
-                """, (limit, offset))
+                """, (client_id, limit, offset))
                 total_row = self._fetchone(conn,
-                    "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE")
+                    "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE AND client_id = %s",
+                    (client_id,))
             else:
                 rows = self._fetchall(conn, f"""
                     {select_with_title}
+                    WHERE a.client_id = %s
                     ORDER BY a.detected_at DESC
                     LIMIT %s OFFSET %s
-                """, (limit, offset))
+                """, (client_id, limit, offset))
                 total_row = self._fetchone(conn,
-                    "SELECT COUNT(*) AS count FROM price_alerts")
+                    "SELECT COUNT(*) AS count FROM price_alerts WHERE client_id = %s",
+                    (client_id,))
 
             total = int(total_row["count"]) if total_row else 0
             return rows, total
@@ -767,11 +796,12 @@ class Database:
                 """)
                 return cur.rowcount
 
-    def get_unacknowledged_count(self) -> int:
+    def get_unacknowledged_count(self, client_id: str = "") -> int:
         with self._conn() as conn:
             row = self._fetchone(
                 conn,
-                "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE",
+                "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE AND client_id = %s",
+                (client_id,),
             )
             return int(row["count"]) if row else 0
 
@@ -782,6 +812,7 @@ class Database:
         product_name: str,
         platform:     str,
         ttl_minutes:  int = 120,
+        client_id:    str = "",
     ) -> Optional[dict]:
         """Return cached listing if scraped within ttl_minutes; else None."""
         product_name = self._normalize_name(product_name)
@@ -794,10 +825,11 @@ class Database:
                 FROM product_results
                 WHERE product_name = %s
                   AND platform = %s
+                  AND client_id = %s
                   AND scraped_at > NOW() - (%s * INTERVAL '1 minute')
                 ORDER BY scraped_at DESC
                 LIMIT 1
-            """, (product_name, platform, ttl_minutes))
+            """, (product_name, platform, client_id, ttl_minutes))
 
         if not row:
             return None
@@ -837,7 +869,7 @@ class Database:
         }
 
     def get_listing_age_minutes(
-        self, product_name: str, platform: str
+        self, product_name: str, platform: str, client_id: str = ""
     ) -> Optional[float]:
         """How many minutes ago was this product last scraped? None if never."""
         product_name = self._normalize_name(product_name)
@@ -845,10 +877,10 @@ class Database:
             row = self._fetchone(conn, """
                 SELECT EXTRACT(EPOCH FROM (NOW() - scraped_at)) / 60 AS age_minutes
                 FROM product_results
-                WHERE product_name = %s AND platform = %s
+                WHERE product_name = %s AND platform = %s AND client_id = %s
                 ORDER BY scraped_at DESC
                 LIMIT 1
-            """, (product_name, platform))
+            """, (product_name, platform, client_id))
         return round(float(row["age_minutes"]), 1) if row else None
 
     # ── Feature cache ─────────────────────────────────────────────────
@@ -857,18 +889,19 @@ class Database:
         self,
         product_name: str,
         platform:     str,
-        ttl_minutes:  int = 1440,   # 24 hours
+        ttl_minutes:  int = 1440,
+        client_id:    str = "",
     ) -> Optional[dict]:
         product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             row = self._fetchone(conn, """
                 SELECT product_feats, platform_feats, category, extracted_at
                 FROM product_features
-                WHERE product_name = %s AND platform = %s
+                WHERE product_name = %s AND platform = %s AND client_id = %s
                   AND extracted_at > NOW() - (%s * INTERVAL '1 minute')
                 ORDER BY extracted_at DESC LIMIT 1
-            """, (product_name, platform, ttl_minutes))
-        return row  # None if not found or expired
+            """, (product_name, platform, client_id, ttl_minutes))
+        return row
 
     def save_features(
         self,
@@ -877,21 +910,22 @@ class Database:
         category:       str,
         product_feats:  dict,
         platform_feats: dict,
+        client_id:      str = "",
     ) -> None:
         product_name = self._normalize_name(product_name)
         with self._conn() as conn:
             self._execute(conn, """
                 INSERT INTO product_features
-                    (product_name, platform, category,
+                    (product_name, platform, client_id, category,
                      product_feats, platform_feats, extracted_at)
-                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, NOW())
-                ON CONFLICT (product_name, platform) DO UPDATE SET
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())
+                ON CONFLICT (product_name, platform, client_id) DO UPDATE SET
                     category       = EXCLUDED.category,
                     product_feats  = EXCLUDED.product_feats,
                     platform_feats = EXCLUDED.platform_feats,
                     extracted_at   = NOW()
             """, (
-                product_name, platform, category,
+                product_name, platform, client_id, category,
                 json.dumps(product_feats),
                 json.dumps(platform_feats),
             ))

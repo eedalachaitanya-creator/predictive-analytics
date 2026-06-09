@@ -663,15 +663,16 @@ def save_entities(db_instance, entities: list[dict]):
                     INSERT INTO entity_listings
                         (entity_id, platform, product_url, title, price, currency,
                          ingredients, manufacturer, marketed_by,
-                         availability, last_seen)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (entity_id, platform) DO UPDATE SET
+                         availability, last_seen, client_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+                    ON CONFLICT (entity_id, platform, client_id) DO UPDATE SET
                         price        = EXCLUDED.price,
                         currency     = EXCLUDED.currency,
                         title        = EXCLUDED.title,
                         product_url  = EXCLUDED.product_url,
                         availability = EXCLUDED.availability,
                         last_seen    = NOW()
+                                     
                 """, (
                     entity_id,
                     platform,
@@ -683,6 +684,7 @@ def save_entities(db_instance, entities: list[dict]):
                     listing.get("manufacturer", ""),
                     listing.get("marketed_by", ""),
                     listing.get("availability", "unknown"),
+                     listing.get("client_id", ""),
                 ))
 
 def get_entities_for_query(db_instance, query: str) -> list[dict]:

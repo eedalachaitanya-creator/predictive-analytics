@@ -173,21 +173,11 @@ def get_dashboard(
             WITH seg AS (
                 SELECT
                     CASE
-                        WHEN rfm_recency_score >= 4 AND rfm_frequency_score >= 4 AND rfm_monetary_score >= 4
-                            THEN 'Champions'
-                        WHEN rfm_recency_score >= 3 AND rfm_frequency_score >= 3 AND rfm_monetary_score >= 3
-                            THEN 'Loyal Customers'
-                        WHEN rfm_recency_score <= 2 AND rfm_frequency_score >= 4 AND rfm_monetary_score >= 4
-                            THEN 'Can''t Lose Them'
-                        WHEN rfm_recency_score <= 2 AND rfm_frequency_score >= 3 AND rfm_monetary_score >= 3
-                            THEN 'At Risk'
-                        WHEN rfm_recency_score >= 4 AND rfm_frequency_score <= 2
-                            THEN 'New Customers'
-                        WHEN rfm_recency_score >= 4 AND rfm_frequency_score >= 2 AND rfm_monetary_score >= 2
-                            THEN 'Potential Loyalists'
-                        WHEN rfm_recency_score <= 2 AND rfm_frequency_score <= 2
-                            THEN 'Hibernating'
-                        ELSE 'Needs Attention'
+                        WHEN rfm_recency_score >= 4 OR (rfm_recency_score >= 3 AND rfm_frequency_score >= 3)
+                            THEN 'Good'
+                        WHEN rfm_recency_score <= 1
+                            THEN 'Churned'
+                        ELSE 'At-Risk'
                     END AS segment
                 FROM mv_customer_features
                 WHERE client_id = :cid
@@ -326,21 +316,11 @@ def get_segment_customers(
     # SQL segment CASE — identical to Section 2 above
     segment_case = """
         CASE
-            WHEN rfm_recency_score >= 4 AND rfm_frequency_score >= 4 AND rfm_monetary_score >= 4
-                THEN 'Champions'
-            WHEN rfm_recency_score >= 3 AND rfm_frequency_score >= 3 AND rfm_monetary_score >= 3
-                THEN 'Loyal Customers'
-            WHEN rfm_recency_score <= 2 AND rfm_frequency_score >= 4 AND rfm_monetary_score >= 4
-                THEN 'Can''t Lose Them'
-            WHEN rfm_recency_score <= 2 AND rfm_frequency_score >= 3 AND rfm_monetary_score >= 3
-                THEN 'At Risk'
-            WHEN rfm_recency_score >= 4 AND rfm_frequency_score <= 2
-                THEN 'New Customers'
-            WHEN rfm_recency_score >= 4 AND rfm_frequency_score >= 2 AND rfm_monetary_score >= 2
-                THEN 'Potential Loyalists'
-            WHEN rfm_recency_score <= 2 AND rfm_frequency_score <= 2
-                THEN 'Hibernating'
-            ELSE 'Needs Attention'
+            WHEN rfm_recency_score >= 4 OR (rfm_recency_score >= 3 AND rfm_frequency_score >= 3)
+                THEN 'Good'
+            WHEN rfm_recency_score <= 1
+                THEN 'Churned'
+            ELSE 'At-Risk'
         END
     """
 

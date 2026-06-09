@@ -105,6 +105,27 @@ REPEAT_COLORS = ['#EF4444', '#22C55E']
 RFM_COLORS = ['#2E75B6', '#ED7D31', '#70AD47']
 
 
+def rfm_segment_label(r, f, m) -> str:
+    """Collapse RFM scores into 3 layman-friendly buckets for the dashboard.
+
+    DISPLAY ONLY — this label is NOT a churn-model feature (the raw RFM scores
+    are, and they're unchanged). Recency-driven (the dominant churn signal):
+        Good    = recently active / engaged   (R>=4, or R>=3 with F>=3)
+        Churned = gone silent                 (R<=1)
+        At-Risk = slipping                    (everything else)
+
+    The dashboard's SQL CASE (app/dashboard_router.py) mirrors this exactly.
+    """
+    if pd.isna(r) or pd.isna(f) or pd.isna(m):
+        return 'Unknown'
+    r, f = int(r), int(f)
+    if r >= 4 or (r >= 3 and f >= 3):
+        return 'Good'
+    if r <= 1:
+        return 'Churned'
+    return 'At-Risk'
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # DATABASE SECTION
 # ═══════════════════════════════════════════════════════════════════════════
@@ -190,51 +211,18 @@ def _compute_derived_columns(engine, df):
         np.where(recent_90d_spend < prior_90d_spend, 'Decreasing', 'Stable')
     )
 
-    # ── 5. rfm_segment: use individual R, F, M scores for accurate segmentation ──
-    #
-    # WHY individual scores matter:
-    #   R=1, F=5, M=5 (total=11) → "Can't Lose Them" (was best customer, now gone)
-    #   R=5, F=3, M=3 (total=11) → "Potential Loyalist" (recent buyer, nurture them)
-    #   Both have total=11 but need completely different business actions.
-    #
-    # SEGMENTS (from best to worst):
-    #   Champions         → High R, High F, High M (best customers, still active)
-    #   Loyal Customers   → Medium+ R, High F, High M (consistent buyers)
-    #   Can't Lose Them   → Low R, High F, High M (were great, now disappearing!)
-    #   Potential Loyalists→ High R, Medium F/M (recent, growing engagement)
-    #   At Risk           → Low R, Medium F/M (slowing down, needs intervention)
-    #   New Customers     → High R, Low F (just started buying)
-    #   Needs Attention   → Medium R, Low-Medium F/M (drifting away)
-    #   Hibernating       → Low R, Low F, Low M (inactive, hard to win back)
-    #
-    def _rfm_segment(row):
-        r = row.get('rfm_recency_score', 0)
-        f = row.get('rfm_frequency_score', 0)
-        m = row.get('rfm_monetary_score', 0)
-
-        if pd.isna(r) or pd.isna(f) or pd.isna(m):
-            return 'Unknown'
-
-        r, f, m = int(r), int(f), int(m)
-
-        if r >= 4 and f >= 4 and m >= 4:
-            return 'Champions'
-        elif r >= 3 and f >= 3 and m >= 3:
-            return 'Loyal Customers'
-        elif r <= 2 and f >= 4 and m >= 4:
-            return "Can't Lose Them"
-        elif r <= 2 and f >= 3 and m >= 3:
-            return 'At Risk'
-        elif r >= 4 and f <= 2:
-            return 'New Customers'
-        elif r >= 4 and f >= 2 and m >= 2:
-            return 'Potential Loyalists'
-        elif r <= 2 and f <= 2:
-            return 'Hibernating'
-        else:
-            return 'Needs Attention'
-
-    df['rfm_segment'] = df.apply(_rfm_segment, axis=1)
+    # ── 5. rfm_segment: collapse RFM scores into 3 layman buckets ──
+    # Good / At-Risk / Churned (see module-level rfm_segment_label). DISPLAY
+    # ONLY — the raw R/F/M scores remain the churn-model features; this label
+    # never feeds the model. The dashboard SQL CASE mirrors this exact logic.
+    df['rfm_segment'] = df.apply(
+        lambda row: rfm_segment_label(
+            row.get('rfm_recency_score', 0),
+            row.get('rfm_frequency_score', 0),
+            row.get('rfm_monetary_score', 0),
+        ),
+        axis=1,
+    )
 
     # ── 6. top_category: most purchased category per customer ──
     # Audit fix 2026-04-29: added `, product_id ASC` tiebreaker so the

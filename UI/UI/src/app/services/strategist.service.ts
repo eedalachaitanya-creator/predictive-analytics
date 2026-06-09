@@ -178,4 +178,11 @@ export class StrategistService {
     return this.http.get<any>(`${BASE}/api/db/client-config/${clientId}`, { headers: headers() })
       .pipe(catchError(() => of({ currency: 'INR' })));
   }
+
+getPriceHistoryProducts(q: string): Observable<any> {
+    return this.http.get<any>(
+      `${BASE}/api/db/price-history-products?q=${encodeURIComponent(q)}&limit=10`,
+      { headers: headers() }
+    ).pipe(catchError(e => throwError(() => e)));
+  }
 }

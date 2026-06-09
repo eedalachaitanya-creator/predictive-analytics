@@ -52,9 +52,16 @@ export class StrategistTrendTab implements OnInit {
     }
 
     this.searchTimeout = setTimeout(() => {
-      this.svc.searchProducts(this.clientId, value.trim()).subscribe(res => {
-        this.suggestions.set(res.products || []);
-        this.suggestionsOpen.set((res.products || []).length > 0);
+      this.svc.getPriceHistoryProducts(value.trim()).subscribe({
+        next: (res: any) => {
+          const names = (res.products || []).map((p: any) => ({ name: p, sku: p, saved_cost: 0 }));
+          this.suggestions.set(names);
+          this.suggestionsOpen.set(names.length > 0);
+        },
+        error: () => {
+          this.suggestions.set([]);
+          this.suggestionsOpen.set(false);
+        }
       });
     }, 250);
   }

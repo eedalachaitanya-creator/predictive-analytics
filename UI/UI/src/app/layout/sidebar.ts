@@ -34,7 +34,7 @@ export class SidebarComponent {
     icon:  '🔮',
     pathPrefixes: [
       '/app/upload', '/app/validation', '/app/settings',
-      '/app/dashboard', '/app/churn-scores', '/app/downloads',
+      '/app/dashboard', '/app/churn-scores',
       '/app/chat', '/app/cost-tracking',
    ],
     children: [
@@ -43,7 +43,6 @@ export class SidebarComponent {
       { path: '/app/validation',    label: 'Validation',      icon: '✅' },
       { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' }, 
       { path: '/app/churn-scores',  label: 'Churn Scores',    icon: '📈' },
-      { path: '/app/downloads',     label: 'Downloads',       icon: '📥' },
       { path: '/app/chat',          label: 'Agent Chat',      icon: '🤖' },
       { path: '/app/cost-tracking', label: 'Cost Tracking',   icon: '💰' },
     ],

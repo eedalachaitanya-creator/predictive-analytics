@@ -37,6 +37,41 @@ interface Summary {
   avg_probability: number;
 }
 
+/**
+ * Build a CSV (header + one row per score) from the churn scores shown on the
+ * page. Pure + exported so it's unit-tested; the browser download (Blob) lives
+ * in the component. Columns mirror what the table displays.
+ */
+export function toChurnCsv(scores: ChurnScore[]): string {
+  const cols: Array<[string, (s: ChurnScore) => unknown]> = [
+    ['Customer ID',       s => s.customer_id],
+    ['Customer Name',     s => s.customer_name],
+    ['Email',             s => s.customer_email],
+    ['Tier',              s => s.tier],
+    ['Total Orders',      s => s.total_orders],
+    ['Total Spend',       s => s.total_spend],
+    ['Avg Order Value',   s => s.avg_order_value],
+    ['Recency',           s => s.rfm_recency],
+    ['Frequency',         s => s.rfm_frequency],
+    ['Monetary',          s => s.rfm_monetary],
+    ['RFM Total',         s => s.rfm_total],
+    ['Churn Probability', s => s.churn_probability],
+    ['Risk Tier',         s => s.risk_tier],
+    ['Driver 1',          s => s.driver_1],
+    ['Driver 2',          s => s.driver_2],
+    ['Driver 3',          s => s.driver_3],
+    ['Scored At',         s => s.scored_at],
+    ['Model Version',     s => s.model_version],
+  ];
+  const esc = (v: unknown): string => {
+    const str = (v === null || v === undefined) ? '' : String(v);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const header = cols.map(c => esc(c[0])).join(',');
+  const rows = scores.map(s => cols.map(c => esc(c[1](s))).join(','));
+  return [header, ...rows].join('\n');
+}
+
 @Component({
   selector: 'app-churn-scores',
   standalone: true,
@@ -71,6 +106,7 @@ export class ChurnScoresComponent implements OnInit {
   // State
   loading = signal(true);
   error = signal('');
+  downloading = signal(false);
 
   // Selected customer for detail panel
   selectedCustomer = signal<ChurnScore | null>(null);
@@ -102,6 +138,51 @@ export class ChurnScoresComponent implements OnInit {
         this.loading.set(false);
       }
     });
+  }
+
+  // Download the churn scores (respecting the active filter + search) as CSV —
+  // the only export in the app now that the Downloads page is gone. Fetches all
+  // matching rows (not just the visible page) so the file is complete.
+  downloadCsv() {
+    this.downloading.set(true);
+    // The /churn-scores endpoint caps pageSize at 500, so loop pages to collect
+    // the full set (e.g. 675 rows = 2 calls) rather than just the visible page.
+    const PAGE_SIZE = 500;
+    const base = `/churn-scores?clientId=${this.clientId}&pageSize=${PAGE_SIZE}`
+      + (this.riskFilter() ? `&riskTier=${this.riskFilter()}` : '')
+      + (this.searchQuery().trim() ? `&search=${encodeURIComponent(this.searchQuery().trim())}` : '');
+    const all: ChurnScore[] = [];
+    const fetchPage = (page: number) => {
+      this.api.get<any>(`${base}&page=${page}`).subscribe({
+        next: (res) => {
+          all.push(...(res.scores ?? []));
+          if (page < (res.totalPages ?? 1)) {
+            fetchPage(page + 1);
+          } else {
+            const suffix = this.riskFilter() ? `_${this.riskFilter().toLowerCase()}` : '';
+            this.triggerDownload(toChurnCsv(all), `churn_scores_${this.clientId}${suffix}.csv`);
+            this.downloading.set(false);
+          }
+        },
+        error: () => {
+          this.downloading.set(false);
+          this.error.set('Could not export scores. Please try again.');
+        }
+      });
+    };
+    fetchPage(1);
+  }
+
+  private triggerDownload(csv: string, filename: string) {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // Filter handlers

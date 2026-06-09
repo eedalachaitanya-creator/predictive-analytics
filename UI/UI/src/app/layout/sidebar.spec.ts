@@ -34,8 +34,9 @@ describe('SidebarComponent — Analyst Agent nav excludes outreach', () => {
   it('keeps exactly the remaining Analyst items, in order (no over-removal)', () => {
     const paths = cmp.analystGroup.children.map(c => c.path);
     expect(paths).toEqual([
-      '/app/upload', '/app/validation', '/app/settings', '/app/dashboard',
-      '/app/churn-scores', '/app/downloads', '/app/chat', '/app/cost-tracking',
+      '/app/dashboard', '/app/upload', '/app/validation', '/app/settings',
+      '/app/churn-scores', '/app/chat', '/app/cost-tracking',
     ]);
+    expect(paths).not.toContain('/app/downloads');   // Downloads page removed 2026-06-08
   });
 });

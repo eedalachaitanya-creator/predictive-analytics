@@ -59,6 +59,39 @@ def _ensure_soft_delete_columns() -> None:
 _ensure_soft_delete_columns()
 
 
+# ── Schema safety net for client onboarding columns ──────────────────────────
+# Mirrors db/migrations/2026_06_08_client_org_details.sql so a dev/live DB that
+# hasn't run the migration still gets the columns before admin-create writes
+# them. Additive + nullable → existing tenants/users are unaffected.
+def _ensure_client_org_columns() -> None:
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                ALTER TABLE client_config
+                  ADD COLUMN IF NOT EXISTS address        varchar(255),
+                  ADD COLUMN IF NOT EXISTS city           varchar(100),
+                  ADD COLUMN IF NOT EXISTS state_province varchar(100),
+                  ADD COLUMN IF NOT EXISTS postal_code    varchar(20),
+                  ADD COLUMN IF NOT EXISTS country        varchar(100),
+                  ADD COLUMN IF NOT EXISTS contact_email  varchar(150),
+                  ADD COLUMN IF NOT EXISTS company_phone  varchar(40)
+            """))
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone varchar(40)"
+            ))
+    except Exception as exc:
+        log.warning("Could not ensure client onboarding columns: %s", exc)
+
+_ensure_client_org_columns()
+
+
+# ── Shared validation patterns ───────────────────────────────────────────────
+EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
+# Phone: 10–12 digits (no separators) — covers a local 10-digit number through
+# a 12-digit number with country code.
+PHONE_RE = re.compile(r'^\d{10,12}$')
+
+
 # ── Request / Response models ────────────────────────────────────────────────
 
 class ClientRegisterRequest(BaseModel):
@@ -232,6 +265,33 @@ def register_client(
         raise HTTPException(status_code=500, detail=f"Could not register client: {e}")
 
 
+# Columns returned by the /clients list — shared by both access branches so the
+# row→dict mapping can't drift. Includes the organization-detail columns the
+# admin Client Management table renders (address / email / phone).
+_CLIENT_COLS = (
+    "client_id, client_name, client_code, created_at, is_active, deactivated_at, "
+    "address, city, state_province, postal_code, country, contact_email, company_phone"
+)
+
+
+def _client_row_to_dict(r) -> dict:
+    return {
+        "client_id":      r[0],
+        "client_name":    r[1],
+        "client_code":    r[2],
+        "created_at":     r[3].isoformat() if r[3] else None,
+        "is_active":      bool(r[4]),
+        "deactivated_at": r[5].isoformat() if r[5] else None,
+        "address":        r[6],
+        "city":           r[7],
+        "state_province": r[8],
+        "postal_code":    r[9],
+        "country":        r[10],
+        "contact_email":  r[11],
+        "company_phone":  r[12],
+    }
+
+
 @router.get("/clients",dependencies=[Depends(get_current_user)])
 def list_clients(
     includeInactive: bool = Query(default=False),
@@ -262,8 +322,7 @@ def list_clients(
             if user["role"] == "super_admin" or "*" in user.get("clientAccess", []):
                 rows = conn.execute(
                     text(
-                        f"SELECT client_id, client_name, client_code, created_at, "
-                        f"       is_active, deactivated_at "
+                        f"SELECT {_CLIENT_COLS} "
                         f"FROM client_config "
                         f"{active_clause} "
                         f"ORDER BY client_id"
@@ -278,8 +337,7 @@ def list_clients(
                 params = {f"c{i}": cid for i, cid in enumerate(client_list)}
                 rows = conn.execute(
                     text(
-                        f"SELECT client_id, client_name, client_code, created_at, "
-                        f"       is_active, deactivated_at "
+                        f"SELECT {_CLIENT_COLS} "
                         f"FROM client_config "
                         f"WHERE is_active = TRUE AND client_id IN ({placeholders}) "
                         f"ORDER BY client_id"
@@ -287,17 +345,7 @@ def list_clients(
                     params,
                 ).fetchall()
 
-        return [
-            {
-                "client_id":      r[0],
-                "client_name":    r[1],
-                "client_code":    r[2],
-                "created_at":     r[3].isoformat() if r[3] else None,
-                "is_active":      bool(r[4]),
-                "deactivated_at": r[5].isoformat() if r[5] else None,
-            }
-            for r in rows
-        ]
+        return [_client_row_to_dict(r) for r in rows]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
@@ -961,11 +1009,76 @@ def get_client_table_rows(
 # without making them go through the public registration page.
 
 class AdminCreateClientRequest(BaseModel):
-    client_name: str
-    client_code: str
-    contact_name: str
-    contact_email: str
+    # ── Organization details ──
+    organization_name: str
+    address: str
+    city: str
+    state_province: str
+    postal_code: str
+    country: str
+    company_contact_email: str          # company-level contact (NOT the admin login)
+    company_phone: str
+    # ── Administrator account (the first client-user / login) ──
+    admin_name: str
+    admin_phone: str
+    admin_email: str                    # the address the admin signs in with + receives the invite
     password: str
+
+
+def validate_admin_create_payload(req: "AdminCreateClientRequest") -> list[str]:
+    """Validate the expanded client-onboarding payload.
+
+    Returns a list of human-readable error messages — empty means valid. Pure
+    (no DB, no I/O) so it is unit-testable and reused verbatim by the endpoint.
+    All organization + admin fields are required (mirrors the English-Proficiency
+    onboarding form); company code is intentionally NOT collected.
+    """
+    errors: list[str] = []
+
+    def _require(value: str, label: str) -> None:
+        if not (value or "").strip():
+            errors.append(f"{label} is required.")
+
+    _require(req.organization_name, "Organization name")
+    _require(req.address, "Address")
+    _require(req.city, "City")
+    _require(req.state_province, "State / Province")
+    _require(req.postal_code, "Zip / Postal code")
+    _require(req.country, "Country")
+    _require(req.admin_name, "Admin name")
+
+    cce = (req.company_contact_email or "").strip()
+    if not cce or not EMAIL_RE.match(cce):
+        errors.append("A valid company contact email is required.")
+    ae = (req.admin_email or "").strip()
+    if not ae or not EMAIL_RE.match(ae):
+        errors.append("A valid admin login email is required.")
+
+    cp = (req.company_phone or "").strip()
+    if not cp:
+        errors.append("Company phone is required.")
+    elif not PHONE_RE.match(cp):
+        errors.append("Company phone must be 10–12 digits.")
+    ap = (req.admin_phone or "").strip()
+    if not ap:
+        errors.append("Admin phone is required.")
+    elif not PHONE_RE.match(ap):
+        errors.append("Admin phone must be 10–12 digits.")
+
+    pw = req.password or ""
+    if not (len(pw) >= 8 and re.search(r'[A-Z]', pw) and re.search(r'[a-z]', pw)
+            and re.search(r'\d', pw) and re.search(r'[^A-Za-z0-9]', pw)):
+        errors.append(
+            "Password must be at least 8 characters and include an uppercase "
+            "letter, lowercase letter, number, and special character."
+        )
+    return errors
+
+
+def _resolve_client_code(client_id: str) -> str:
+    """New clients have no separate company code — client_id is the sole
+    identifier, so client_code = client_id (satisfies the NOT NULL column)."""
+    return client_id
 
 
 @router.post("/clients/admin-create",dependencies=[Depends(get_current_user)])
@@ -989,51 +1102,32 @@ def admin_create_client(
     if caller["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Only super admins can create clients")
 
-    # ── Validate inputs ───────────────────────────────────────────────
-    # Same rules as self-register — keeps both entry points consistent so
-    # admin-created and self-registered clients look identical in the DB.
-    if not req.client_name.strip():
-        raise HTTPException(status_code=400, detail="Company name is required")
-    if not req.client_code.strip():
-        raise HTTPException(status_code=400, detail="Company code is required")
-    if len(req.client_code) > 10:
-        raise HTTPException(status_code=400, detail="Company code must be 10 characters or less")
-    import re
-    email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
-    if not req.contact_email.strip() or not email_re.match(req.contact_email.strip()):
-        raise HTTPException(status_code=400, detail="Valid email address is required")
-    pw = req.password
-    pw_ok = (
-        len(pw) >= 8 and
-        re.search(r'[A-Z]', pw) and
-        re.search(r'[a-z]', pw) and
-        re.search(r'\d', pw) and
-        re.search(r'[^A-Za-z0-9]', pw)
-    )
-    if not pw_ok:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 8 characters and include an uppercase letter, lowercase letter, number, and special character."
-        )
+    # ── Validate inputs (pure helper, unit-tested in test_admin_create_validation) ──
+    errors = validate_admin_create_payload(req)
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+
+    org_name    = req.organization_name.strip()
+    admin_email = req.admin_email.strip()
 
     # ── Check for duplicates BEFORE creating anything ─────────────────
     try:
         with engine.connect() as conn:
             dup_email = conn.execute(
                 text("SELECT user_id FROM users WHERE LOWER(email) = LOWER(:email)"),
-                {"email": req.contact_email},
+                {"email": admin_email},
             ).fetchone()
             if dup_email:
                 raise HTTPException(status_code=409, detail="An account with this email already exists")
 
             dup_client = conn.execute(
                 text("SELECT client_id FROM client_config WHERE LOWER(client_name) = LOWER(:name)"),
-                {"name": req.client_name},
+                {"name": org_name},
             ).fetchone()
             if dup_client:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"A company named '{req.client_name}' is already registered (ID: {dup_client[0]})",
+                    detail=f"A company named '{org_name}' is already registered (ID: {dup_client[0]})",
                 )
     except HTTPException:
         raise
@@ -1044,32 +1138,47 @@ def admin_create_client(
     # engine.begin() wraps everything in a transaction — if the user INSERT
     # fails after the client_config INSERT, Postgres rolls back both so we
     # don't leave an orphan client row behind.
-    new_client_id = _generate_next_client_id()
-    new_user_id = f"usr-{uuid.uuid4().hex[:6]}"
+    new_client_id   = _generate_next_client_id()
+    new_client_code = _resolve_client_code(new_client_id)   # code = client_id (no separate code)
+    new_user_id     = f"usr-{uuid.uuid4().hex[:6]}"
     try:
         with engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO client_config (client_id, client_name, client_code)
-                    VALUES (:cid, :name, :code)
+                    INSERT INTO client_config
+                        (client_id, client_name, client_code,
+                         address, city, state_province, postal_code, country,
+                         contact_email, company_phone)
+                    VALUES
+                        (:cid, :name, :code,
+                         :address, :city, :state, :postal, :country,
+                         :contact_email, :company_phone)
                 """),
                 {
-                    "cid": new_client_id,
-                    "name": req.client_name,
-                    "code": req.client_code.upper(),
+                    "cid":           new_client_id,
+                    "name":          org_name,
+                    "code":          new_client_code,
+                    "address":       req.address.strip(),
+                    "city":          req.city.strip(),
+                    "state":         req.state_province.strip(),
+                    "postal":        req.postal_code.strip(),
+                    "country":       req.country.strip(),
+                    "contact_email": req.company_contact_email.strip(),
+                    "company_phone": req.company_phone.strip(),
                 },
             )
             conn.execute(
                 text("""
-                    INSERT INTO users (user_id, email, password_hash, name, role, client_access)
-                    VALUES (:uid, :email, :pw, :name, 'client_user', :access)
+                    INSERT INTO users (user_id, email, password_hash, name, role, client_access, phone)
+                    VALUES (:uid, :email, :pw, :name, 'client_user', :access, :phone)
                 """),
                 {
                     "uid":    new_user_id,
-                    "email":  req.contact_email,
+                    "email":  admin_email,
                     "pw":     hash_password(req.password),
-                    "name":   req.contact_name,
+                    "name":   req.admin_name.strip(),
                     "access": [new_client_id],
+                    "phone":  req.admin_phone.strip(),
                 },
             )
     except Exception as e:
@@ -1077,44 +1186,38 @@ def admin_create_client(
         raise HTTPException(status_code=500, detail=f"Could not create client: {e}")
 
     log.info(
-        "Admin-created client: %s (%s) → %s, user: %s (%s)",
-        req.client_name, req.client_code, new_client_id,
-        req.contact_name, req.contact_email,
+        "Admin-created client: %s → %s, admin: %s (%s)",
+        org_name, new_client_id, req.admin_name.strip(), admin_email,
     )
 
-    # Audit: record tenant creation — who the super admin is, the generated
-    # client_id, the human-readable name, and the first user's email. This
-    # is one of the few events we deliberately attribute to the CREATED
-    # client (not the admin's own client), so client_id in the audit row
-    # reflects the new tenant.
+    # Audit: tenant creation — attributed to the CREATED client (not the admin's
+    # own), so client_id in the audit row reflects the new tenant.
     log_audit_event(
         request,
         action_type="client_created",
-        details=(
-            f"Created client {new_client_id} · {req.client_name} "
-            f"(code {req.client_code.upper()}) · initial user {req.contact_email}"
-        ),
+        details=f"Created client {new_client_id} · {org_name} · admin {admin_email}",
         client_id=new_client_id,
         user_id=caller["id"],
         user_email=caller["email"],
         outcome="success",
     )
 
+    # Invite/welcome email → the ADMIN LOGIN email (the address they sign in with).
     _send_welcome_email(
-        to_email=req.contact_email,
-        contact_name=req.contact_name,
-        company_name=req.client_name,
+        to_email=admin_email,
+        contact_name=req.admin_name.strip(),
+        company_name=org_name,
         client_id=new_client_id,
-        client_code=req.client_code.upper(),
+        client_code=new_client_code,
         password=req.password,
     )
 
     return {
         "client_id":   new_client_id,
-        "client_name": req.client_name,
-        "client_code": req.client_code.upper(),
-        "user_email":  req.contact_email,
-        "message":     f"Client {new_client_id} created successfully with initial user {req.contact_email}.",
+        "client_name": org_name,
+        "client_code": new_client_code,
+        "user_email":  admin_email,
+        "message":     f"Client {new_client_id} created successfully with administrator {admin_email}.",
     }
 
 

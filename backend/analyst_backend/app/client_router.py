@@ -1047,6 +1047,23 @@ def validate_admin_create_payload(req: "AdminCreateClientRequest") -> list[str]:
     _require(req.country, "Country")
     _require(req.admin_name, "Admin name")
 
+    # Length caps — reject anything that would overflow its DB column up front,
+    # so we return a clean 400 instead of a raw varchar-truncation 500 (QA bug
+    # 2026-06-09). Limits mirror the client_config / users column definitions.
+    def _max_len(value: str, limit: int, label: str) -> None:
+        if len((value or "").strip()) > limit:
+            errors.append(f"{label} must be {limit} characters or fewer.")
+
+    _max_len(req.organization_name,     100, "Organization name")
+    _max_len(req.address,               255, "Address")
+    _max_len(req.city,                  100, "City")
+    _max_len(req.state_province,        100, "State / Province")
+    _max_len(req.postal_code,            20, "Zip / Postal code")
+    _max_len(req.country,               100, "Country")
+    _max_len(req.company_contact_email, 150, "Company contact email")
+    _max_len(req.admin_name,            100, "Admin name")
+    _max_len(req.admin_email,           150, "Admin login email")
+
     cce = (req.company_contact_email or "").strip()
     if not cce or not EMAIL_RE.match(cce):
         errors.append("A valid company contact email is required.")
@@ -1182,8 +1199,13 @@ def admin_create_client(
                 },
             )
     except Exception as e:
+        # Log the real cause server-side, but never echo the raw DB error to the
+        # client — it leaks the SQL, bound parameters, and the password hash.
         log.error("admin_create_client failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Could not create client: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not create the client due to a server error. Please review the form and try again.",
+        )
 
     log.info(
         "Admin-created client: %s → %s, admin: %s (%s)",

@@ -65,7 +65,7 @@
           <div class="form-field">
             <label class="form-label" for="ac-org">Organization Name <span class="required">*</span></label>
             <input id="ac-org" class="form-input" [class.input-error]="addErrors().organization_name"
-                   type="text" placeholder="Enter Organization Name" autocomplete="organization"
+                   type="text" maxlength="100" placeholder="Enter Organization Name" autocomplete="organization"
                    [ngModel]="addForm().organization_name" (ngModelChange)="updateAddField('organization_name', $event)"
                    (blur)="touchAdd('organization_name')" [disabled]="addSaving()" required />
             @if (addErrors().organization_name) { <div class="field-err-inline">⚠ {{ addErrors().organization_name }}</div> }
@@ -74,7 +74,7 @@
           <div class="form-field">
             <label class="form-label" for="ac-addr">Address <span class="required">*</span></label>
             <input id="ac-addr" class="form-input" [class.input-error]="addErrors().address"
-                   type="text" placeholder="Enter Address" autocomplete="street-address"
+                   type="text" maxlength="255" placeholder="Enter Address" autocomplete="street-address"
                    [ngModel]="addForm().address" (ngModelChange)="updateAddField('address', $event)"
                    (blur)="touchAdd('address')" [disabled]="addSaving()" required />
             @if (addErrors().address) { <div class="field-err-inline">⚠ {{ addErrors().address }}</div> }
@@ -84,7 +84,7 @@
             <div class="form-field">
               <label class="form-label" for="ac-city">City <span class="required">*</span></label>
               <input id="ac-city" class="form-input" [class.input-error]="addErrors().city"
-                     type="text" placeholder="Enter City"
+                     type="text" maxlength="100" placeholder="Enter City"
                      [ngModel]="addForm().city" (ngModelChange)="updateAddField('city', $event)"
                      (blur)="touchAdd('city')" [disabled]="addSaving()" required />
               @if (addErrors().city) { <div class="field-err-inline">⚠ {{ addErrors().city }}</div> }
@@ -92,7 +92,7 @@
             <div class="form-field">
               <label class="form-label" for="ac-state">State / Province <span class="required">*</span></label>
               <input id="ac-state" class="form-input" [class.input-error]="addErrors().state_province"
-                     type="text" placeholder="Enter State/Province"
+                     type="text" maxlength="100" placeholder="Enter State/Province"
                      [ngModel]="addForm().state_province" (ngModelChange)="updateAddField('state_province', $event)"
                      (blur)="touchAdd('state_province')" [disabled]="addSaving()" required />
               @if (addErrors().state_province) { <div class="field-err-inline">⚠ {{ addErrors().state_province }}</div> }
@@ -103,7 +103,7 @@
             <div class="form-field">
               <label class="form-label" for="ac-zip">Zip / Postal Code <span class="required">*</span></label>
               <input id="ac-zip" class="form-input" [class.input-error]="addErrors().postal_code"
-                     type="text" placeholder="Enter Zip / Postal Code" autocomplete="postal-code"
+                     type="text" maxlength="20" placeholder="Enter Zip / Postal Code" autocomplete="postal-code"
                      [ngModel]="addForm().postal_code" (ngModelChange)="updateAddField('postal_code', $event)"
                      (blur)="touchAdd('postal_code')" [disabled]="addSaving()" required />
               @if (addErrors().postal_code) { <div class="field-err-inline">⚠ {{ addErrors().postal_code }}</div> }
@@ -124,7 +124,7 @@
             <div class="form-field">
               <label class="form-label" for="ac-ccemail">Company Contact Email <span class="required">*</span></label>
               <input id="ac-ccemail" class="form-input" [class.input-error]="addErrors().company_contact_email"
-                     type="email" placeholder="Enter Contact Email" autocomplete="email"
+                     type="email" maxlength="150" placeholder="Enter Contact Email" autocomplete="email"
                      [ngModel]="addForm().company_contact_email" (ngModelChange)="updateAddField('company_contact_email', $event)"
                      (blur)="touchAdd('company_contact_email')" [disabled]="addSaving()" required />
               @if (addErrors().company_contact_email) { <div class="field-err-inline">⚠ {{ addErrors().company_contact_email }}</div> }
@@ -154,7 +154,7 @@
             <div class="form-field">
               <label class="form-label" for="ac-adminname">Admin Name <span class="required">*</span></label>
               <input id="ac-adminname" class="form-input" [class.input-error]="addErrors().admin_name"
-                     type="text" placeholder="Enter Admin Name" autocomplete="name"
+                     type="text" maxlength="100" placeholder="Enter Admin Name" autocomplete="name"
                      [ngModel]="addForm().admin_name" (ngModelChange)="updateAddField('admin_name', $event)"
                      (blur)="touchAdd('admin_name')" [disabled]="addSaving()" required />
               @if (addErrors().admin_name) { <div class="field-err-inline">⚠ {{ addErrors().admin_name }}</div> }
@@ -172,7 +172,7 @@
           <div class="form-field">
             <label class="form-label" for="ac-adminemail">Admin Login Email <span class="required">*</span></label>
             <input id="ac-adminemail" class="form-input" [class.input-error]="addErrors().admin_email"
-                   type="email" placeholder="admin@company.com" autocomplete="email"
+                   type="email" maxlength="150" placeholder="admin@company.com" autocomplete="email"
                    [ngModel]="addForm().admin_email" (ngModelChange)="updateAddField('admin_email', $event)"
                    (blur)="touchAdd('admin_email')" [disabled]="addSaving()" required />
             @if (addErrors().admin_email) { <div class="field-err-inline">⚠ {{ addErrors().admin_email }}</div> }

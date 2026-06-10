@@ -4,14 +4,16 @@
 </div>
  
 <aside class="sidebar" [class.open]="isSidebarOpen">
+  <div class="logo-section">
   <div class="sb-logo">
-    <div class="sb-logo-title">📊 <span>Predictive</span> Analytics</div>
+    <!-- <div class="sb-logo-title">📊 <span>Predictive</span> Analytics</div> -->
     <!-- <div class="sb-logo-sub">{{ auth.getClientName() }} · {{ auth.getClientId() }}</div> -->
+  </div>
   </div>
 
   @if (!auth.isSuperAdmin()) {
     <div class="sb-section">
-      <div class="sb-section-label">Client Portal</div>
+      <!-- <div class="sb-section-label">Client Portal</div> -->
 
       <button type="button"
               class="nav-item nav-group-toggle"
@@ -120,7 +122,7 @@
 
   @if (auth.isSuperAdmin()) {
     <div class="sb-section">
-      <div class="sb-section-label">Admin Console</div>
+      <!-- <div class="sb-section-label">Admin Console</div> -->
       @for (item of adminNav; track item.path) {
         <a class="nav-item"
            [routerLink]="item.path"

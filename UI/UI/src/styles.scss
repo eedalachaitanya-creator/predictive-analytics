@@ -28,10 +28,7 @@ html,body{height:100%;font-family:'Sora',sans-serif;background:var(--bg-base);co
 .badge.cyan{background:rgba(8,145,178,.10);color:#0E7490}
 .badge.gray{background:rgba(138,155,187,.12);color:var(--text-secondary)}
 .badge.orange{background:rgba(234,88,12,.10);color:#C2410C}
-
-/* Universal required-field marker: a clean red asterisk used site-wide (form
-   labels, master-data cards, etc.) — replaces harsh "REQUIRED" badges. Single
-   source of truth so the indicator is identical everywhere. */
+ 
 .required{color:var(--accent-red,#dc2626);font-weight:600;margin-left:2px}
 
 /* Stat Card */
@@ -237,26 +234,7 @@ app-root { display: block; height: 100vh; }
 .search-input-wrap {display: flex; align-items: center; gap: 1rem;}
 .add-form {display: flex; align-items: center; padding: 20px;    gap: 1rem;}
 .empty-state {text-align: center; padding: 10px;}
-
-/* ── Modal classes (promoted from login.scss 2026-04-24) ────────────────────
-   In-app confirm/dialog modal. Use this instead of window.confirm() for
-   anything that needs a yes/no decision so the dialog matches the rest of
-   the app (no "localhost:4200 says" browser chrome). Pattern:
-
-     <!-- in component template -->
-     @if (modalOpen()) {
-       <div class="modal-backdrop" (click)="cancel()">
-         <div class="modal-card" (click)="$event.stopPropagation()">
-           <h3 class="modal-title">Title</h3>
-           <p  class="modal-sub">Description / consequence text.</p>
-           <div class="modal-actions">
-             <button class="btn outline" (click)="cancel()">Cancel</button>
-             <button class="btn walmart" (click)="confirm()">Confirm</button>
-           </div>
-         </div>
-       </div>
-     }
-*/
+ 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
 .modal-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 440px; max-width: 100%; box-shadow: 0 20px 48px rgba(0,0,0,.22); }
 .modal-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: var(--text-primary); }
@@ -275,6 +253,9 @@ button.status-toggle { padding: 3px 5px;}
 .retention-page {padding: 0px;}
 
 .interventions-table tbody td{background: #fff;}
+.login-logo  { background: url(assets/Loyaltix_logo.svg) no-repeat; background-size: contain; background-position: center; height: 60px; margin-bottom: 20px; }
+.sb-logo { background: url(assets/Loyaltix_logo.svg) no-repeat; background-size: contain; background-position: center; height: 60px; width: 200px; }
+
 
 @media (max-width: 992px) {
   .sidebar { transform: translateX(-100%); width: 260px; }

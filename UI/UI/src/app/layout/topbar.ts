@@ -34,7 +34,7 @@ export class TopbarComponent {
   auth   = inject(AuthService);
   router = inject(Router);
   sidebarService = inject(SidebarService);
-   //isSidebarOpen = false;
+   isSidebarOpen = false;
 
   private activeKey = toSignal(
     this.router.events.pipe(

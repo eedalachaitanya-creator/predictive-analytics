@@ -1,5 +1,6 @@
 .sidebar { width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--bg-surface); border-right:1px solid var(--border); display:flex; flex-direction:column; height:100vh; overflow-y:auto; box-shadow:2px 0 8px rgba(26,111,212,.06); }
-.sb-logo { padding:18px 20px 14px; border-bottom:1px solid var(--border); background:linear-gradient(135deg,#F8FBFF 0%,#EEF4FF 100%); }
+.logo-section {display: flex; align-items: center; justify-content: center;     border-bottom: 1px solid #e4e3e3;}
+// .sb-logo { padding:18px 20px 14px; border-bottom:1px solid var(--border); background:linear-gradient(135deg,#F8FBFF 0%,#EEF4FF 100%); }
 .sb-logo-title { font-size:15px; font-weight:700; letter-spacing:-.3px; color:var(--text-primary); span{color:var(--walmart-blue)} }
 .sb-logo-sub { font-size:10px; color:var(--text-muted); margin-top:2px; }
 .sb-section { padding:14px 10px 4px; }

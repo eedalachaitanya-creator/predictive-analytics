@@ -619,52 +619,82 @@ def search_at_risk_customers(
     """
     try:
         tenant = _get_client_id()
+        limit = min(int(limit), 100)
 
-        # Try reading from CSV first (always available after CLI scoring)
+        # ── DB FIRST — authoritative per-tenant churn scores, joined to tier/spend
+        # from mv_customer_features. (Mirrors get_risk_summary's DB-first approach.)
+        # The CSV below is a legacy fallback ONLY for tenants with no DB scores —
+        # reading the DB fixes the bug where a stale ml/output/churn_scores.csv that
+        # lacked a tenant made this tool falsely report "no customers found".
+        try:
+            params = {"cid": tenant, "risk": risk_level.upper(), "lim": limit}
+            tier_clause = spend_clause = ""
+            if tier:
+                tier_clause = "AND m.customer_tier = :tier"
+                params["tier"] = tier
+            if min_spend:
+                spend_clause = "AND m.total_spend_usd >= :min_spend"
+                params["min_spend"] = float(min_spend)
+            sql = f"""
+                SELECT cs.customer_id, cs.churn_probability, cs.risk_tier,
+                       m.customer_tier, m.total_spend_usd, m.total_orders
+                FROM churn_scores cs
+                JOIN mv_customer_features m
+                  ON cs.client_id = m.client_id AND cs.customer_id = m.customer_id
+                WHERE cs.client_id = :cid
+                  AND cs.risk_tier = :risk
+                  AND cs.scored_at = (
+                      SELECT MAX(scored_at) FROM churn_scores WHERE client_id = :cid
+                  )
+                  {tier_clause} {spend_clause}
+                ORDER BY cs.churn_probability DESC
+                LIMIT :lim
+            """
+            df = _run_query(sql, params)
+            # Has this tenant been scored at all? Distinguishes an honest "no match"
+            # (return the empty DB result) from "no scores yet" (fall back to CSV).
+            scored = _run_query(
+                "SELECT 1 FROM churn_scores WHERE client_id = :cid LIMIT 1",
+                {"cid": tenant},
+            )
+            if not scored.empty:
+                if df.empty:
+                    extra = (f", tier {tier}" if tier else "") + \
+                            (f", min spend ${min_spend}" if min_spend else "")
+                    return (f"No {risk_level.upper()}-risk customers found for "
+                            f"tenant {tenant}{extra}.")
+                lines = [f"AT-RISK CUSTOMERS for {tenant} "
+                         f"({risk_level.upper()}, {len(df)} found):\n"]
+                lines.append(df.to_string(index=False))
+                return "\n".join(lines)
+        except Exception:
+            pass  # fall through to CSV fallback
+
+        # ── CSV FALLBACK (legacy CLI scoring; only when the DB has no scores) ──
         csv_path = OUTPUT_DIR / "churn_scores.csv"
         if csv_path.exists():
             df = pd.read_csv(csv_path)
-
-            # FIRST: restrict to this tenant. The CSV holds rows for every
-            # client that ran the pipeline, so without this filter we'd
-            # return the other tenants' at-risk customers too.
             if 'client_id' in df.columns:
                 df = df[df['client_id'] == tenant]
-
-            # Apply filters
             mask = df['risk_level'] == risk_level.upper()
             if tier:
                 mask &= df['customer_tier'] == tier
             if min_spend:
                 mask &= df['total_spend_usd'] >= min_spend
-
-            filtered = df[mask].sort_values('churn_probability', ascending=False)
-
-            limit = min(limit, 100)
-            filtered = filtered.head(limit)
-
+            filtered = df[mask].sort_values('churn_probability', ascending=False).head(limit)
             if filtered.empty:
                 return (
                     f"No customers found for tenant {tenant} matching: "
                     f"risk={risk_level}, tier={tier}, min_spend={min_spend}"
                 )
-
-            # Format results
             lines = [f"AT-RISK CUSTOMERS for {tenant} ({risk_level}, {len(filtered)} found):\n"]
-
-            display_cols = ['customer_id', 'churn_probability', 'risk_level']
-            if 'customer_tier' in filtered.columns:
-                display_cols.append('customer_tier')
-            if 'total_spend_usd' in filtered.columns:
-                display_cols.append('total_spend_usd')
-            if 'total_orders' in filtered.columns:
-                display_cols.append('total_orders')
-
+            display_cols = ['customer_id', 'churn_probability', 'risk_level',
+                            'customer_tier', 'total_spend_usd', 'total_orders']
             available = [c for c in display_cols if c in filtered.columns]
             lines.append(filtered[available].to_string(index=False))
             return "\n".join(lines)
 
-        return "No churn scores found. Run predict.py --mode cli first."
+        return "No churn scores found for this tenant. Run the churn pipeline first."
 
     except Exception as e:
         return f"Error: {str(e)}"

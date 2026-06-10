@@ -131,24 +131,25 @@
                    it's visible in every state — idle, uploading, uploaded, and error —
                    not just before the client has picked a file. -->
               <div class="tile-header-row">
-                <div class="group-label">{{ m.icon }} {{ m.label }}</div>
-                @if (m.required) {
-                  <span class="badge red req-badge" title="Required — upload this file to run the pipeline">● Required</span>
-                } @else {
-                  <span class="badge gray req-badge" title="Optional — the pipeline will run without this, but adds more signal">○ Optional</span>
+                <div class="group-label">{{ m.icon }} {{ m.label }}@if (m.required) {<span class="required" title="Required — upload this file to run the pipeline">*</span>}</div>
+                @if (!m.required) {
+                  <span class="optional-hint" title="Optional — the pipeline will run without this, but adds more signal">optional</span>
                 }
               </div>
               <div class="file-type-row">
+                <span class="format-intro">Accepts</span>
                 @for (fmt of m.formats; track fmt) {
-                  <span class="badge blue">{{ fmt }}</span>
+                  <span class="format-tag">{{ fmt }}</span>
                 }
-                <!-- Sample CSV template: clients don't know our exact columns/
-                     order, so each tile links to a downloadable example generated
-                     from the backend's canonical schema (always matches what the
-                     validator expects). Native download via Content-Disposition. -->
+                <!-- Sample template: clients don't know our exact columns/
+                     order, so each tile links to a downloadable .xlsx example
+                     generated from the backend's canonical schema (always matches
+                     what the validator expects). It has a Template sheet to fill
+                     in and an Instructions sheet describing each column. Native
+                     download via Content-Disposition. -->
                 <a class="sample-link" [href]="uploadSvc.sampleUrl(m.key)" download
-                   title="Download a sample CSV with the exact columns and order to use">
-                  ⬇ Sample CSV
+                   title="Download an Excel template with the exact columns, example rows, and a per-column guide">
+                  ⬇ Sample template
                 </a>
               </div>
 
@@ -170,11 +171,13 @@
                     <div>
                       <div class="upload-success">✅ {{ getInfo(m.key)?.fileName }}</div>
                       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
-                        {{ getInfo(m.key)?.rowCount | number }} rows &nbsp;·&nbsp;
-                        {{ formatSize(getInfo(m.key)?.fileSize ?? 0) }}
+                        {{ getInfo(m.key)?.rowCount | number }} rows@if (getInfo(m.key)?.fileSize) { &nbsp;·&nbsp; {{ formatSize(getInfo(m.key)!.fileSize) }} }
                       </div>
                     </div>
-                    <button class="btn danger sm" style="flex-shrink:0" (click)="remove(m.key)">✕ Remove</button>
+                    <div style="display:flex;gap:8px;flex-shrink:0">
+                      <button class="btn outline sm" (click)="openPreview(m.key)" title="See the first rows of this file">👁 Preview</button>
+                      <button class="btn danger sm" (click)="remove(m.key)">✕ Remove</button>
+                    </div>
                   </div>
                 </div>
               }
@@ -238,6 +241,47 @@
             {{ uploadSvc.discarding() ? 'Removing…' : 'Discard files' }}
           </button>
         </div>
+      </div>
+    </div>
+  }
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Preview modal — shows the first rows of a staged master file so the user
+       can verify WHAT they uploaded before saving. Data from GET /uploads/preview.
+       ══════════════════════════════════════════════════════════════════════ -->
+  @if (previewOpen()) {
+    <div class="modal-backdrop" (click)="closePreview()">
+      <div class="modal-card preview-modal" (click)="$event.stopPropagation()">
+        <div class="preview-head">
+          <h3 class="modal-title">👁 Preview@if (previewData(); as p) { : {{ p.fileName }} }</h3>
+          <button class="btn outline sm" (click)="closePreview()">✕ Close</button>
+        </div>
+
+        @if (previewLoading()) {
+          <p class="modal-sub">Loading preview…</p>
+        }
+        @else if (previewError()) {
+          <p class="modal-sub" style="color:var(--accent-red)">⚠ {{ previewError() }}</p>
+        }
+        @else if (previewData(); as p) {
+          <div class="preview-table-wrap">
+            <table class="preview-table">
+              <thead>
+                <tr>@for (c of p.columns; track c) { <th>{{ c }}</th> }</tr>
+              </thead>
+              <tbody>
+                @for (row of p.rows; track $index) {
+                  <tr>@for (cell of row; track $index) { <td>{{ cell }}</td> }</tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          @if (p.shownRows >= p.totalRows) {
+            <p class="modal-sub">Showing all {{ p.totalRows | number }} rows</p>
+          } @else {
+            <p class="modal-sub">Showing first {{ p.shownRows | number }} of {{ p.totalRows | number }} rows (file is large)</p>
+          }
+        }
       </div>
     </div>
   }

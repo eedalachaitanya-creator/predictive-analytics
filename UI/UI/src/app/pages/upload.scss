@@ -21,28 +21,35 @@
   }
 }
 
-/* The Required / Optional pill itself. Small, dense, with a leading
-   dot (filled ● for required, hollow ○ for optional) to reinforce
-   the distinction beyond just color — helps color-blind users too. */
-.req-badge {
+/* Optional master cards get a subtle, muted "optional" hint instead of a pill.
+   Required cards are marked with the universal red asterisk (.required) inline
+   in the title — no harsh badge. */
+.optional-hint {
   flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted, #8a9bbb);
 }
 
-/* Format badges (.xlsx / .csv) row, plus the per-tile "Download sample CSV"
-   link pushed to the right edge so it reads as a clear call-to-action without
-   crowding the badges. Styled like .col-chip for visual consistency. */
+/* Accepted-format row: the .xlsx / .csv indicators are STATIC metadata — flat,
+   muted, monospace (NOT chips) — so they don't read as buttons next to the only
+   real action here, the "Sample CSV" download link pushed to the right edge. */
 .file-type-row {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 8px;
+}
+.format-intro {
+  font-size: 11px;
+  color: var(--text-muted, #8a9bbb);
+}
+.format-tag {
+  font-size: 11px;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-muted, #8a9bbb);
+  cursor: default;
 }
 .sample-link {
   margin-left: auto;
@@ -196,4 +203,46 @@
     background: rgba(239, 68, 68, 0.08);
     color: #991B1B;
   }
+}
+
+/* ── Preview modal (first rows of a staged file) ───────────────────────── */
+.preview-modal {
+  /* wider than the default confirm modal so a data table fits */
+  max-width: min(900px, 94vw);
+  width: auto;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.preview-table-wrap {
+  max-height: 55vh;
+  overflow: auto;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+}
+.preview-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  white-space: nowrap;
+
+  th, td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    text-align: left;
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-2, #f8fafc);
+    font-weight: 600;
+    color: var(--text, #1e293b);
+    z-index: 1;
+  }
+  tbody tr:nth-child(even) { background: var(--surface-2, #f8fafc); }
+  tbody td { color: var(--text-muted, #475569); }
 }

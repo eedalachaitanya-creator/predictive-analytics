@@ -2,7 +2,7 @@ import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { UploadService } from '../services/upload.service';
 import { AuthService } from '../services/auth.service';
-import { MasterType } from '../models';
+import { MasterType, UploadPreview } from '../models';
 
 interface MasterDef {
   key: MasterType;
@@ -120,6 +120,33 @@ export class UploadComponent implements OnInit {
       },
       error: (err) => console.error('Discard failed:', err.message ?? err),
     });
+  }
+
+  // ── Preview modal ───────────────────────────────────────────────────
+  // Lets the user see the first rows of a staged file before saving.
+  previewOpen    = signal(false);
+  previewLoading = signal(false);
+  previewError   = signal('');
+  previewData    = signal<UploadPreview | null>(null);
+
+  openPreview(key: MasterType) {
+    this.previewOpen.set(true);
+    this.previewLoading.set(true);
+    this.previewError.set('');
+    this.previewData.set(null);
+    this.uploadSvc.preview(this.clientId, key).subscribe({
+      next: (data) => { this.previewData.set(data); this.previewLoading.set(false); },
+      error: (err) => {
+        this.previewLoading.set(false);
+        this.previewError.set(err?.message ?? 'Could not load the preview.');
+      },
+    });
+  }
+
+  closePreview() {
+    this.previewOpen.set(false);
+    this.previewData.set(null);
+    this.previewError.set('');
   }
 
   onFileSelected(event: Event, key: MasterType) {

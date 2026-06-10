@@ -9,6 +9,7 @@ import {
   MasterType,
   PendingBatch,
   UploadedFile,
+  UploadPreview,
   UploadResponse,
   UploadStatus,
 } from '../models';
@@ -60,11 +61,23 @@ export class UploadService {
   loadUploads(clientId: string): Observable<UploadedFile[]> {
     return this.api.get<UploadedFile[]>(`/uploads?clientId=${clientId}`).pipe(
       tap(files => {
-        const map = { ...this.uploads() };
+        // Rebuild from scratch so the map MIRRORS the backend's pending batch:
+        // files the server no longer reports (e.g. a batch discarded on logout)
+        // must be cleared, not left stale. GET /uploads is the source of truth.
+        // (UploadService is a root singleton — without this, a logout→login in
+        // the same SPA session would keep showing discarded uploads.)
+        const map = this.emptyUploads();
         files.forEach(f => { map[f.masterType] = f; });
         this.uploads.set(map);
       })
     );
+  }
+
+  /** First-N-rows preview of a staged master file, so the user can see what
+   *  they uploaded before saving. Backed by GET /uploads/preview. */
+  preview(clientId: string, masterType: MasterType): Observable<UploadPreview> {
+    return this.api.get<UploadPreview>(
+      `/uploads/preview?clientId=${clientId}&masterType=${masterType}`);
   }
 
   removeUpload(clientId: string, masterType: MasterType): Observable<void> {
@@ -178,15 +191,20 @@ export class UploadService {
     );
   }
 
-  /** Reset the staged upload map back to all-null (used after commit/discard). */
-  private clearUploads(): void {
-    this.uploads.set({
+  /** A fresh all-null upload map (every master type → null). */
+  private emptyUploads(): Record<MasterType, UploadedFile | null> {
+    return {
       customer: null, order: null, line_items: null,
       product: null, price: null, vendor_map: null,
       category: null, sub_category: null, sub_sub_category: null,
       brand: null, vendor: null,
       customer_reviews: null, support_tickets: null,
-    });
+    };
+  }
+
+  /** Reset the staged upload map back to all-null (used after commit/discard). */
+  private clearUploads(): void {
+    this.uploads.set(this.emptyUploads());
   }
 
   private setStatus(type: MasterType, status: UploadStatus, fileName: string, size: number): void {

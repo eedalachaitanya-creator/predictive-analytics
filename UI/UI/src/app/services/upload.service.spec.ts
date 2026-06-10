@@ -42,3 +42,87 @@ describe('UploadService.sampleUrl — per-tile sample CSV template link', () => 
     }
   });
 });
+
+
+/**
+ * Regression: GET /uploads is the source of truth for the pending batch.
+ * loadUploads must REBUILD the map from the response so files the backend no
+ * longer reports (e.g. a batch discarded on logout) are cleared — not merged
+ * into a stale in-memory map. The UploadService is a root singleton, so without
+ * this a logout→login (SPA, no reload) leaves discarded uploads showing.
+ */
+import { HttpTestingController } from '@angular/common/http/testing';
+import { UploadedFile } from '../models';
+
+describe('UploadService.loadUploads — mirrors backend state, no stale entries', () => {
+  let svc: UploadService;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [UploadService, provideHttpClient(), provideHttpClientTesting()],
+    });
+    svc = TestBed.inject(UploadService);
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  function seedStaleCustomer() {
+    const stale: UploadedFile = {
+      masterType: 'customer', fileName: 'customer_master.csv',
+      fileSize: 0, rowCount: 100, uploadedAt: '', status: 'success',
+    };
+    svc.uploads.set({ ...svc.uploads(), customer: stale });
+  }
+
+  it('clears a stale staged file when the backend reports no pending batch', () => {
+    seedStaleCustomer();
+    svc.loadUploads('CLT-001').subscribe();
+    http.expectOne(`${environment.apiUrl}/uploads?clientId=CLT-001`).flush([]); // discarded → empty
+    expect(svc.uploads().customer).toBeNull();
+  });
+
+  it('rebuilds the map from the response, dropping files no longer present', () => {
+    seedStaleCustomer();
+    svc.loadUploads('CLT-001').subscribe();
+    const order: UploadedFile = {
+      masterType: 'order', fileName: 'order.csv',
+      fileSize: 0, rowCount: 5, uploadedAt: '', status: 'success',
+    };
+    http.expectOne(`${environment.apiUrl}/uploads?clientId=CLT-001`).flush([order]);
+    expect(svc.uploads().order?.fileName).toBe('order.csv');
+    expect(svc.uploads().customer).toBeNull();
+  });
+});
+
+
+describe('UploadService.preview — staged file preview', () => {
+  let svc: UploadService;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [UploadService, provideHttpClient(), provideHttpClientTesting()],
+    });
+    svc = TestBed.inject(UploadService);
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => http.verify());
+
+  it('calls GET /uploads/preview with clientId + masterType and returns rows', () => {
+    let result: any;
+    svc.preview('CLT-001', 'customer').subscribe(r => (result = r));
+    const req = http.expectOne(
+      `${environment.apiUrl}/uploads/preview?clientId=CLT-001&masterType=customer`);
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      masterType: 'customer', fileName: 'customer_master.csv',
+      columns: ['customer_id', 'customer_name'],
+      rows: [['CUST-00001', 'John Doe']], shownRows: 1, totalRows: 100,
+    });
+    expect(result.columns).toEqual(['customer_id', 'customer_name']);
+    expect(result.totalRows).toBe(100);
+    expect(result.rows[0][0]).toBe('CUST-00001');
+  });
+});

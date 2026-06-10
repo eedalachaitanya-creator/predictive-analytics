@@ -314,6 +314,16 @@ export interface UploadResponse {
   uploadedAt: string;
 }
 
+/** First-N-rows preview of a staged master file (GET /uploads/preview). */
+export interface UploadPreview {
+  masterType: MasterType;
+  fileName: string;
+  columns: string[];
+  rows: (string | number | boolean | null)[][];
+  shownRows: number;
+  totalRows: number;
+}
+
 
 // ── Upload Batch Lifecycle ───────────────────────────────────
 // Multi-tenant staging flow: files land in staging_* tables tied to

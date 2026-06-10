@@ -308,6 +308,29 @@ def _assert_file_has_real_data(df: pd.DataFrame, master_type: str, filename: str
 # never drift from what actually passes validation (single source of truth).
 # client_id is intentionally omitted: it's auto-injected from the auth token on
 # upload, and _read_file_to_df explicitly excludes it from column matching.
+
+# *_id columns that are VARCHAR in the schema (human-readable codes). Every
+# OTHER *_id column is an INTEGER PK/FK (product_id, category_id, brand_id, …)
+# and must get a numeric sample value, or the template can't be uploaded into
+# its integer column. (client_id is excluded from samples entirely.)
+_STRING_ID_COLS = {"customer_id", "order_id", "line_item_id", "review_id", "ticket_id"}
+
+# id column → the master file its value must line up with. Used only to enrich
+# the template's type legend ("must match your X file"); a referential mismatch
+# here is the single most common cause of the FK "couldn't save your data" error.
+_FK_PARENT_FILE = {
+    "customer_id":         "Customer",
+    "order_id":            "Order",
+    "product_id":          "Product",
+    "category_id":         "Category",
+    "sub_category_id":     "Sub-Category",
+    "sub_sub_category_id": "Sub-Sub-Category",
+    "brand_id":            "Brand",
+    "vendor_id":           "Vendor",
+    "product_price_id":    "Product Price",
+}
+
+
 def _sample_value(col: str, i: int) -> str:
     """A realistic placeholder for one column on example row `i` (0-based).
 
@@ -318,8 +341,12 @@ def _sample_value(col: str, i: int) -> str:
     """
     c = col.lower()
     n = i + 1
-    # booleans (email_opt_in / sms_opt_in / active / not_available)
-    if c in ("email_opt_in", "sms_opt_in", "active", "not_available"):
+    # active / not_available are SMALLINT flags in the schema → 1/0 (NOT "true",
+    # which fails to load into a smallint column).
+    if c in ("active", "not_available"):
+        return "1" if i % 2 == 0 else "0"
+    # email_opt_in / sms_opt_in are real BOOLEAN columns → true/false.
+    if c in ("email_opt_in", "sms_opt_in"):
         return "true" if i % 2 == 0 else "false"
     if c.endswith("email"):
         return f"customer{n}@example.com"
@@ -383,34 +410,159 @@ def _sample_value(col: str, i: int) -> str:
         return ("Accessories", "Cables", "Stands")[i % 3]
     if c == "sub_sub_category_name":
         return ("Mice", "USB-C", "Laptop")[i % 3]
-    if c.endswith("_id"):                          # generic id with a readable prefix
-        base = c[:-3]
-        prefix = {
-            "customer": "CUST", "order": "ORD", "line_item": "LI", "product": "PROD",
-            "category": "CAT", "sub_category": "SUBCAT", "sub_sub_category": "SSC",
-            "brand": "BRND", "vendor": "VEND", "review": "REV", "ticket": "TKT",
-            "price": "PRC", "product_price": "PPRC", "pv": "PV",
-        }.get(base) or (base.upper().replace("_", "")[:4] or "ID")
-        return f"{prefix}-{n:05d}"
+    if c.endswith("_id"):
+        if c in _STRING_ID_COLS:                   # varchar code columns
+            base = c[:-3]
+            prefix = {
+                "customer": "CUST", "order": "ORD", "line_item": "LI",
+                "review": "REV", "ticket": "TKT",
+            }.get(base) or (base.upper().replace("_", "")[:4] or "ID")
+            return f"{prefix}-{n:05d}"
+        # Every other *_id is an INTEGER PK/FK in the schema. Emit a plain,
+        # row-aligned integer: it fits the INTEGER column AND the same row index
+        # yields the same id across files, so the full template set stays
+        # referentially consistent (line_items.product_id ↔ products.product_id,
+        # products.category_id ↔ categories.category_id, …).
+        return str(n)
     return f"sample_{c}"
 
 
-def build_sample_csv(master_type: str, n_rows: int = 2) -> str:
-    """Return a sample CSV (header + `n_rows` example rows) for a master type.
+def _column_type_hint(col: str, show_fk: bool = True) -> str:
+    """Human-readable expected type/format for a column, shown in the sample
+    template's legend so clients know what each column should contain. FK
+    columns also name the file they must line up with — the mismatch that
+    triggers the FK 'couldn't save your data' error on commit."""
+    c = col.lower()
+    if c in ("active", "not_available"):
+        base = "1 (yes) or 0 (no)"
+    elif c in ("email_opt_in", "sms_opt_in"):
+        base = "true or false"
+    elif c.endswith("_date"):
+        base = "date (YYYY-MM-DD)"
+    elif c.endswith("_usd"):
+        base = "amount with 2 decimals (e.g. 19.99)"
+    elif c == "rating":
+        base = "whole number 1-5"
+    elif c in ("quantity", "qty_min", "qty_max", "order_item_count", "resolution_time_hrs"):
+        base = "whole number"
+    elif c.endswith("email"):
+        base = "email address"
+    elif "phone" in c or "contact_no" in c:
+        base = "phone number"
+    elif c in _STRING_ID_COLS:
+        base = "text code (see example row)"
+    elif c.endswith("_id"):
+        base = "whole number"
+    else:
+        base = "text"
+    if show_fk:
+        parent = _FK_PARENT_FILE.get(c)
+        if parent:
+            base += f" - must match a row in your {parent} file"
+    return base
 
-    Headers come from MASTER_TYPE_TO_TABLE in the canonical order, minus
-    client_id (auto-injected on upload). Raises ValueError for unknown types.
-    """
+
+def _sample_headers_and_rows(master_type: str, n_rows: int = 2):
+    """(headers, example_rows, pk) for a master type — shared by the CSV and
+    XLSX template builders. Headers come from MASTER_TYPE_TO_TABLE in canonical
+    order, minus client_id (auto-injected on upload). pk is the entity's own id
+    (the first column), which is never a foreign key."""
     if master_type not in MASTER_TYPE_TO_TABLE:
         raise ValueError(f"Unknown master type: {master_type}")
     _, expected_cols = MASTER_TYPE_TO_TABLE[master_type]
     headers = [c for c in expected_cols if c != "client_id"]
+    rows = [[_sample_value(c, i) for c in headers] for i in range(n_rows)]
+    pk = headers[0] if headers else None
+    return headers, rows, pk
+
+
+def build_sample_csv(master_type: str, n_rows: int = 2) -> str:
+    """Clean sample CSV: header + a couple of example rows, nothing else.
+
+    Per-column type/format guidance lives on the XLSX template's Instructions
+    sheet (build_sample_xlsx), so the CSV stays a plain, uploadable grid.
+    """
+    headers, rows, _ = _sample_headers_and_rows(master_type, n_rows)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(headers)
-    for i in range(n_rows):
-        writer.writerow([_sample_value(c, i) for c in headers])
+    for r in rows:
+        writer.writerow(r)
     return buf.getvalue()
+
+
+def _xlsx_cell(col: str, val: str):
+    """Coerce a string sample value to its native type so the XLSX cell isn't a
+    'number stored as text' warning — mirrors the column's schema type. Codes,
+    dates, booleans and free text stay as strings."""
+    c = col.lower()
+    try:
+        if c.endswith("_usd"):
+            return float(val)
+        if c in ("rating", "active", "not_available", "quantity", "qty_min",
+                 "qty_max", "order_item_count", "resolution_time_hrs"):
+            return int(val)
+        if c.endswith("_id") and c not in _STRING_ID_COLS:
+            return int(val)
+    except (TypeError, ValueError):
+        return val
+    return val
+
+
+def build_sample_xlsx(master_type: str, n_rows: int = 2) -> bytes:
+    """User-friendly .xlsx template with two sheets:
+
+      • 'Template'     — styled header + example rows the client edits/uploads.
+      • 'Instructions' — a per-column guide (expected format, and which file each
+                         id must match). Only the FIRST sheet is read on upload,
+                         so the guide never interferes with parsing.
+
+    Being a real .xlsx (not a CSV) means no encoding/mojibake issues and a clean
+    spreadsheet view — no '#' comment rows.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    headers, rows, pk = _sample_headers_and_rows(master_type, n_rows)
+    friendly = _TABLE_FRIENDLY.get(MASTER_TYPE_TO_TABLE[master_type][0], master_type)
+
+    wb = Workbook()
+
+    # ── Sheet 1: Template — the grid the client fills in / the upload reads ──
+    ws = wb.active
+    ws.title = "Template"
+    ws.append(headers)
+    head_font = Font(bold=True, color="FFFFFF")
+    head_fill = PatternFill("solid", fgColor="2F5496")
+    for cell in ws[1]:
+        cell.font = head_font
+        cell.fill = head_fill
+        cell.alignment = Alignment(horizontal="center")
+    for r in rows:
+        ws.append([_xlsx_cell(c, v) for c, v in zip(headers, r)])
+    ws.freeze_panes = "A2"  # keep headers visible while scrolling
+    for i, c in enumerate(headers, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = max(12, len(c) + 3)
+
+    # ── Sheet 2: Instructions — per-column guide; ignored on upload ──
+    info = wb.create_sheet("Instructions")
+    info["A1"] = f"{friendly} file - how to fill it in"
+    info["A1"].font = Font(bold=True, size=13)
+    info["A3"] = "1. Open the 'Template' tab and replace the example rows with your own data."
+    info["A4"] = "2. Keep the column headers exactly as they are. Do not add a client id column."
+    info["A5"] = "3. Save as .xlsx or .csv and upload. This Instructions tab is ignored on upload."
+    info["A7"], info["B7"] = "Column", "Expected format"
+    info["A7"].font = info["B7"].font = Font(bold=True)
+    for n, c in enumerate(headers, start=8):
+        info[f"A{n}"] = c
+        info[f"B{n}"] = _column_type_hint(c, show_fk=(c != pk))
+    info.column_dimensions["A"].width = 22
+    info.column_dimensions["B"].width = 64
+
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 
 # Tables that affect the materialized view — refresh after commit if these were loaded
@@ -807,7 +959,17 @@ def _read_file_to_df(file_bytes: bytes, filename: str, master_type: str = None) 
     """
     lower = filename.lower()
     if lower.endswith(".csv"):
-        df = pd.read_csv(io.BytesIO(file_bytes))
+        # A downloaded sample template carries a leading '#' type/format legend.
+        # Skip those lines so the client can upload the template as-is. Real
+        # user files (no leading '#') take the original path unchanged.
+        if file_bytes[:64].decode("utf-8-sig", errors="ignore").lstrip().startswith("#"):
+            lines = file_bytes.decode("utf-8-sig", errors="replace").splitlines()
+            k = 0
+            while k < len(lines) and lines[k].lstrip().startswith("#"):
+                k += 1
+            df = pd.read_csv(io.StringIO("\n".join(lines[k:])))
+        else:
+            df = pd.read_csv(io.BytesIO(file_bytes))
     elif lower.endswith((".xlsx", ".xls")):
         # ── Scan up to 5 rows to find real column headers ──────────
         header_row = 0
@@ -911,12 +1073,14 @@ def commit_batch(
         # Phase 1: FK validation
         violations = _preflight_fk_check(conn, batch_id, clientId)
         if violations:
+            # Log the raw violations for diagnostics; return a plain-English,
+            # actionable message to the client (the raw fk/table names are
+            # meaningless to them and rendered as a JSON wall in the UI).
+            log.warning("FK preflight failed: client=%s batch=%s violations=%s",
+                        clientId, batch_id, violations)
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "message": "FK validation failed. Fix these missing parents and retry commit.",
-                    "violations": violations,
-                },
+                detail=_humanize_fk_violations(violations),
             )
 
         # Phase 2: deferred-FK transactional insert
@@ -960,21 +1124,18 @@ def commit_batch(
     }
 
 
-@router.post("/uploads/discard")
-def discard_batch(
-    request: Request,
-    clientId: str = Query(...),
-    user: dict = Depends(get_current_user),  # Audit fix #1
-):
+def _discard_pending_batch_for_client(client_id: str):
+    """Discard a client's PENDING upload batch: delete its staging rows, mark the
+    batch 'discarded', and remove its on-disk files. Returns (batch_id, rows_deleted),
+    or None if the client had no pending batch.
+
+    Shared by the explicit /uploads/discard endpoint AND by logout cleanup, so an
+    unsaved (uncommitted) batch never follows a user into the next session.
     """
-    Throw away the pending batch. Deletes all its staging rows and marks
-    the batch 'discarded'. Uploaded files on disk are also deleted.
-    """
-    _require_client_access(user, clientId)
     with engine.begin() as conn:
-        batch_id = _get_pending_batch_id(conn, clientId)
+        batch_id = _get_pending_batch_id(conn, client_id)
         if not batch_id:
-            return {"discarded": False, "reason": "No pending batch"}
+            return None
 
         total_deleted = 0
         for master_type in COMMIT_ORDER:
@@ -995,10 +1156,29 @@ def discard_batch(
     # Best-effort: remove this client's uploaded files from disk
     try:
         for f in os.listdir(UPLOAD_DIR):
-            if f.startswith(f"{clientId}_"):
+            if f.startswith(f"{client_id}_"):
                 os.remove(os.path.join(UPLOAD_DIR, f))
     except Exception:
         pass
+
+    return batch_id, total_deleted
+
+
+@router.post("/uploads/discard")
+def discard_batch(
+    request: Request,
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),  # Audit fix #1
+):
+    """
+    Throw away the pending batch. Deletes all its staging rows and marks
+    the batch 'discarded'. Uploaded files on disk are also deleted.
+    """
+    _require_client_access(user, clientId)
+    result = _discard_pending_batch_for_client(clientId)
+    if result is None:
+        return {"discarded": False, "reason": "No pending batch"}
+    batch_id, total_deleted = result
 
     # Audit fix #4: every batch discard leaves a tamper-resistant trail.
     log_audit_event(
@@ -1020,13 +1200,14 @@ def discard_batch(
 
 @router.get("/uploads/sample/{master_type}")
 def download_sample_template(master_type: str):
-    """Download a sample CSV template for a master type.
+    """Download a sample .xlsx template for a master type.
 
     Public (no auth/tenant): the template is schema metadata only — the exact
-    columns and order we expect, with a couple of example rows showing the value
-    formats. No client data is involved (client_id is auto-injected on upload and
-    intentionally omitted here). Declared as GET /uploads/sample/{type}; it does
-    not collide with the POST/DELETE /uploads/{type} wildcards (different method).
+    columns and order we expect, with example rows showing the value formats and
+    an Instructions sheet describing each column. No client data is involved
+    (client_id is auto-injected on upload and intentionally omitted). Declared as
+    GET /uploads/sample/{type}; it does not collide with the POST/DELETE
+    /uploads/{type} wildcards (different method).
     """
     if master_type not in VALID_MASTER_TYPES:
         raise HTTPException(
@@ -1034,11 +1215,11 @@ def download_sample_template(master_type: str):
             detail=f"Unknown master type: {master_type}. "
                    f"Valid types: {sorted(VALID_MASTER_TYPES)}",
         )
-    csv_text = build_sample_csv(master_type)
-    filename = f"{master_type}_sample_template.csv"
+    xlsx_bytes = build_sample_xlsx(master_type)
+    filename = f"{master_type}_sample_template.xlsx"
     return Response(
-        content=csv_text,
-        media_type="text/csv",
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -1248,14 +1429,112 @@ def list_uploads(
             ).fetchone()
             row_count = result[0] if result else 0
             if row_count > 0:
+                # The original file name + upload time live in the file_upload audit
+                # event ("<masterType> · <filename> · <N> rows") — the only place the
+                # uploaded filename is persisted. Surface them so the UI can show WHICH
+                # file was uploaded even after a reload / new session.
+                arow = conn.execute(
+                    text("SELECT split_part(details, ' · ', 2) AS fname, ts "
+                         "FROM audit_log WHERE client_id = :cid "
+                         "AND action_type = 'file_upload' "
+                         "AND split_part(details, ' · ', 1) = :mt "
+                         "ORDER BY ts DESC LIMIT 1"),
+                    {"cid": clientId, "mt": master_type},
+                ).fetchone()
+                file_name = arow[0] if arow and arow[0] else f"{master_type}.csv"
+                uploaded_at = (arow[1].isoformat() if arow and arow[1]
+                               else datetime.now().isoformat())
                 uploads.append({
                     "masterType": master_type,
-                    "stagingTable": staging_table,
+                    "fileName": file_name,
+                    "fileSize": 0,            # original byte size isn't persisted
                     "rowCount": row_count,
+                    "uploadedAt": uploaded_at,
+                    # 'success', NOT 'staged': the frontend UploadStatus contract is
+                    # idle|uploading|success|error. A staged file IS successfully
+                    # uploaded (pending commit); returning 'staged' made the per-card
+                    # state, the "N uploaded" counter, and the Save button all treat
+                    # the file as absent on reload.
+                    "status": "success",
+                    "stagingTable": staging_table,
                     "batchId": batch_id,
-                    "status": "staged",
                 })
         return uploads
+
+
+# Safety cap on preview size: enough to show every realistic upload in full
+# (the largest master, line_items, is ~25k rows) while preventing a pathological
+# file from sending a huge payload / freezing the browser's DOM.
+MAX_PREVIEW_ROWS = 50000
+
+
+@router.get("/uploads/preview")
+def preview_upload(
+    clientId: str = Query(...),
+    masterType: str = Query(...),
+    limit: int = Query(MAX_PREVIEW_ROWS, ge=1, le=MAX_PREVIEW_ROWS),
+    user: dict = Depends(get_current_user),
+):
+    """Preview a STAGED master file in the client's pending batch, so the user
+    can see WHAT they uploaded before saving.
+
+    By default returns the WHOLE file (up to MAX_PREVIEW_ROWS as a safety cap so
+    a pathologically large upload can't freeze the browser). Reads from the
+    staging table (the source of truth for unsaved data), returns the user-facing
+    columns (internal client_id/batch_id/row-id are hidden) plus the total staged
+    row count so the UI can show "all N rows" vs "first N of M".
+    """
+    _require_client_access(user, clientId)
+    if masterType not in MASTER_TYPE_TO_TABLE:
+        raise HTTPException(status_code=404, detail=f"Unknown master type: {masterType}")
+
+    real_table, expected_cols = MASTER_TYPE_TO_TABLE[masterType]
+    staging_table = f"staging_{real_table}"
+    cols = [c for c in expected_cols if c != "client_id"]  # what the user uploaded
+    col_list = ", ".join(f'"{c}"' for c in cols)
+
+    with engine.begin() as conn:
+        batch_id = _get_pending_batch_id(conn, clientId)
+        if not batch_id:
+            raise HTTPException(status_code=404, detail="No pending upload to preview.")
+
+        total = conn.execute(
+            text(f"SELECT COUNT(*) FROM {staging_table} "
+                 f"WHERE batch_id = :bid AND client_id = :cid"),
+            {"bid": batch_id, "cid": clientId},
+        ).scalar() or 0
+        if total == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No staged '{masterType}' file to preview.",
+            )
+
+        # ctid ≈ physical insertion order for a freshly-staged batch, so the
+        # preview shows the file's first rows in upload order.
+        rows = conn.execute(
+            text(f"SELECT {col_list} FROM {staging_table} "
+                 f"WHERE batch_id = :bid AND client_id = :cid ORDER BY ctid LIMIT :lim"),
+            {"bid": batch_id, "cid": clientId, "lim": limit},
+        ).fetchall()
+
+        # Original filename lives in the file_upload audit event (same source as
+        # list_uploads), so the preview header can name the actual file.
+        arow = conn.execute(
+            text("SELECT split_part(details, ' · ', 2) FROM audit_log "
+                 "WHERE client_id = :cid AND action_type = 'file_upload' "
+                 "AND split_part(details, ' · ', 1) = :mt ORDER BY ts DESC LIMIT 1"),
+            {"cid": clientId, "mt": masterType},
+        ).fetchone()
+
+    file_name = arow[0] if arow and arow[0] else f"{masterType}.csv"
+    return {
+        "masterType": masterType,
+        "fileName": file_name,
+        "columns": cols,
+        "rows": [list(r) for r in rows],   # FastAPI serializes dates/Decimals
+        "shownRows": len(rows),
+        "totalRows": total,
+    }
 
 
 @router.get("/uploads/batch")
@@ -1427,6 +1706,52 @@ def _preflight_fk_check(conn, batch_id: str, client_id: str) -> list[dict]:
             })
 
     return violations
+
+
+# Real/staging table name → the file label the client sees in the upload UI.
+_TABLE_FRIENDLY = {
+    "customers": "Customer", "orders": "Order", "line_items": "Line Items",
+    "products": "Product", "product_prices": "Product Price",
+    "product_vendor_mapping": "Product-Vendor Mapping",
+    "categories": "Category", "sub_categories": "Sub-Category",
+    "sub_sub_categories": "Sub-Sub-Category", "brands": "Brand",
+    "vendors": "Vendor", "customer_reviews": "Customer Reviews",
+    "support_tickets": "Support Tickets",
+}
+
+
+def _humanize_fk_violations(violations: list[dict]) -> str:
+    """Turn raw preflight violations into a plain-English, actionable message.
+
+    The raw violation dicts (internal fk/staging-table names, 'missingKey') are
+    useless to a client. This names the client's own files and the offending
+    value, and says exactly how to fix it. The raw list is logged server-side
+    for diagnostics.
+    """
+    def friendly(table: str) -> str:
+        base = table[len("staging_"):] if table.startswith("staging_") else table
+        return _TABLE_FRIENDLY.get(base, base)
+
+    lines = []
+    for v in violations:
+        child = friendly(v.get("stagingTable", ""))
+        parent = friendly(v.get("parentTable", ""))
+        key = v.get("missingKey")
+        rc = v.get("rowCount", 0)
+        rows = "row" if rc == 1 else "rows"
+        lines.append(
+            f"Your {child} file references {parent} \"{key}\", but no such "
+            f"{parent} exists in your {parent} file or your saved data ({rc} {rows}). "
+            f"Add {parent} {key} to your {parent} file, or remove the {child} "
+            f"rows that reference it."
+        )
+
+    if not lines:
+        return "Some files reference items that aren't in your upload or saved data."
+    if len(lines) == 1:
+        return lines[0]
+    return ("Some files reference items that aren't in your upload or saved data:\n"
+            "• " + "\n• ".join(lines))
 
 
 def _commit_batch(conn, batch_id: str, client_id: str) -> dict:

@@ -110,7 +110,9 @@ def _build_system_prompt(client_id: str) -> str:
             "question the specialized tools don't cover:\n"
             '1) pick relevant tables below, 2) call describe_schema("t1, t2") to get '
             "their exact columns, 3) write query_database SELECT ... WHERE client_id = "
-            ":client_id. Auth/system tables are NOT listed and are off-limits.\n"
+            ":client_id, 4) if query_database returns an error, call describe_schema for "
+            "the correct names and retry (up to twice) before giving up. Auth/system "
+            "tables are NOT listed and are off-limits.\n"
             f"{catalog}"
         )
     except Exception:

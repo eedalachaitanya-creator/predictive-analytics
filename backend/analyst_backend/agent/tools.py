@@ -207,7 +207,13 @@ def query_database(sql_query: str) -> str:
         return f"{row_count} rows returned:\n\n{preview}"
 
     except Exception as e:
-        return f"SQL Error: {str(e)}"
+        # Actionable error so the agent can self-correct instead of giving up:
+        # most failures are a guessed table/column name.
+        return (
+            f"SQL Error: {str(e)[:400]}\n"
+            'Tip: call describe_schema("<table>") to confirm the exact table and '
+            "column names for this tenant, then fix the SQL and retry."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

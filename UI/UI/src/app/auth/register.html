@@ -9,20 +9,19 @@
 
     @if (success()) {
       <div class="success-box">
-        <div style="font-size:40px;margin-bottom:12px">🎉</div>
         <div style="font-size:17px;font-weight:700;margin-bottom:8px;color:var(--text-primary)">Account Created Successfully!</div>
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.6">
-          Your company has been registered. A welcome email has been sent to <strong>{{ contactEmail() }}</strong> with your account details.
+          Your company has been registered successfully! We've sent a welcome email to <strong>{{ contactEmail() }}</strong> with your account details.
         </div>
         <div class="client-id-box">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Your Client ID</div>
           <div style="font-size:22px;font-weight:700;color:var(--accent-blue);letter-spacing:1.5px">{{ newClientId() }}</div>
         </div>
         <div style="font-size:12px;color:var(--text-muted);margin:14px 0">
-          You can now sign in with your email and password.
+          You're ready to get started! Click below to log in.
         </div>
         <a routerLink="/login" class="btn walmart lg" style="width:100%;display:block;text-align:center;text-decoration:none;margin-top:8px">
-          Go to Sign In
+          Log In
         </a>
       </div>
     }

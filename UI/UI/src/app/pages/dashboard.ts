@@ -81,7 +81,7 @@ export class DashboardComponent implements OnInit {
   segmentTotalPages   = signal(1);
   segmentTotal        = signal(0);
 
-  kpis     = computed(() => this.svc.data()?.kpis);
+  kpis        = computed(() => this.svc.data()?.kpis);
   repeatVsOne = computed(() => this.svc.data()?.repeatVsOneTime);
 
   ngOnInit() {
@@ -143,5 +143,10 @@ export class DashboardComponent implements OnInit {
 
   formatCurrency(n: number): string {
     return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /** Returns 0 instead of NaN/Infinity when denominator is 0 or falsy. */
+  safePct(numerator: number, denominator: number): number {
+    return denominator > 0 ? (numerator / denominator) * 100 : 0;
   }
 }

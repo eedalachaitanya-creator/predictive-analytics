@@ -5,15 +5,31 @@ import { Router, NavigationEnd } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs/operators';
-import { SidebarService } from '../services/sidebar.service'; 
+import { SidebarService } from '../services/sidebar.service';
 
 const META: Record<string, { title: string; meta: string }> = {
-  upload:     { title: '📤 Upload Data',           meta: 'Upload all 11 master files' },
-  validation: { title: '✅ Validation Preview',     meta: 'Quality checks run after each upload' },
-  settings:   { title: '⚙️ Configure & Run',       meta: 'Configure pipeline rules and start processing' },
-  dashboard:  { title: '📊  Dashboard',        meta: 'Pipeline results' },
-  downloads:  { title: '📥 Downloads',               meta: 'Export your results' },
-  chat:       { title: '🤖 Agent Chat',              meta: 'Ask questions about your data' },
+  // ── Analyst Agent ────────────────────────────────────────────────
+  upload:           { title: '📤 Upload Data',           meta: 'Analyst Agent · Upload all 11 master files' },
+  validation:       { title: '✅ Validation Preview',     meta: 'Analyst Agent · Quality checks run after each upload' },
+  settings:         { title: '⚙️ Configure & Run',       meta: 'Analyst Agent · Configure pipeline rules and start processing' },
+  dashboard:        { title: '📊 Dashboard',             meta: 'Analyst Agent · Pipeline results' },
+  downloads:        { title: '📥 Downloads',             meta: 'Analyst Agent · Export your results' },
+  'churn-scores':   { title: '📈 Churn Scores',          meta: 'Analyst Agent · ML-predicted churn risk per customer' },
+  'cost-tracking':  { title: '💰 Cost Tracking',     meta: 'Analyst Agent · Token usage and spend across the platform' },
+  chat:             { title: '🤖 Agent Chat',            meta: 'Analyst Agent · Ask questions about your data' },
+
+  // ── Scout Agent ──────────────────────────────────────────────────
+  scout:            { title: '🔍 Scout Agent',           meta: 'Scout Agent · Market intelligence and competitor tracking' },
+
+  // ── Strategist Agent ─────────────────────────────────────────────
+  'pricing-engine': { title: '💎 Pricing Engine',        meta: 'Strategist Agent · Dynamic pricing recommendations' },
+  'market-trends':  { title: '📈 Market Trends',         meta: 'Strategist Agent · Category and competitor trend analysis' },
+
+  // ── Retention Agent ──────────────────────────────────────────────
+  'run-pipeline':      { title: '🚀 Run Pipeline',       meta: 'Retention Agent · Trigger retention model execution' },
+  'retention-summary': { title: '📋 Retention Summary',  meta: 'Retention Agent · Outcomes and intervention results' },
+
+  // ── Admin Console ────────────────────────────────────────────────
   clients:    { title: '👥 Client Management',       meta: 'Admin Console · Manage all retail clients' },
   users:      { title: '👤 User Management',         meta: 'Admin Console · Assign roles and client access' },
   monitor:    { title: '💰 Cost Monitoring',         meta: 'Admin Console · LLM cost tracking' },
@@ -34,7 +50,7 @@ export class TopbarComponent {
   auth   = inject(AuthService);
   router = inject(Router);
   sidebarService = inject(SidebarService);
-   isSidebarOpen = false;
+  isSidebarOpen = false;
 
   private activeKey = toSignal(
     this.router.events.pipe(
@@ -129,13 +145,12 @@ export class TopbarComponent {
       }
     });
   }
-    toggleSidebar() {
+
+  toggleSidebar() {
     this.sidebarService.toggle();
   }
 
   closeSidebar() {
     this.sidebarService.close();
   }
-
 }
- 

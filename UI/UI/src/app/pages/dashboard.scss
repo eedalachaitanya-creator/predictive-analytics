@@ -16,7 +16,7 @@
   from { opacity: 0; max-height: 0; }
   to   { opacity: 1; max-height: 600px; }
 }
- 
+
 .drilldown-scroll { overflow-x: auto; overflow-y: auto; max-height: 60vh; -webkit-overflow-scrolling: touch; border-radius: 8px; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
   &::-webkit-scrollbar { width: 8px; height: 8px; }
   &::-webkit-scrollbar-track { background: transparent; }
@@ -32,7 +32,7 @@
 }
 .badge.purple { background: #EDE9FE; color: #7C3AED; }
 .badge.brown  { background: #FEF3C7; color: #92400E; }
- 
+
 .detail-tabs-scroll { overflow-x: auto; overflow-y: auto; max-height: 60vh; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--border-bright, #cbd5e1) transparent;
   &::-webkit-scrollbar { width: 8px; height: 8px; }
   &::-webkit-scrollbar-track { background: transparent; }

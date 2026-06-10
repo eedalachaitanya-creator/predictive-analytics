@@ -4,7 +4,7 @@
     <div>
       <div class="section-heading" style="margin-bottom:2px">💰 LLM Cost Tracking</div>
       <p class="text-muted" style="font-size:12px;margin:0">
-        Token usage and spend for every LLM call across the platform · LangFuse-backed
+        Track your AI usage metrics and cost calculations in real-time.
       </p>
     </div>
     <div class="ct-actions">
@@ -34,9 +34,9 @@
     <!-- ── Status banner if LangFuse not configured ── -->
     @if (!d.langfuse_configured) {
       <div class="card ct-banner">
-        ⚠️ LangFuse keys are not set. Cost tracking still works locally (via Postgres),
-        but traces won't appear in cloud.langfuse.com until
-        <code>LANGFUSE_PUBLIC_KEY</code> and <code>LANGFUSE_SECRET_KEY</code> are added to <code>.env</code>.
+        ⚠️ Cost tracking integration is not fully configured.
+        Tracking still works locally, but cloud sync is unavailable until
+        the integration keys are added to your environment settings.
       </div>
     }
 
@@ -68,8 +68,7 @@
     @if (!hasData()) {
       <div class="card" style="padding:40px; margin-bottom: 20px; text-align:center;color:var(--text-muted)">
         <div style="font-size:32px;margin-bottom:8px">📭</div>
-        No LLM calls yet. Send a message through <b>Agent Chat</b> or run the ML pipeline —
-        cost data will appear here within seconds.
+        No usage data available yet. Start a conversation with your AI Agents to see cost metrics populate here.
       </div>
     }
 
@@ -186,7 +185,7 @@
           <div class="ct-config-value">${{ (d.cost_per_output_token * 1_000_000).toFixed(2) }}/M</div>
         </div>
         <div>
-          <div class="ct-config-label">LangFuse cloud</div>
+          <div class="ct-config-label">Cloud sync</div>
           <div class="ct-config-value">
             @if (d.langfuse_configured) { ✅ Connected } @else { ⚠️ Not configured }
           </div>

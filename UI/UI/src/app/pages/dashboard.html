@@ -129,9 +129,13 @@
             <div class="seg-bar-row">
               <span class="seg-label">Repeat ({{ kpis()?.minRepeatOrders ?? 2 }}+ orders)</span>
               <div class="seg-track">
-                <div class="seg-fill" [style.width]="((r.repeat/r.total)*100)+'%'" style="background:linear-gradient(90deg,#10B981,#059669)">{{ r.repeat }}</div>
+                <div class="seg-fill"
+                     [style.width]="safePct(r.repeat, r.total) + '%'"
+                     style="background:linear-gradient(90deg,#10B981,#059669)">
+                  {{ safePct(r.repeat, r.total) > 15 ? r.repeat : '' }}
+                </div>
               </div>
-              <span class="seg-pct">{{ (r.repeat/r.total*100) | number:'1.1-1' }}%</span>
+              <span class="seg-pct">{{ safePct(r.repeat, r.total) | number:'1.1-1' }}%</span>
             </div>
             <div class="seg-bar-row">
               <!-- Was "One-time buyers", which is wrong when the threshold > 2
@@ -139,9 +143,13 @@
                    Generalised to match the Repeat label. -->
               <span class="seg-label">Fewer than {{ kpis()?.minRepeatOrders ?? 2 }} orders</span>
               <div class="seg-track">
-                <div class="seg-fill" [style.width]="((r.oneTime/r.total)*100)+'%'" style="background:linear-gradient(90deg,#64748B,#475569)">{{ r.oneTime }}</div>
+                <div class="seg-fill"
+                     [style.width]="safePct(r.oneTime, r.total) + '%'"
+                     style="background:linear-gradient(90deg,#64748B,#475569)">
+                  {{ safePct(r.oneTime, r.total) > 15 ? r.oneTime : '' }}
+                </div>
               </div>
-              <span class="seg-pct">{{ (r.oneTime/r.total*100) | number:'1.1-1' }}%</span>
+              <span class="seg-pct">{{ safePct(r.oneTime, r.total) | number:'1.1-1' }}%</span>
             </div>
           }
         </div>

@@ -73,9 +73,9 @@
     </button>
 
     <div class="login-footer">
-      <p class="login-links">New client? <a routerLink="/register">Create Account</a></p>
-      <p class="login-links"><a (click)="openForgot()" style="cursor:pointer">Forgot password?</a></p>
-      <p class="login-links"><a href="https://mail.google.com/mail/?view=cm&to=stixissupport@yopmail.com" target="_blank" style="cursor:pointer">Contact IT Support</a></p>
+      <p class="login-link-item"><a routerLink="/register">New client? Create Account</a></p>
+      <p class="login-link-item"><a (click)="openForgot()" style="cursor:pointer">Forgot password?</a></p>
+      <p class="login-link-item"><a href="https://mail.google.com/mail/?view=cm&to=stixissupport@yopmail.com" target="_blank">Contact IT Support</a></p>
     </div>
 
     @if (forgotOpen()) {

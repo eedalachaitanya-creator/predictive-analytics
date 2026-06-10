@@ -141,6 +141,23 @@ def connect_db(db_url):
     return engine
 
 
+def _clear_recency_for_customers_without_orders(df):
+    """Null days_since_last_order for customers with no orders.
+
+    The materialized view fills days_since_last_order with a 9999 sentinel for
+    customers who have never ordered (the churn-label pipeline relies on that
+    sentinel). That sentinel must not surface in the user-facing
+    customer_rfm_features table — a customer with no orders has no "last order",
+    so the value is undefined and should render as — / N/A in the UI. Keyed on
+    total_orders (not on the 9999 value) so a customer who genuinely has orders
+    is never touched. (QA: Vikas Reddy)
+    """
+    if 'days_since_last_order' in df.columns and 'total_orders' in df.columns:
+        no_orders = df['total_orders'].isna() | (df['total_orders'] == 0)
+        df.loc[no_orders, 'days_since_last_order'] = None
+    return df
+
+
 def _compute_derived_columns(engine, df):
     """
     Compute columns that the customer_rfm_features table needs but the
@@ -286,6 +303,10 @@ def save_rfm_to_db(engine, df):
 
     # Step 1: Compute the 7 missing derived columns
     df = _compute_derived_columns(engine, df)
+
+    # Step 1b: customers with no orders have no "last order" — null the mv's
+    # 9999 recency sentinel so the user-facing table renders — / N/A (QA bug).
+    df = _clear_recency_for_customers_without_orders(df)
 
     # Step 2: Map mv_customer_features columns → customer_rfm_features columns
     # (only columns that NOW exist after derivation)

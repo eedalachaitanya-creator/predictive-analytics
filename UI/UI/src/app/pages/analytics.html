@@ -21,34 +21,30 @@
   }
 
   @if (svc.data()) {
-    <!-- A. Platform KPIs -->
-    <!-- "Pipeline Runs · Last 30 days" KPI was removed: there is no
-         pipeline_runs log table, so the number was hardcoded to 0. -->
     <div class="section-heading">A. Platform-Wide Summary</div>
     <div class="grid-4 mb-24">
       <div class="stat-card">
-        <div class="stat-value text-green">{{ kpis()?.activeClients }}</div>
+        <div class="stat-value text-green">{{ kpis()?.activeClients ?? '—' }}</div>
         <div class="stat-label">Active Clients</div>
         <div class="stat-sub">{{ kpis()?.totalClients }} total incl. setup</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">{{ kpis()?.totalCustomers | number }}</div>
+        <div class="stat-value">{{ (kpis()?.totalCustomers ?? 0) | number }}</div>
         <div class="stat-label">Total Customers</div>
         <div class="stat-sub">Across all clients</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">{{ kpis()?.totalOrders | number }}</div>
+        <div class="stat-value">{{ (kpis()?.totalOrders ?? 0) | number }}</div>
         <div class="stat-label">Total Orders</div>
         <div class="stat-sub">All clients combined</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value text-yellow">{{ kpis()?.avgChurnRate | number:'1.1-1' }}%</div>
+        <div class="stat-value text-yellow">{{ (kpis()?.avgChurnRate ?? 0) | number:'1.1-1' }}%</div>
         <div class="stat-label">Avg Churn Rate</div>
         <div class="stat-sub">Across active clients</div>
       </div>
     </div>
 
-    <!-- B. Client Comparison -->
     <div class="section-heading">B. Client Comparison</div>
     @if (clients().length) {
       <div class="grid-3 mb-24">
@@ -59,8 +55,9 @@
               <div class="seg-bar-row">
                 <span class="seg-label">{{ c.clientName }}</span>
                 <div class="seg-track">
-                  <div class="seg-fill" [style.width]="custPct(c.customers)+'%'" [style.background]="c.color">{{ c.customers | number }}</div>
+                  <div class="seg-fill" [style.width]="custPct(c.customers)+'%'" [style.background]="c.color"></div>
                 </div>
+                <span class="seg-val">{{ c.customers | number }}</span>
               </div>
             }
           </div>
@@ -72,11 +69,11 @@
               <div class="seg-bar-row">
                 <span class="seg-label">{{ c.clientName }}</span>
                 <div class="seg-track">
-                  <div class="seg-fill" [style.width]="churnPct(c.churnPct)+'%'"
-                       [style.background]="c.churnPct > 45 ? 'linear-gradient(90deg,#EF4444,#B91C1C)' : 'linear-gradient(90deg,#F59E0B,#D97706)'">
-                    {{ c.churnPct | number:'1.1-1' }}%
-                  </div>
+                  <div class="seg-fill"
+                       [style.width]="churnPct(c.churnPct)+'%'"
+                       [style.background]="c.churnPct > 45 ? 'linear-gradient(90deg,#EF4444,#B91C1C)' : 'linear-gradient(90deg,#F59E0B,#D97706)'"></div>
                 </div>
+                <span class="seg-val">{{ c.churnPct | number:'1.1-1' }}%</span>
               </div>
             }
           </div>
@@ -88,18 +85,15 @@
               <div class="seg-bar-row">
                 <span class="seg-label">{{ c.clientName }}</span>
                 <div class="seg-track">
-                  <div class="seg-fill" [style.width]="hvPct(c.highValue)+'%'" style="background:linear-gradient(90deg,#8B5CF6,#6D28D9)">{{ c.highValue }}</div>
+                  <div class="seg-fill" [style.width]="hvPct(c.highValue)+'%'" style="background:linear-gradient(90deg,#8B5CF6,#6D28D9)"></div>
                 </div>
+                <span class="seg-val">{{ c.highValue }}</span>
               </div>
             }
           </div>
         </div>
       </div>
 
-      <!-- Client table -->
-      <!-- "Last Run" and "Avg Duration" columns were removed: there is
-           no pipeline_runs log, so both were hardcoded ("", 0.0) on the
-           backend and carried no real information. -->
       <div class="card mb-24">
         <div class="card-header"><div class="card-title">📋 Client Summary Table</div></div>
         <table class="data-table clientsummary-table">
@@ -120,10 +114,5 @@
     } @else {
       <div class="notice info mb-24">No client data available yet.</div>
     }
-
-    <!-- Section C (Monthly Run Volume Trend) was removed: the backend
-         query counted rows from the `orders` table and labelled them
-         as "runs", which was misleading. The Avg Duration column was
-         hardcoded 0.0 on top of that. -->
   }
 </div>

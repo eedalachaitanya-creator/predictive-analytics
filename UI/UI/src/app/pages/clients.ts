@@ -11,7 +11,6 @@ interface ClientRow {
   created_at: string | null;
   is_active: boolean;
   deactivated_at: string | null;
-  // Organization details (NULL for tenants created before the onboarding form).
   address: string | null;
   city: string | null;
   state_province: string | null;
@@ -121,14 +120,19 @@ export class ClientsComponent implements OnInit {
 
   private computeAddErrors(f: Record<AddField, string>): Partial<Record<AddField, string>> {
     const e: Partial<Record<AddField, string>> = {};
-    const req = (k: AddField, label: string) => { if (!f[k].trim()) e[k] = `${label} is required.`; };
-    req('organization_name', 'Organization name');
-    req('address', 'Address');
-    req('city', 'City');
-    req('state_province', 'State / Province');
-    req('postal_code', 'Zip / Postal code');
+
+    const req = (k: AddField, label: string, max = 0) => {
+      if (!f[k].trim()) { e[k] = `${label} is required.`; return; }
+      if (max && f[k].trim().length > max) e[k] = `${label} must be ${max} characters or fewer.`;
+    };
+
+    req('organization_name', 'Organization name', 100);
+    req('address', 'Address', 255);
+    req('city', 'City', 100);
+    req('state_province', 'State / Province', 100);
+    req('postal_code', 'Zip / Postal code', 20);
     req('country', 'Country');
-    req('admin_name', 'Admin name');
+    req('admin_name', 'Admin name', 100);
 
     const cce = f.company_contact_email.trim();
     if (!cce || !this.EMAIL_RE.test(cce)) e.company_contact_email = 'Enter a valid company contact email.';
@@ -186,10 +190,7 @@ export class ClientsComponent implements OnInit {
     this.loading.set(true);
     const qs = this.isSuperAdmin() ? '?includeInactive=true' : '';
     this.api.get<ClientRow[]>(`/clients${qs}`).subscribe({
-      next: (data) => {
-        this.clients.set(data);
-        this.loading.set(false);
-      },
+      next: (data) => { this.clients.set(data); this.loading.set(false); },
       error: () => { this.loading.set(false); }
     });
   }
@@ -340,7 +341,6 @@ export class ClientsComponent implements OnInit {
       .join(' ');
   }
 
-  // ── Add a new client ──────────────────────────────────────────────────
   openAddForm() {
     this.addForm.set({
       organization_name: '', address: '', city: '', state_province: '',
@@ -379,7 +379,6 @@ export class ClientsComponent implements OnInit {
     const detail = err?.error?.detail;
     if (typeof detail === 'string' && detail.trim()) return detail.trim();
     if (Array.isArray(detail) && detail.length > 0) {
-      // FastAPI validation errors return an array of {msg, loc} objects
       return detail.map((d: any) => d?.msg ?? JSON.stringify(d)).join(' · ');
     }
     const msg = err?.error?.message ?? err?.message;
@@ -412,7 +411,6 @@ export class ClientsComponent implements OnInit {
     });
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────
   confirmDelete(clientId: string) { this.deleteError.set(''); this.deleteConfirmId.set(clientId); }
   cancelDelete() { this.deleteConfirmId.set(null); this.deleteError.set(''); }
 
@@ -435,7 +433,6 @@ export class ClientsComponent implements OnInit {
     });
   }
 
-  // ── Reactivate ────────────────────────────────────────────────────────
   confirmReactivate(clientId: string) { this.reactivateError.set(''); this.reactivateConfirmId.set(clientId); }
   cancelReactivate() { this.reactivateConfirmId.set(null); this.reactivateError.set(''); }
 

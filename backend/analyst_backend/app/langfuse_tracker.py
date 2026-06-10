@@ -70,10 +70,10 @@ LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
-# Cost per token (Groq llama-3.3-70b-versatile pricing)
-# Groq is free tier / pay-per-token — adjust these as needed
-COST_PER_INPUT_TOKEN = 0.00000059    # $0.59 per 1M input tokens
-COST_PER_OUTPUT_TOKEN = 0.00000079   # $0.79 per 1M output tokens
+# Cost per token (OpenAI gpt-4o-mini pricing — the agent's default model).
+# If AGENT_MODEL points elsewhere (e.g. gpt-4o or a Groq model), update these.
+COST_PER_INPUT_TOKEN = 0.00000015    # $0.15 per 1M input tokens
+COST_PER_OUTPUT_TOKEN = 0.00000060   # $0.60 per 1M output tokens
 
 # Target cost budget
 TARGET_COST_PER_CALL = 0.08  # $0.08 per analyst call
@@ -170,7 +170,7 @@ def _ensure_cost_log_table(engine):
 def track_cost(
     input_tokens: int,
     output_tokens: int,
-    model: str = "llama-3.3-70b-versatile",
+    model: str = "gpt-4o-mini",
     call_type: str = "analyst_call",
     client_id: str = "CLT-001",
 ) -> dict:

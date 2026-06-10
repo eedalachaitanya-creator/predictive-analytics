@@ -7,8 +7,9 @@ Endpoints:
     POST /api/v1/chat/clear                — Clear conversation history
     GET  /api/v1/chat/suggestions          — Get example questions
 
-The agent uses LangGraph + Groq to answer churn analytics questions
-with access to 6 tools (SQL queries, ML predictions, customer profiles, etc.)
+The agent uses LangGraph + OpenAI gpt-4o-mini to answer churn analytics
+questions with access to 7 tools (SQL queries, ML predictions, customer
+profiles, and semantic search over customer reviews).
 
 Chat history is stored in PostgreSQL so teammates can see past queries
 when they import the database dump.
@@ -181,12 +182,11 @@ def _get_history(client_id: str, conversation_id: str) -> list[dict]:
 
 
 # Maximum number of prior messages we replay to the LLM every turn.
-# Groq's free-tier TPM ceiling on llama-3.1-8b-instant is ~6,000 tokens per
-# minute. System prompt + tool definitions already eat ~1,500 tokens, so we
-# cap the replay history at 6 messages (≈ 3 user + 3 assistant turns).
-# Anything older is still persisted in Postgres — the user can see it in the
-# UI — it just isn't re-sent to the LLM. Raising this cap risks HTTP 413.
-MAX_HISTORY_MESSAGES = 6
+# Now that the agent runs on OpenAI gpt-4o-mini (128k context, no Groq
+# free-tier ~6k tokens/min cap), we can afford more conversational context and
+# still leave room for retrieved RAG chunks. 12 messages ≈ 6 user + 6 assistant
+# turns. Older messages stay in Postgres (visible in the UI) but aren't re-sent.
+MAX_HISTORY_MESSAGES = 12
 
 # Hard per-message character cap, as a second line of defense against one
 # very long prior answer (e.g. a big table) blowing the TPM budget even
@@ -198,8 +198,8 @@ def _get_langchain_history(client_id: str, conversation_id: str):
     """Convert DB history to LangChain message objects for the agent.
 
     Returns only the most recent MAX_HISTORY_MESSAGES messages, each
-    truncated to MAX_MESSAGE_CHARS characters. This keeps the total
-    request size well below Groq's per-minute token ceiling.
+    truncated to MAX_MESSAGE_CHARS characters. This bounds the request size
+    and leaves token budget for retrieved RAG context.
     """
     from langchain_core.messages import HumanMessage, AIMessage
 
@@ -248,13 +248,14 @@ def ask_agent_endpoint(req: ChatRequest, user: dict = Depends(get_current_user))
     """
     Send a question to the Analyst Agent and get a response.
 
-    The agent has access to 6 tools:
+    The agent has access to 7 tools:
       - query_database (SQL)
       - predict_churn (ML model)
       - get_customer_profile (360-degree view)
       - get_risk_summary (aggregate stats)
       - get_feature_importance (churn drivers)
       - search_at_risk_customers (filter/search)
+      - search_customer_feedback (semantic search over customer reviews — RAG)
     """
     _require_client_access(user, req.clientId)
     if not req.question.strip():

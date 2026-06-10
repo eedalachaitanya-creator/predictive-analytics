@@ -2,8 +2,9 @@
 graph.py — Analyst Agent | LangGraph State Machine
 ====================================================
 Defines the LangGraph graph that powers the Analyst Agent.
-The agent uses Google Gemini as the reasoning engine and binds
-the 6 tools from tools.py for data access and ML inference.
+The agent uses OpenAI gpt-4o-mini as the reasoning engine (Groq fallback via
+AGENT_MODEL / LLM_PROVIDER) and binds the tools from tools.py for data access,
+ML inference, and RAG retrieval over customer feedback.
 
 Architecture:
     ┌──────────┐
@@ -36,13 +37,13 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_groq import ChatGroq
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from dotenv import load_dotenv
 
 from agent.tools import ALL_TOOLS, current_client_id
+from agent.llm import build_chat_model
 
 load_dotenv()
 
@@ -76,7 +77,14 @@ Prefer specialized tools over raw SQL:
 - "Profile customer X" -> get_customer_profile
 - "Predict churn for X" -> predict_churn
 - "What drives churn?" -> get_feature_importance
+- "What are customers saying / complaining about / why unhappy?" -> search_customer_feedback
 - Only use query_database when the above tools cannot answer.
+
+Choosing structured vs. semantic:
+- Counts, rankings, averages, filters, customer IDs -> structured tools / query_database.
+- Opinions, themes, reasons, complaints, "what are people saying" -> search_customer_feedback,
+  then summarize the reviews it returns. Quote specifics from the tool output; never
+  invent feedback that the tool did not return.
 
 When using query_database:
 - Always include `WHERE client_id = :client_id` (use the bind param :client_id, no quotes around it).
@@ -89,8 +97,25 @@ Be concise. Back answers with numbers from tool output.
 
 
 def _build_system_prompt(client_id: str) -> str:
-    """Render the system prompt with the current tenant id baked in."""
-    return SYSTEM_PROMPT_TEMPLATE.format(client_id=client_id)
+    """Render the system prompt with the current tenant id baked in, plus the
+    curated table catalog so the agent can answer structured questions across
+    all business tables (not just the specialized tools)."""
+    prompt = SYSTEM_PROMPT_TEMPLATE.format(client_id=client_id)
+    try:
+        from app.database import engine
+        from agent.schema_catalog import compact_catalog
+        catalog = compact_catalog(engine)
+        prompt += (
+            "\n\nQUERYABLE TABLES (all tenant-scoped by client_id). For a structured "
+            "question the specialized tools don't cover:\n"
+            '1) pick relevant tables below, 2) call describe_schema("t1, t2") to get '
+            "their exact columns, 3) write query_database SELECT ... WHERE client_id = "
+            ":client_id. Auth/system tables are NOT listed and are off-limits.\n"
+            f"{catalog}"
+        )
+    except Exception:
+        pass  # never break the agent if catalog introspection is unavailable
+    return prompt
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -98,21 +123,12 @@ def _build_system_prompt(client_id: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _build_llm():
-    """Create the ChatGroq instance with tools bound."""
-    api_key = os.getenv("GROQ_API_KEY", "")
-    model_name = os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile")
-
-    if not api_key:
-        raise ValueError(
-            "GROQ_API_KEY not set. Add it to your .env file."
-        )
-
-    llm = ChatGroq(
-        model=model_name,
-        temperature=0.1,          # low temp for analytical accuracy
-        groq_api_key=api_key,
-        max_tokens=4096,
-    )
+    """Create the chat model (provider chosen by agent.llm) with tools bound."""
+    # Provider/model selection lives in agent.llm.build_chat_model: OpenAI
+    # gpt-4o-mini by default, Groq only when AGENT_MODEL/LLM_PROVIDER selects it.
+    # Moving off Groq's free-tier ~6k token/min ceiling is what lets us feed
+    # retrieved RAG context into the prompt.
+    llm = build_chat_model(temperature=0.1, max_tokens=4096)
 
     # NOTE: LangFuse cost tracking is done AFTER the LLM call in agent_node()
     # via track_cost(), not via a LangChain CallbackHandler. The handler path
@@ -120,8 +136,7 @@ def _build_llm():
     # 1.x and crashed the agent mid-invocation. Direct SDK calls are stable.
 
     # Bind the tools so the model can call them
-    llm_with_tools = llm.bind_tools(ALL_TOOLS)
-    return llm_with_tools
+    return llm.bind_tools(ALL_TOOLS)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -165,7 +180,7 @@ def agent_node(state: AgentState) -> dict:
             track_cost(
                 input_tokens=int(input_tokens),
                 output_tokens=int(output_tokens),
-                model=os.getenv("AGENT_MODEL", "llama-3.3-70b-versatile"),
+                model=os.getenv("AGENT_MODEL") or "gpt-4o-mini",
                 call_type="analyst_agent_query",
                 client_id=tenant,
             )

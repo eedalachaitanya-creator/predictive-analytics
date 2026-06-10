@@ -162,6 +162,19 @@ def query_database(sql_query: str) -> str:
         if normalized.startswith(keyword):
             return f"ERROR: {keyword} queries are not allowed. Only SELECT queries are permitted."
 
+    # Security: refuse any reference to auth/system tables (users, active_tokens,
+    # audit_log, chat_messages, client_config, llm_cost_log, ...). These are
+    # off-limits even with a valid :client_id — the agent answers about business
+    # data only. Use describe_schema to discover queryable tables.
+    from agent.schema_catalog import denied_tables_in_sql
+    denied = denied_tables_in_sql(sql_query)
+    if denied:
+        return (
+            f"ERROR: querying restricted table(s) {', '.join(denied)} is not allowed. "
+            "Those are auth/system tables. Use describe_schema to see queryable "
+            "business tables."
+        )
+
     # Multi-tenant enforcement: the query must reference :client_id. We use
     # a SQL-native bind param (no quotes around it in the query text) because
     # the previous approach of embedding a placeholder in a quoted string
@@ -652,6 +665,81 @@ def search_at_risk_customers(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# TOOL 7: search_customer_feedback  (RAG / semantic)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@tool
+def search_customer_feedback(query: str) -> str:
+    """Search THIS tenant's customer reviews by meaning to answer qualitative
+    questions about opinions, themes, sentiment, or complaints — e.g.
+    "what are customers unhappy about?", "summarize negative delivery feedback",
+    "why might people be leaving?".
+
+    Use this for "what are people saying / why" questions. For counts, rankings,
+    averages, or any metric, use the structured tools or query_database instead.
+
+    Args:
+        query: natural-language description of the feedback to find.
+    """
+    try:
+        # Tenant comes ONLY from the server-set ContextVar — never from the LLM.
+        tenant = _get_client_id()
+        from rag.retriever import search_documents
+        hits = search_documents(
+            tenant, query, k=6, source_types=["customer_review"]
+        )
+        if not hits:
+            return "No matching customer feedback found for this tenant."
+
+        lines = [f"Top {len(hits)} matching customer reviews:\n"]
+        for i, h in enumerate(hits, 1):
+            md = h.get("metadata") or {}
+            tags = []
+            if md.get("rating") is not None:
+                tags.append(f"{md.get('rating')}/5")
+            if md.get("sentiment"):
+                tags.append(str(md.get("sentiment")))
+            tagstr = f" [{', '.join(tags)}]" if tags else ""
+            snippet = (h.get("content") or "").strip().replace("\n", " ")
+            if len(snippet) > 300:
+                snippet = snippet[:300] + "…"
+            lines.append(f"  {i}.{tagstr} {snippet}")
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error searching customer feedback: {str(e)}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TOOL 8: describe_schema  (schema-aware text-to-SQL)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@tool
+def describe_schema(table_names: str) -> str:
+    """Get the exact columns + types of one or more BUSINESS tables before
+    writing SQL against them. Pass a comma-separated list of table names taken
+    from the QUERYABLE TABLES catalog in the system prompt,
+    e.g. "orders, line_items, products".
+
+    Use this whenever a structured question needs a table beyond the specialized
+    tools — call describe_schema first, then write query_database SQL with the
+    real column names. Auth/system tables are not available.
+
+    Args:
+        table_names: comma-separated business table names.
+    """
+    try:
+        from app.database import engine
+        from agent.schema_catalog import describe_tables
+        names = [n.strip() for n in table_names.replace("\n", ",").split(",") if n.strip()]
+        if not names:
+            return "Provide one or more table names (comma-separated)."
+        return describe_tables(engine, names)
+    except Exception as e:
+        return f"Error describing schema: {str(e)}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # TOOL REGISTRY
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -662,4 +750,6 @@ ALL_TOOLS = [
     get_risk_summary,
     get_feature_importance,
     search_at_risk_customers,
+    search_customer_feedback,
+    describe_schema,
 ]

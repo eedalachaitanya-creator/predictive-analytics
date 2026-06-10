@@ -140,7 +140,7 @@ export class RegisterComponent {
       client_code:   this.companyCode().toUpperCase(),
       contact_name:  this.contactName(),
       contact_email: this.contactEmail().trim(),
-      password:      this.password(),
+      password:      this.password().trim(),  // PA_011 fix: strip trailing/leading spaces
     };
 
     this.api.post<any>('/clients/self-register', body).subscribe({

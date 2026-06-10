@@ -62,4 +62,15 @@ export class UsersComponent implements OnInit {
     const map: Record<string,string> = { super_admin:'Super Admin', client_user:'Client User' };
     return map[r] ?? r;
   }
+  formatLogin(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      });
+    } catch {
+      return iso;
+    }
+  }
 }

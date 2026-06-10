@@ -52,7 +52,7 @@ export class UploadService {
     return this.api.upload<UploadResponse>(`/uploads/${masterType}`, fd).pipe(
       tap({
         next: res => this.setSuccess(masterType, res),
-        error: err => this.setError(masterType, err.message)
+        error: err => this.setError(masterType, err?.error?.detail ?? err?.message ?? 'Upload failed. Please try again.')  // PA_012 fix: show backend error message
       })
     );
   }
@@ -157,7 +157,7 @@ export class UploadService {
         },
         error: err => {
           this.committing.set(false);
-          const msg = typeof err?.message === 'string' ? err.message : 'Commit failed';
+          const msg = err?.error?.detail ?? err?.message ?? 'Commit failed. Please try again.';  // PA_012 fix: show backend error message
           this.lastCommitError.set(msg);
         },
       })

@@ -260,6 +260,12 @@ def ask_agent_endpoint(req: ChatRequest, user: dict = Depends(get_current_user))
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
+    # Prompt-injection firewall — MONITOR mode: logs suspicious prompts (scoped to
+    # client_id) but never blocks. No-op if the ai_firewall package isn't installed.
+    # Flip app/prompt_firewall.py to enforce mode to start rejecting attacks.
+    from app.prompt_firewall import guard_question
+    guard_question(req.question, client_id=req.clientId)
+
     # Generate or reuse conversation ID
     conv_id = req.conversationId or f"conv-{uuid.uuid4().hex[:12]}"
 

@@ -141,8 +141,8 @@ CREATE TABLE IF NOT EXISTS customers (
     customer_phone        VARCHAR(30),
     account_created_date  DATE,
     registration_channel  VARCHAR(100),
-    country_code          VARCHAR(5)   DEFAULT 'US',
-    state                 VARCHAR(5),
+    country_code          VARCHAR(100) DEFAULT 'US',  -- code or full country name; not just 2-letter
+    state                 VARCHAR(100),  -- full international state/region names (e.g. 'Karnataka'), not just US 2-letter codes
     city                  VARCHAR(100),
     zip_code              VARCHAR(20),
     shipping_address      TEXT,

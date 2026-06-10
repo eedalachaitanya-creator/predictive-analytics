@@ -126,12 +126,23 @@ a.nav-item:focus-visible { outline: 2px solid var(--walmart-blue); outline-offse
   &.open { transform: rotate(-90deg); }
 }
 
-/* Dropdown menu — slides up above the user button */
+/* Dropdown menu — pops UP above the user button (anchored to .sb-footer, which
+   is position:relative). The button is pinned to the bottom of the sidebar, so
+   an in-flow menu below it rendered off-screen / unreachable once the nav grew
+   tall enough to scroll the sidebar. Absolute + bottom:100% keeps it visible
+   above the button in every state. */
 .sb-user-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--bg-card);
+  box-shadow: 0 -6px 16px rgba(0, 0, 0, .10);
+  z-index: 50;
 }
 
 .sb-menu-item {

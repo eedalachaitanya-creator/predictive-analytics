@@ -19,12 +19,31 @@ Usage:
 from __future__ import annotations
 
 import hmac
+import re
 
 import bcrypt
 
 # Identifiers bcrypt hashes start with. A stored value NOT starting with one of
 # these is treated as legacy plaintext.
 _BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
+
+
+def validate_password(pw: str) -> str | None:
+    """Validate a NEW account password. Returns an error message if invalid, else
+    None. The single source of truth for password rules across the whole app
+    (self-registration, admin client/user creation, change-password). Rejects
+    leading/trailing whitespace — otherwise a trailing space (e.g. "Stixis@12 ")
+    passes, because the complexity check counts the space itself as the required
+    "special character", and the user later can't log in with what they typed.
+    """
+    pw = pw or ""
+    if pw != pw.strip():
+        return "Password cannot start or end with a space."
+    if not (len(pw) >= 8 and re.search(r"[A-Z]", pw) and re.search(r"[a-z]", pw)
+            and re.search(r"\d", pw) and re.search(r"[^A-Za-z0-9]", pw)):
+        return ("Password must be at least 8 characters and include an uppercase "
+                "letter, lowercase letter, number, and special character.")
+    return None
 
 
 def _to_72_bytes(plain: str) -> bytes:

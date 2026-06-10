@@ -89,6 +89,7 @@ export class RegisterComponent {
   passError = computed(() => {
     if (!this.passTouched()) return '';
     if (!this.password()) return 'Password is required.';
+    if (this.password() !== this.password().trim()) return 'Password cannot start or end with a space.';
     if (!this.allRulesPass()) return 'Password does not meet all requirements below.';
     return '';
   });
@@ -111,6 +112,7 @@ export class RegisterComponent {
       !!this.contactEmail().trim() &&
       this.EMAIL_RE.test(this.contactEmail().trim()) &&
       !!this.password() &&
+      this.password() === this.password().trim() &&
       this.allRulesPass() &&
       this.password() === this.confirmPassword()
     );

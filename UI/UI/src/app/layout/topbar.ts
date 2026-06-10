@@ -103,6 +103,9 @@ export class TopbarComponent {
     if (!this.currentPass().trim()) {
       this.changePassError.set('Current password is required.'); return;
     }
+    if (this.newPass() !== this.newPass().trim()) {
+      this.changePassError.set('Password cannot start or end with a space.'); return;
+    }
     if (this.newPass().length < 8) {
       this.changePassError.set('New password must be at least 8 characters.'); return;
     }

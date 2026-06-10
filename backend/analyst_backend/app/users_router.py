@@ -18,7 +18,7 @@ from sqlalchemy import text
 from app.database import engine
 from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
-from app.security import hash_password
+from app.security import hash_password, validate_password
 
 router = APIRouter(prefix="/api/v1", tags=["users"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("users")
@@ -122,6 +122,10 @@ def create_user(
 
     if not req.name.strip() or not req.email.strip() or not req.password.strip():
         raise HTTPException(status_code=400, detail="Name, email, and password are required")
+
+    pw_error = validate_password(req.password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
 
     new_id = f"usr-{uuid.uuid4().hex[:6]}"
 

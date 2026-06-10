@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
-from app.security import hash_password, verify_password, is_hashed
+from app.security import hash_password, verify_password, is_hashed, validate_password
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 log = logging.getLogger("auth")
@@ -326,6 +326,13 @@ def get_me(authorization: Optional[str] = Header(default=None)):
     }
 
 
+def _clients_to_clear(user: dict) -> list:
+    """Concrete client_ids whose pending upload batch should be cleared when this
+    user logs out. Super-admin ('*') is excluded — we never auto-discard every
+    client's in-progress upload just because one admin signed out."""
+    return [c for c in (user.get("clientAccess") or []) if c != "*"]
+
+
 @router.post("/auth/logout")
 def logout(request: Request, authorization: Optional[str] = Header(default=None)):
     from app.audit_logger import log_audit_event
@@ -335,6 +342,17 @@ def logout(request: Request, authorization: Optional[str] = Header(default=None)
         token = authorization.replace("Bearer ", "")
         user_for_audit = _find_user_by_token(token)
         _revoke_token(token)
+
+    # Clear any UNSAVED (pending) upload batch so it doesn't follow the user into
+    # the next session (same or different browser). Scoped to the user's own
+    # client(s); best-effort — a cleanup failure must never block sign-out.
+    if user_for_audit:
+        try:
+            from app.upload_router import _discard_pending_batch_for_client
+            for client_id in _clients_to_clear(user_for_audit):
+                _discard_pending_batch_for_client(client_id)
+        except Exception as e:
+            log.warning("logout: pending-batch cleanup failed: %s", e)
 
     if user_for_audit:
         log_audit_event(
@@ -491,20 +509,9 @@ def change_password(
     if not verify_password(req.current_password, user["password"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    import re
-    pw = req.new_password
-    pw_ok = (
-        len(pw) >= 8 and
-        re.search(r'[A-Z]', pw) and
-        re.search(r'[a-z]', pw) and
-        re.search(r'\d', pw) and
-        re.search(r'[^A-Za-z0-9]', pw)
-    )
-    if not pw_ok:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 8 characters with uppercase, lowercase, number, and special character."
-        )
+    pw_error = validate_password(req.new_password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
 
     try:
         with engine.begin() as conn:

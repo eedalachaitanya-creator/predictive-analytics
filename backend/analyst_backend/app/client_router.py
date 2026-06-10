@@ -32,7 +32,7 @@ from sqlalchemy import text
 from app.database import engine
 from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
-from app.security import hash_password
+from app.security import hash_password, validate_password
 
 router = APIRouter(prefix="/api/v1", tags=["clients"])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("clients")
@@ -597,19 +597,9 @@ def self_register(req: SelfRegisterRequest):
     email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
     if not req.contact_email.strip() or not email_re.match(req.contact_email.strip()):
         raise HTTPException(status_code=400, detail="Valid email address is required")
-    pw = req.password
-    pw_ok = (
-        len(pw) >= 8 and
-        re.search(r'[A-Z]', pw) and
-        re.search(r'[a-z]', pw) and
-        re.search(r'\d', pw) and
-        re.search(r'[^A-Za-z0-9]', pw)
-    )
-    if not pw_ok:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 8 characters and include an uppercase letter, lowercase letter, number, and special character."
-        )
+    pw_error = validate_password(req.password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
 
     # ── Check if email is already taken (in database) ───────────────
     try:
@@ -756,6 +746,18 @@ _DATA_OVERVIEW_TABLES = [
     ("outreach_messages",         "generated", "Outreach Messages",       "sent_at"),
 ]
 
+# Map each UPLOADED table to its upload "master type" — the token recorded in the
+# audit_log file_upload events (e.g. "customer · file.csv · 3 rows"). Used to derive
+# a true "Uploaded On" date, distinct from last_updated (the newest record date
+# inside the data). Generated tables are computed, not uploaded, so they're omitted.
+_UPLOAD_MASTER_TYPE = {
+    "customers":        "customer",
+    "orders":           "order",
+    "line_items":       "line_items",
+    "customer_reviews": "customer_reviews",
+    "support_tickets":  "support_tickets",
+}
+
 
 @router.get("/clients/{client_id}/data-overview",dependencies=[Depends(get_current_user)])
 def get_client_data_overview(
@@ -819,18 +821,53 @@ def get_client_data_overview(
                 "label": label,
                 "row_count": 0,
                 "last_updated": None,
+                "uploaded_at": None,
             }
             try:
                 count_sql = f"SELECT COUNT(*) FROM {table_name} WHERE client_id = :cid"
                 count = conn.execute(text(count_sql), {"cid": client_id}).scalar() or 0
                 entry["row_count"] = int(count)
 
-                if ts_col and count > 0:
-                    ts_sql = f"SELECT MAX({ts_col}) FROM {table_name} WHERE client_id = :cid"
-                    ts = conn.execute(text(ts_sql), {"cid": client_id}).scalar()
-                    if ts is not None:
-                        entry["last_updated"] = (
-                            ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                # last_updated: most tables expose a domain timestamp column.
+                # line_items has none of its own — a line item is as recent as the
+                # order it belongs to, so derive its freshness from the parent orders.
+                ts = None
+                if count > 0:
+                    if ts_col:
+                        ts = conn.execute(
+                            text(f"SELECT MAX({ts_col}) FROM {table_name} WHERE client_id = :cid"),
+                            {"cid": client_id},
+                        ).scalar()
+                    elif table_name == "line_items":
+                        ts = conn.execute(
+                            text(
+                                "SELECT MAX(o.order_date) FROM line_items li "
+                                "JOIN orders o ON o.client_id = li.client_id "
+                                "AND o.order_id = li.order_id WHERE li.client_id = :cid"
+                            ),
+                            {"cid": client_id},
+                        ).scalar()
+                if ts is not None:
+                    entry["last_updated"] = (
+                        ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                    )
+
+                # uploaded_at: the real "Uploaded On" date — when this table's file
+                # was last uploaded through the app, read from the audit_log. Distinct
+                # from last_updated (the newest record date inside the data).
+                master_type = _UPLOAD_MASTER_TYPE.get(table_name)
+                if master_type:
+                    up = conn.execute(
+                        text(
+                            "SELECT MAX(ts) FROM audit_log WHERE client_id = :cid "
+                            "AND action_type = 'file_upload' "
+                            "AND split_part(details, ' · ', 1) = :mt"
+                        ),
+                        {"cid": client_id, "mt": master_type},
+                    ).scalar()
+                    if up is not None:
+                        entry["uploaded_at"] = (
+                            up.isoformat() if hasattr(up, "isoformat") else str(up)
                         )
             except Exception as e:
                 # Table missing or column renamed — log and keep going with zero.
@@ -1082,13 +1119,9 @@ def validate_admin_create_payload(req: "AdminCreateClientRequest") -> list[str]:
     elif not PHONE_RE.match(ap):
         errors.append("Admin phone must be 10–12 digits.")
 
-    pw = req.password or ""
-    if not (len(pw) >= 8 and re.search(r'[A-Z]', pw) and re.search(r'[a-z]', pw)
-            and re.search(r'\d', pw) and re.search(r'[^A-Za-z0-9]', pw)):
-        errors.append(
-            "Password must be at least 8 characters and include an uppercase "
-            "letter, lowercase letter, number, and special character."
-        )
+    pw_error = validate_password(req.password)
+    if pw_error:
+        errors.append(pw_error)
     return errors
 
 

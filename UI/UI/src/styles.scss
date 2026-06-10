@@ -29,6 +29,11 @@ html,body{height:100%;font-family:'Sora',sans-serif;background:var(--bg-base);co
 .badge.gray{background:rgba(138,155,187,.12);color:var(--text-secondary)}
 .badge.orange{background:rgba(234,88,12,.10);color:#C2410C}
 
+/* Universal required-field marker: a clean red asterisk used site-wide (form
+   labels, master-data cards, etc.) — replaces harsh "REQUIRED" badges. Single
+   source of truth so the indicator is identical everywhere. */
+.required{color:var(--accent-red,#dc2626);font-weight:600;margin-left:2px}
+
 /* Stat Card */
 .stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow)}
 .stat-card .stat-value{font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:700;letter-spacing:-1px;color:var(--text-primary)}

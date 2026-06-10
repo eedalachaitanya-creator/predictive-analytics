@@ -381,18 +381,18 @@
           <table class="data-table dataset-table">
             <thead>
               <tr>
-                <th>Dataset</th><th>Table (DB)</th>
+                <th>Dataset</th>
                 <th style="text-align:right">Row Count</th>
-                <th>Last Updated</th><th>Action</th>
+                <th>Latest Record</th><th>Uploaded On</th><th>Action</th>
               </tr>
             </thead>
             <tbody>
               @for (row of ov.uploaded; track row.table) {
                 <tr [class.dim]="row.row_count === 0">
                   <td>{{ row.label }}</td>
-                  <td class="font-mono" style="font-size:12px; color:var(--text-muted)">{{ row.table }}</td>
                   <td class="font-mono row-count">{{ formatCount(row.row_count) }}</td>
                   <td style="font-size:12px">{{ formatTimestamp(row.last_updated) }}</td>
+                  <td style="font-size:12px">{{ formatTimestamp(row.uploaded_at) }}</td>
                   <td>
                     <button class="btn outline sm" [disabled]="row.row_count === 0" (click)="openDataView(row.table, row.label)">▶ View</button>
                   </td>
@@ -407,7 +407,7 @@
           <table class="data-table dataset-table">
             <thead>
               <tr>
-                <th>Dataset</th><th>Table (DB)</th>
+                <th>Dataset</th>
                 <th style="text-align:right">Row Count</th>
                 <th>Last Computed</th><th>Action</th>
               </tr>
@@ -416,7 +416,6 @@
               @for (row of ov.generated; track row.table) {
                 <tr [class.dim]="row.row_count === 0">
                   <td>{{ row.label }}</td>
-                  <td class="font-mono" style="font-size:12px; color:var(--text-muted)">{{ row.table }}</td>
                   <td style="text-align:right" class="font-mono">{{ formatCount(row.row_count) }}</td>
                   <td style="font-size:12px">{{ formatTimestamp(row.last_updated) }}</td>
                   <td>
@@ -460,7 +459,7 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  @for (col of d.columns; track col) { <th>{{ col }}</th> }
+                  @for (col of d.columns; track col) { <th>{{ formatColumnName(col) }}</th> }
                 </tr>
               </thead>
               <tbody>

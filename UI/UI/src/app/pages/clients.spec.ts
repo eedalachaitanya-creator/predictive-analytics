@@ -196,3 +196,85 @@ describe('ClientsComponent — org-detail address rendering', () => {
     }) as never)).toEqual([]);
   });
 });
+
+
+/**
+ * Bug fix (QA): the generic data-view modal rendered raw DB strings — a
+ * timestamptz like "2026-06-08T12:38:08.553388+00:00" showed verbatim. renderCell
+ * now formats ISO timestamps into a human-readable date, leaving IDs, statuses,
+ * date-only values, and numbers untouched.
+ */
+describe('ClientsComponent — renderCell formats data-viewer cells', () => {
+  let cmp: ClientsComponent;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: ApiService, useValue: { get: () => of([]), post: () => of({}), delete: () => of({}) } },
+        { provide: AuthService, useValue: { isSuperAdmin: signal(true) } },
+      ],
+    });
+    cmp = TestBed.createComponent(ClientsComponent).componentInstance;
+  });
+
+  it('formats a raw ISO timestamp into a readable date (no T / offset / microseconds)', () => {
+    const out = cmp.renderCell('2026-06-08T12:38:08.553388+00:00');
+    expect(out).not.toContain('T');         // not the raw ISO string anymore
+    expect(out).not.toContain('+00:00');    // timezone offset dropped
+    expect(out).not.toContain('.553388');   // microseconds dropped
+    expect(out).toContain('2026');          // still the correct year
+    expect(out).toContain('Jun');           // and month
+  });
+
+  it('leaves a non-date string (an ID) unchanged', () => {
+    expect(cmp.renderCell('CUST-00001')).toBe('CUST-00001');
+  });
+
+  it('leaves a date-only string unchanged (avoids UTC day-shift)', () => {
+    expect(cmp.renderCell('2025-09-17')).toBe('2025-09-17');
+  });
+
+  it('renders null/undefined as a dash', () => {
+    expect(cmp.renderCell(null)).toBe('—');
+    expect(cmp.renderCell(undefined)).toBe('—');
+  });
+
+  it('formats integers with thousands separators', () => {
+    expect(cmp.renderCell(2643)).toBe('2,643');
+  });
+});
+
+
+/**
+ * Bug fix (QA): the data-view grid showed raw DB column names with underscores
+ * (customer_name, days_since_last_order). formatColumnName() turns them into
+ * human-readable headers, uppercasing common acronyms (ID / USD / RFM / LTV).
+ */
+describe('ClientsComponent — formatColumnName humanizes DB headers', () => {
+  let cmp: ClientsComponent;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: ApiService, useValue: { get: () => of([]), post: () => of({}), delete: () => of({}) } },
+        { provide: AuthService, useValue: { isSuperAdmin: signal(true) } },
+      ],
+    });
+    cmp = TestBed.createComponent(ClientsComponent).componentInstance;
+  });
+
+  it('replaces underscores and title-cases words', () => {
+    expect(cmp.formatColumnName('customer_name')).toBe('Customer Name');
+    expect(cmp.formatColumnName('days_since_last_order')).toBe('Days Since Last Order');
+  });
+
+  it('uppercases common acronyms', () => {
+    expect(cmp.formatColumnName('client_id')).toBe('Client ID');
+    expect(cmp.formatColumnName('ltv_usd')).toBe('LTV USD');
+    expect(cmp.formatColumnName('rfm_total_score')).toBe('RFM Total Score');
+  });
+
+  it('leaves a single plain word capitalized', () => {
+    expect(cmp.formatColumnName('status')).toBe('Status');
+  });
+});

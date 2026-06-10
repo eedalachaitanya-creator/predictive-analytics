@@ -25,7 +25,8 @@ interface DataOverviewRow {
   table: string;
   label: string;
   row_count: number;
-  last_updated: string | null;
+  last_updated: string | null;   // newest record date inside the data ("Latest Record")
+  uploaded_at: string | null;    // when the file was last uploaded ("Uploaded On")
 }
 
 interface DataOverview {
@@ -152,7 +153,9 @@ export class ClientsComponent implements OnInit {
     else if (!this.PHONE_RE.test(ap)) e.admin_phone = 'Phone must be 10–12 digits.';
 
     const p = f.password;
-    if (!(p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p) && /[^A-Za-z0-9]/.test(p)))
+    if (p && p !== p.trim())
+      e.password = 'Password cannot start or end with a space.';
+    else if (!(p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p) && /[^A-Za-z0-9]/.test(p)))
       e.password = 'Min 8 characters with an uppercase letter, a number, and a special character.';
     return e;
   }
@@ -338,8 +341,28 @@ export class ClientsComponent implements OnInit {
       if (Number.isInteger(value)) return value.toLocaleString('en-US');
       return String(Number(value.toFixed(4)));
     }
+    if (typeof value === 'string') {
+      // timestamptz columns (e.g. computed_at) arrive as raw ISO strings with
+      // microseconds + offset — format them like the rest of the UI. Date-only
+      // values and other strings (IDs, statuses) render unchanged.
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return this.formatTimestamp(value);
+      return value;
+    }
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value);
+  }
+
+  /** Humanize a raw DB column name for grid headers: "days_since_last_order"
+   *  → "Days Since Last Order". Common acronyms are upper-cased (ID, USD, …). */
+  formatColumnName(col: string): string {
+    if (!col) return col;
+    const acronyms = new Set(['id', 'usd', 'rfm', 'ltv', 'sku', 'api', 'url', 'csv', 'db', 'pv']);
+    return col
+      .split('_')
+      .map(w => !w ? w
+        : acronyms.has(w.toLowerCase()) ? w.toUpperCase()
+        : w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
   }
 
   // ── Add a new client ──────────────────────────────────────────────────

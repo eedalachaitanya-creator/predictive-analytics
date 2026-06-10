@@ -25,8 +25,8 @@ interface DataOverviewRow {
   table: string;
   label: string;
   row_count: number;
-  last_updated: string | null;   // newest record date inside the data ("Latest Record")
-  uploaded_at: string | null;    // when the file was last uploaded ("Uploaded On")
+  last_updated: string | null;
+  uploaded_at: string | null;
 }
 
 interface DataOverview {
@@ -47,14 +47,11 @@ interface TableDataResponse {
   offset: number;
 }
 
-// Fields captured by the "Add New Client" form (organization details + admin
-// account). Mirrors the backend AdminCreateClientRequest contract exactly.
 type AddField =
   | 'organization_name' | 'address' | 'city' | 'state_province'
   | 'postal_code' | 'country' | 'company_contact_email' | 'company_phone'
   | 'admin_name' | 'admin_phone' | 'admin_email' | 'password';
 
-// Country options for the dropdown (ISO short names, alphabetical).
 const COUNTRIES: string[] = [
   'Argentina', 'Australia', 'Austria', 'Bangladesh', 'Belgium', 'Brazil',
   'Bulgaria', 'Canada', 'Chile', 'China', 'Colombia', 'Croatia', 'Czechia',
@@ -84,8 +81,6 @@ export class ClientsComponent implements OnInit {
   clients  = signal<ClientRow[]>([]);
   loading  = signal(true);
   selected = signal<ClientRow | null>(null);
-  // Client-detail is shown in a modal popup (not an inline panel) so the
-  // super-admin gets clear feedback that "View" worked.
   showClientModal = signal(false);
 
   activeClients   = computed(() => this.clients().filter(c => c.is_active));
@@ -107,7 +102,6 @@ export class ClientsComponent implements OnInit {
 
   readonly isSuperAdmin = this.auth.isSuperAdmin;
 
-  // ── Add-client form state (organization details + administrator account) ──
   showAddForm  = signal(false);
   showPassword = signal(false);
   addForm      = signal<Record<AddField, string>>({
@@ -120,15 +114,11 @@ export class ClientsComponent implements OnInit {
   addError     = signal('');
   addSuccess   = signal<string>('');
 
-  // Country options for the dropdown.
   readonly countries = COUNTRIES;
 
-  // ── Validation regexes (kept in lock-step with the backend validator) ──
   private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-  private readonly PHONE_RE = /^\d{10,12}$/;   // 10–12 digits (no separators)
+  private readonly PHONE_RE = /^\d{10,12}$/;
 
-  // Raw errors for ALL fields (ignores touched) — single source for both the
-  // displayed errors and submit-gating, so they can never disagree.
   private computeAddErrors(f: Record<AddField, string>): Partial<Record<AddField, string>> {
     const e: Partial<Record<AddField, string>> = {};
     const req = (k: AddField, label: string) => { if (!f[k].trim()) e[k] = `${label} is required.`; };
@@ -160,7 +150,6 @@ export class ClientsComponent implements OnInit {
     return e;
   }
 
-  // Errors to DISPLAY — only for fields the user has touched.
   addErrors = computed<Partial<Record<AddField, string>>>(() => {
     const all = this.computeAddErrors(this.addForm());
     const touched = this.addTouched();
@@ -171,28 +160,24 @@ export class ClientsComponent implements OnInit {
 
   addFormValid = computed(() => Object.keys(this.computeAddErrors(this.addForm())).length === 0);
 
-  // ── Delete-client state ───────────────────────────────────────────────
   deleteConfirmId = signal<string | null>(null);
   deleting        = signal(false);
   deleteError     = signal('');
 
-  // ── Reactivate state ──────────────────────────────────────────────────
   reactivateConfirmId = signal<string | null>(null);
   reactivating        = signal(false);
   reactivateError     = signal('');
 
-  // ── Data-overview state ───────────────────────────────────────────────
   overview        = signal<DataOverview | null>(null);
   overviewLoading = signal(false);
   overviewError   = signal('');
 
-  // ── Per-table data-viewer modal state ─────────────────────────────────
-  viewTable  = signal<string | null>(null);
-  viewLabel  = signal<string>('');
-  viewData   = signal<TableDataResponse | null>(null);
+  viewTable   = signal<string | null>(null);
+  viewLabel   = signal<string>('');
+  viewData    = signal<TableDataResponse | null>(null);
   viewLoading = signal(false);
-  viewError  = signal('');
-  viewOffset = signal(0);
+  viewError   = signal('');
+  viewOffset  = signal(0);
   readonly viewLimit = 100;
 
   ngOnInit() { this.loadClients(); }
@@ -214,8 +199,6 @@ export class ClientsComponent implements OnInit {
     this.fetchOverview(c.client_id);
   }
 
-  // "View" opens the detail as a modal popup (clear feedback the click worked),
-  // loading that client's data overview on demand.
   viewClient(c: ClientRow) {
     this.selectClient(c);
     this.showClientModal.set(true);
@@ -223,7 +206,7 @@ export class ClientsComponent implements OnInit {
 
   closeClientModal() {
     this.showClientModal.set(false);
-    this.closeDataView();   // also dismiss any nested data viewer so no orphan modal lingers
+    this.closeDataView();
   }
 
   fetchOverview(clientId: string) {
@@ -262,9 +245,6 @@ export class ClientsComponent implements OnInit {
     return (n ?? 0).toLocaleString('en-US');
   }
 
-  // Multi-line address block for the clients table: street / "City, ST 12345" /
-  // country. Drops empty parts so pre-onboarding tenants (NULL org columns)
-  // render nothing rather than stray commas.
   addressLines(c: ClientRow): string[] {
     const lines: string[] = [];
     if (c.address?.trim()) lines.push(c.address.trim());
@@ -342,9 +322,6 @@ export class ClientsComponent implements OnInit {
       return String(Number(value.toFixed(4)));
     }
     if (typeof value === 'string') {
-      // timestamptz columns (e.g. computed_at) arrive as raw ISO strings with
-      // microseconds + offset — format them like the rest of the UI. Date-only
-      // values and other strings (IDs, statuses) render unchanged.
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return this.formatTimestamp(value);
       return value;
     }
@@ -352,8 +329,6 @@ export class ClientsComponent implements OnInit {
     return String(value);
   }
 
-  /** Humanize a raw DB column name for grid headers: "days_since_last_order"
-   *  → "Days Since Last Order". Common acronyms are upper-cased (ID, USD, …). */
   formatColumnName(col: string): string {
     if (!col) return col;
     const acronyms = new Set(['id', 'usd', 'rfm', 'ltv', 'sku', 'api', 'url', 'csv', 'db', 'pv']);
@@ -400,8 +375,20 @@ export class ClientsComponent implements OnInit {
     this.addTouched.set(all);
   }
 
+  private extractErrorMessage(err: any): string {
+    const detail = err?.error?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (Array.isArray(detail) && detail.length > 0) {
+      // FastAPI validation errors return an array of {msg, loc} objects
+      return detail.map((d: any) => d?.msg ?? JSON.stringify(d)).join(' · ');
+    }
+    const msg = err?.error?.message ?? err?.message;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+    return 'Could not create client. Please try again.';
+  }
+
   saveNewClient() {
-    this.touchAllAdd();          // reveal every inline error
+    this.touchAllAdd();
     this.addError.set('');
     if (!this.addFormValid()) return;
 
@@ -420,9 +407,7 @@ export class ClientsComponent implements OnInit {
       },
       error: (err) => {
         this.addSaving.set(false);
-        this.addError.set(
-          err?.error?.detail ?? err?.error?.message ?? err?.message ?? 'Could not create client. Please try again.'
-        );
+        this.addError.set(this.extractErrorMessage(err));
       }
     });
   }

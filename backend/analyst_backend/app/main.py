@@ -34,6 +34,7 @@ from app.churn_router import router as churn_router
 from app.downloads_router import router as downloads_router
 from app.validation_router import router as validation_router
 from app.chat_router import router as chat_router
+from app.rag_router import router as rag_router
 from app.messages_router import router as messages_router
 from app.audit_router import router as audit_router
 from scout.router import scout_router
@@ -72,6 +73,18 @@ async def lifespan(app: FastAPI):
             "❌ Strategist DB pool failed to initialise: %s — "
             "/api/strategist/* endpoints will return 503.", exc
         )
+
+    # Best-effort: ensure the RAG vector store exists so the chat agent's
+    # search_customer_feedback tool doesn't error before the first reindex. On
+    # managed deploys where the app user can't CREATE EXTENSION, this logs and
+    # continues — run db/migration_rag_documents.sql as a superuser there.
+    try:
+        from rag.store import ensure_schema
+        from app.database import engine
+        ensure_schema(engine)
+        log.info("✅ RAG vector store ready (rag_documents).")
+    except Exception as exc:
+        log.warning("RAG schema ensure failed (run migration manually?): %s", exc)
 
     yield
 
@@ -116,6 +129,7 @@ app.include_router(dashboard_router)
 app.include_router(downloads_router)
 app.include_router(validation_router)
 app.include_router(chat_router)
+app.include_router(rag_router)
 app.include_router(messages_router)
 app.include_router(audit_router)
 app.include_router(scout_router)

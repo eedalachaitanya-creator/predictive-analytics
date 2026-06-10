@@ -267,7 +267,7 @@
           <div class="preview-table-wrap">
             <table class="preview-table">
               <thead>
-                <tr>@for (c of p.columns; track c) { <th>{{ c }}</th> }</tr>
+                <tr>@for (c of p.columns; track c) { <th>{{ formatColumnName(c) }}</th> }</tr>
               </thead>
               <tbody>
                 @for (row of p.rows; track $index) {

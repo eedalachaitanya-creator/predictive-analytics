@@ -149,6 +149,20 @@ export class UploadComponent implements OnInit {
     this.previewError.set('');
   }
 
+  /** Humanize a raw DB column name for display in the Preview grid headers,
+      e.g. customer_id -> 'Customer ID', order_value_usd -> 'Order Value USD'.
+      Mirrors clients.formatColumnName so no table in the app shows raw snake_case. */
+  formatColumnName(col: string): string {
+    if (!col) return col;
+    const acronyms = new Set(['id', 'usd', 'rfm', 'ltv', 'sku', 'api', 'url', 'csv', 'db', 'pv']);
+    return col
+      .split('_')
+      .map(w => !w ? w
+        : acronyms.has(w.toLowerCase()) ? w.toUpperCase()
+        : w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
   onFileSelected(event: Event, key: MasterType) {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];

@@ -58,7 +58,6 @@ export class SidebarComponent {
       { path: '/app/scout/compare',   label: 'Compare',       icon: '⚖️' },
       { path: '/app/scout/platforms', label: 'Platforms',     icon: '🌐' },
       { path: '/app/scout/chat',      label: 'Chat',          icon: '💬' },
-
     ],
   };
 
@@ -76,12 +75,10 @@ export class SidebarComponent {
     label: 'Retention Agent',
     icon:  '🎯',
     pathPrefixes: [
-      '/app/run-pipeline', '/app/interventions', '/app/escalations', '/app/retention-summary',
+      '/app/run-pipeline', '/app/retention-summary',
     ],
     children: [
       { path: '/app/run-pipeline',      label: 'Generate Offers', icon: '🚀' },
-      { path: '/app/interventions',     label: 'Interventions',   icon: '📋' },
-      { path: '/app/escalations',       label: 'Escalations',     icon: '🔔' },
       { path: '/app/retention-summary', label: 'Summary',         icon: '📊' },
     ],
   };
@@ -273,6 +270,4 @@ export class SidebarComponent {
   closeSidebar() {
     this.isSidebarOpen  = false ;
   }
-
-  
 }

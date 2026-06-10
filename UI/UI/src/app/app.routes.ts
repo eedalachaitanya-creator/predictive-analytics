@@ -35,13 +35,7 @@ export const routes: Routes = [
         path: 'scout',
         loadComponent: () => import('./pages/scout/scout').then(m => m.ScoutComponent),
         children: [
-          // Default: hitting /app/scout lands on Chat
           { path: '', redirectTo: 'chat', pathMatch: 'full' },
-          // These children don't load components — the Scout parent renders all
-          // 5 tab components always. The path segment is only used to set the
-          // active tab via the URL. Empty component refs would still work, but
-          // we use a sentinel component-less approach: the parent watches its
-          // own ActivatedRoute.firstChild to detect which tab should be active.
           { path: 'chat',      children: [] },
           { path: 'monitor',   children: [] },
           { path: 'search',    children: [] },
@@ -54,11 +48,10 @@ export const routes: Routes = [
       { path: 'market-trends',     loadComponent: () => import('./pages/market-trends').then(m => m.MarketTrendsComponent),         canActivate: [clientGuard] },
       
       { path: 'strategist', redirectTo: 'pricing-engine', pathMatch: 'full' },
-      { path: 'run-pipeline',       loadComponent: () => import('./pages/run-pipeline').then(m => m.RunPipelineComponent),             canActivate: [clientGuard] },
-      { path: 'interventions',      loadComponent: () => import('./pages/interventions').then(m => m.InterventionsComponent),         canActivate: [clientGuard] },
-      { path: 'escalations',        loadComponent: () => import('./pages/escalations').then(m => m.EscalationsComponent),             canActivate: [clientGuard] },
-      { path: 'retention-summary',  loadComponent: () => import('./pages/retention-summary').then(m => m.RetentionSummaryComponent),  canActivate: [clientGuard] },
-      { path: 'retention',          redirectTo: 'run-pipeline', pathMatch: 'full' },
+      { path: 'run-pipeline',      loadComponent: () => import('./pages/run-pipeline').then(m => m.RunPipelineComponent),            canActivate: [clientGuard] },
+      { path: 'retention-summary', loadComponent: () => import('./pages/retention-summary').then(m => m.RetentionSummaryComponent), canActivate: [clientGuard] },
+      { path: 'retention',         redirectTo: 'run-pipeline', pathMatch: 'full' },
+
       // ── Admin Console (blocked for clients) ──────────────────
       { path: 'clients',   loadComponent: () => import('./pages/clients').then(m => m.ClientsComponent),   canActivate: [adminGuard] },
       { path: 'users',     loadComponent: () => import('./pages/users').then(m => m.UsersComponent),       canActivate: [adminGuard] },

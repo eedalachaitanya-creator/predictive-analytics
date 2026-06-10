@@ -87,10 +87,17 @@ def existing_hashes(engine, client_id, source_type) -> dict:
     return {r["source_id"]: (r["content_hash"] or "").strip() for r in rows}
 
 
-def search(engine, client_id, query_vec, k=6, source_types=None) -> list:
+def search(engine, client_id, query_vec, k=6, source_types=None, dedup=True) -> list:
     """Cosine-distance ANN search, scoped to one tenant. Returns dicts with
-    content, source_type, source_id, metadata, distance (lower = closer)."""
-    params = {"cid": client_id, "qv": to_pgvector(query_vec), "k": int(k)}
+    content, source_type, source_id, metadata, distance (lower = closer).
+
+    dedup=True (default) collapses identical-content chunks (the synthetic
+    review data repeats text), keeping the closest of each distinct content and
+    still returning up to k chunks — by over-fetching candidates first.
+    """
+    k = int(k)
+    fetch = min(max(k * 5, k), 200) if dedup else k
+    params = {"cid": client_id, "qv": to_pgvector(query_vec), "lim": fetch}
     src_clause = ""
     if source_types:
         src_clause = "AND source_type = ANY(:src)"
@@ -101,8 +108,19 @@ def search(engine, client_id, query_vec, k=6, source_types=None) -> list:
         FROM rag_documents
         WHERE client_id = :cid {src_clause}
         ORDER BY embedding <=> CAST(:qv AS vector)
-        LIMIT :k
+        LIMIT :lim
     """
     with engine.connect() as cx:
         rows = cx.execute(text(sql), params).mappings().all()
-    return [dict(r) for r in rows]
+    if not dedup:
+        return [dict(r) for r in rows[:k]]
+    seen, out = set(), []
+    for r in rows:
+        key = (r["content"] or "").strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(dict(r))
+        if len(out) >= k:
+            break
+    return out

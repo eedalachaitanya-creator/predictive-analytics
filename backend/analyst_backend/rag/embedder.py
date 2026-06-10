@@ -38,6 +38,36 @@ def _review_metadata(r) -> dict:
     }
 
 
+def _outreach_content(r) -> str:
+    return (r.get("message_text") or "").strip()
+
+
+def _outreach_metadata(r) -> dict:
+    return {
+        "message_type": r.get("message_type"),
+        "trigger_reason": r.get("trigger_reason"),
+        "channel": r.get("channel"),
+        "outcome": r.get("outcome"),
+        "responded": r.get("responded"),
+        "customer_id": r.get("customer_id"),
+        "sent_at": str(r.get("sent_at")) if r.get("sent_at") else None,
+    }
+
+
+def _brand_content(r) -> str:
+    name = (r.get("brand_name") or "").strip()
+    desc = (r.get("brand_description") or "").strip()
+    return f"{name} — {desc}" if (name and desc) else (desc or name)
+
+
+def _brand_metadata(r) -> dict:
+    return {
+        "brand_name": r.get("brand_name"),
+        "category_hint": r.get("category_hint"),
+        "active": r.get("active"),
+    }
+
+
 SOURCES = {
     "customer_review": {
         "fetch_sql": """
@@ -50,6 +80,31 @@ SOURCES = {
         "source_id": "review_id",
         "content": _review_content,
         "metadata": _review_metadata,
+    },
+    "outreach_message": {
+        "fetch_sql": """
+            SELECT message_id, message_text, message_type, trigger_reason,
+                   channel, outcome, responded, customer_id, sent_at
+            FROM outreach_messages
+            WHERE client_id = :cid
+              AND message_text IS NOT NULL
+              AND length(trim(message_text)) > 0
+        """,
+        "source_id": "message_id",
+        "content": _outreach_content,
+        "metadata": _outreach_metadata,
+    },
+    "brand": {
+        "fetch_sql": """
+            SELECT brand_id, brand_name, brand_description, category_hint, active
+            FROM brands
+            WHERE client_id = :cid
+              AND brand_description IS NOT NULL
+              AND length(trim(brand_description)) > 0
+        """,
+        "source_id": "brand_id",
+        "content": _brand_content,
+        "metadata": _brand_metadata,
     },
 }
 

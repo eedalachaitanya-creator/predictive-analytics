@@ -1,3 +1,6 @@
+--find-links ./wheels
+ai-firewall==0.1.0
+
 # ── Web framework ──────────────────────────────────────────────────────────────
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
@@ -51,7 +54,8 @@ vaderSentiment==3.3.2
 
 # ── LLM + Agent (Groq for outreach emails, LangGraph for Agent Chat) ─────────
 langchain-groq==1.1.2
-langchain-core==1.2.28
+# langchain-core==1.2.28
+langchain-core==1.2.31
 langgraph>=0.2.0
 
 # ── Web scraping (Scout Agent) ────────────────────────────────────────────────

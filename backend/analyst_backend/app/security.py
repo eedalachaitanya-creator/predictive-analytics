@@ -32,15 +32,18 @@ def validate_password(pw: str) -> str | None:
     """Validate a NEW account password. Returns an error message if invalid, else
     None. The single source of truth for password rules across the whole app
     (self-registration, admin client/user creation, change-password). Rejects
-    leading/trailing whitespace — otherwise a trailing space (e.g. "Stixis@12 ")
-    passes, because the complexity check counts the space itself as the required
-    "special character", and the user later can't log in with what they typed.
+    any whitespace — leading, trailing, or in the middle (e.g. "Stixis@12 3")
+    — because the complexity check would otherwise count the space itself as
+    the required "special character", and the user later can't reliably log
+    in with what they typed (some clients trim differently).
     """
     pw = pw or ""
     if pw != pw.strip():
         return "Password cannot start or end with a space."
+    if re.search(r"\s", pw):
+        return "Password cannot contain spaces."
     if not (len(pw) >= 8 and re.search(r"[A-Z]", pw) and re.search(r"[a-z]", pw)
-            and re.search(r"\d", pw) and re.search(r"[^A-Za-z0-9]", pw)):
+            and re.search(r"\d", pw) and re.search(r"[^A-Za-z0-9\s]", pw)):
         return ("Password must be at least 8 characters and include an uppercase "
                 "letter, lowercase letter, number, and special character.")
     return None

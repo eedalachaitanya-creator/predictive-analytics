@@ -421,13 +421,17 @@ def _send_welcome_email(
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASSWORD", "")
-    smtp_from = os.getenv("SMTP_FROM", smtp_user) or "no-reply@predictive-analytics.io"
+    smtp_from = os.getenv("SMTP_FROM", smtp_user) or "no-reply@loyaltix.io"
+
+    # BUG FIX: read production URL from env var — never hardcode localhost.
+    # Set APP_URL=https://your-domain.com in your .env file.
+    app_url = os.getenv("APP_URL", "https://loyaltix.io").rstrip("/")
 
     if not smtp_user:
         log.warning("SMTP_USER not configured — skipping welcome email to %s", to_email)
         return
 
-    subject = "Welcome to Predictive Analytics — Your Account is Ready"
+    subject = "Welcome to Loyaltix — Your Account is Ready"
 
     html_body = f"""
 <!DOCTYPE html>
@@ -435,7 +439,7 @@ def _send_welcome_email(
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Welcome to Predictive Analytics</title>
+  <title>Welcome to Loyaltix</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f6fb;font-family:'Segoe UI',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:40px 0;">
@@ -449,7 +453,7 @@ def _send_welcome_email(
         <tr>
           <td style="padding:36px 40px 24px;border-bottom:1px solid #eef0f5;">
             <div style="font-size:22px;font-weight:700;color:#1a1a2e;">
-              📊 <span style="color:#0071CE;">Predictive</span> Analytics
+              📊 <span style="color:#0071CE;">Loyaltix</span>
             </div>
             <div style="font-size:12px;color:#888;margin-top:4px;">
               Churn Prediction &amp; Retention Platform · v4.0
@@ -501,7 +505,7 @@ def _send_welcome_email(
             <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
               <tr>
                 <td align="center" style="border-radius:8px;background:#0071CE;">
-                  <a href="http://localhost:4200/login"
+                  <a href="{app_url}/login"
                      style="display:inline-block;padding:13px 32px;font-size:14px;font-weight:600;
                             color:#ffffff;text-decoration:none;border-radius:8px;">
                     Sign In to Your Account
@@ -520,9 +524,9 @@ def _send_welcome_email(
         <tr>
           <td style="padding:20px 40px;border-top:1px solid #eef0f5;background:#fafbfd;">
             <p style="margin:0;font-size:11px;color:#aaa;line-height:1.6;text-align:center;">
-              This email was sent because an account was created at Predictive Analytics.<br/>
+              This email was sent because an account was created at Loyaltix.<br/>
               If you did not register, please contact your administrator immediately.<br/>
-              &copy; 2026 Predictive Analytics. All rights reserved.
+              &copy; 2026 Loyaltix. All rights reserved.
             </p>
           </td>
         </tr>
@@ -535,7 +539,7 @@ def _send_welcome_email(
 """
 
     plain_body = (
-        f"Welcome to Predictive Analytics, {contact_name}!\n\n"
+        f"Welcome to Loyaltix, {contact_name}!\n\n"
         f"Your account for {company_name} has been created.\n\n"
         f"Account Details:\n"
         f"  Company Name : {company_name}\n"
@@ -543,9 +547,9 @@ def _send_welcome_email(
         f"  Client ID    : {client_id}\n"
         f"  Login Email  : {to_email}\n"
         f"  Temp Password: {password}\n\n"
-        f"Sign in at: http://localhost:4200/login\n\n"
+        f"Sign in at: {app_url}/login\n\n"
         f"If you did not register, please contact your administrator immediately.\n"
-        f"© 2026 Predictive Analytics. All rights reserved."
+        f"© 2026 Loyaltix. All rights reserved."
     )
 
     try:

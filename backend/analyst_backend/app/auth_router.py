@@ -452,11 +452,11 @@ def forgot_password(req: ForgotPasswordRequest):
         from app.email_service import send_email
         send_email(
             to=user["email"],
-            subject="Your Temporary Password — Predictive Analytics",
+            subject="Your Temporary Password — Loyaltix",
             html_body=f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
   <div style="background:#1a56db;padding:24px 32px">
-    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Predictive Analytics</div>
+    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Loyaltix</div>
     <div style="color:#c7d9ff;margin-top:4px;font-size:13px">Churn Prediction &amp; Retention Platform</div>
   </div>
   <div style="padding:32px">
@@ -471,7 +471,7 @@ def forgot_password(req: ForgotPasswordRequest):
     <p style="color:#c0392b;font-size:13px;line-height:1.6;margin:0">&#9888;&#65039; If you did not request this password reset, please contact your administrator immediately.</p>
   </div>
   <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #e0e0e0;text-align:center">
-    <p style="margin:0;font-size:12px;color:#888">&copy; 2026 Predictive Analytics &middot; This is an automated message, please do not reply.</p>
+    <p style="margin:0;font-size:12px;color:#888">&copy; 2026 Loyaltix &middot; This is an automated message, please do not reply.</p>
   </div>
 </div>
 """,
@@ -529,11 +529,11 @@ def change_password(
         changed_at = datetime.now(timezone.utc).strftime("%d %B %Y at %H:%M UTC")
         send_email(
             to=user["email"],
-            subject="Your Password Has Been Changed — Predictive Analytics",
+            subject="Your Password Has Been Changed — Loyaltix",
             html_body=f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
   <div style="background:#1a56db;padding:24px 32px">
-    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Predictive Analytics</div>
+    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Loyaltix</div>
     <div style="color:#c7d9ff;margin-top:4px;font-size:13px">Churn Prediction &amp; Retention Platform</div>
   </div>
   <div style="padding:32px">
@@ -546,7 +546,7 @@ def change_password(
     <p style="color:#c0392b;font-size:13px;line-height:1.6;margin:0">&#9888;&#65039; If you did not make this change, please contact your administrator immediately as your account may be compromised.</p>
   </div>
   <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #e0e0e0;text-align:center">
-    <p style="margin:0;font-size:12px;color:#888">&copy; 2026 Predictive Analytics &middot; This is an automated message, please do not reply.</p>
+    <p style="margin:0;font-size:12px;color:#888">&copy; 2026 Loyaltix &middot; This is an automated message, please do not reply.</p>
   </div>
 </div>
 """,

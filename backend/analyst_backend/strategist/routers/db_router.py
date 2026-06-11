@@ -489,3 +489,43 @@ async def price_history_products(
     except Exception as exc:
         logger.error("GET /price-history-products failed: %s", exc)
         return {"count": 0, "products": [], "error": str(exc)}
+
+
+# GET /client-products — fetch product names uploaded by a specific client
+# Used by Market Trends "YOUR PRODUCTS" section to show only the client's
+# own products instead of global Scout DB data.
+# ---------------------------------------------------------------------------
+
+@router.get("/client-products", summary="Get product names for a specific client from their uploaded data")
+async def client_products(
+    client_id: str = Query(..., description="Client ID to fetch products for"),
+    limit:     int = Query(default=20, le=100),
+) -> dict:
+    """
+    Fetch distinct product names from the `products` table scoped to this
+    client_id. Returns empty list for clients who haven't uploaded data yet.
+    Used by the Market Trends page to show only the client's own products
+    in the 'YOUR PRODUCTS' chip section — never global/shared demo data.
+    """
+    from app.database import engine
+    from sqlalchemy import text
+
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT DISTINCT product_name
+                    FROM products
+                    WHERE client_id = :cid
+                      AND product_name IS NOT NULL
+                      AND product_name <> ''
+                    ORDER BY product_name
+                    LIMIT :limit
+                """),
+                {"cid": client_id, "limit": limit},
+            ).fetchall()
+        names = [r[0] for r in rows]
+        return {"count": len(names), "products": names}
+    except Exception as exc:
+        logger.error("GET /client-products failed for %s: %s", client_id, exc)
+        return {"count": 0, "products": [], "error": str(exc)}

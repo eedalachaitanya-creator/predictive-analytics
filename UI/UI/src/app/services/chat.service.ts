@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, effect } from '@angular/core';
 import { Observable, tap, catchError, of } from 'rxjs';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
@@ -41,6 +41,27 @@ export class ChatService {
 
   /** Suggested questions */
   suggestions = signal<ChatSuggestion[]>([]);
+
+  // Identity (user id + active tenant) the current transcript belongs to.
+  // ChatService is a providedIn:'root' singleton, so its `messages`/
+  // `conversationId` signals outlive a logout/login within the same SPA session
+  // (no page reload). When the authenticated identity changes — logout, login
+  // as a different user, OR a super_admin / multi-client user switching the
+  // active tenant in-session — we drop the in-memory transcript so one tenant's
+  // chat can never render under another tenant's session. The backend is
+  // already tenant-scoped; this closes the matching client-side leak.
+  private _identity: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const identity = `${this.auth.user()?.id ?? ''}::${this.auth.activeClient()}`;
+      if (identity === this._identity) return;
+      this._identity = identity;
+      this.messages.set([]);
+      this.conversationId.set(null);
+      this.error.set(null);
+    });
+  }
 
   /** Send a question to the agent */
   ask(question: string): void {

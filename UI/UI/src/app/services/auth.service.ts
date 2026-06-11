@@ -41,6 +41,29 @@ export class AuthService {
   // route and the "+ Add Client" / delete controls; the rest is client_user.
   readonly isSuperAdmin = computed(() => this._user()?.role === 'super_admin');
 
+  // The active tenant the user is operating as. Backed by a signal (not just a
+  // sessionStorage read) so dependent state — most importantly the Agent Chat
+  // transcript — can REACT to an in-session client switch by a super_admin /
+  // multi-client user and reset itself. Declared AFTER _user so loadUser()'s
+  // stale-tab cleanup of 'wap_selected_client' has already run.
+  private _selectedClient = signal<string>(sessionStorage.getItem('wap_selected_client') ?? '');
+
+  /**
+   * Reactive active client_id — same resolution as getClientId(), as a signal:
+   * '' when unresolved, the selected tenant for super_admin / multi-client
+   * users, otherwise the user's single tenant.
+   */
+  readonly activeClient = computed<string>(() => {
+    const user = this._user();
+    if (!user) return '';
+    const access = user.clientAccess ?? [];
+    if (access.length === 0) return '';
+    const selected = this._selectedClient();
+    if (access.includes('*')) return selected;
+    if (access.length > 1 && selected && access.includes(selected)) return selected;
+    return access[0];
+  });
+
   // ── Public API ─────────────────────────────────────────────────────
   login(req: LoginRequest): Observable<LoginResponse> {
     return this.api.post<LoginResponse>('/auth/login', req).pipe(
@@ -129,25 +152,9 @@ export class AuthService {
    *                                          or '' (must pick via selector)
    */
   getClientId(): string {
-    const user = this._user();
-    if (!user) return '';
-
-    const access = user.clientAccess ?? [];
-    if (access.length === 0) return '';
-
-    const selected = sessionStorage.getItem('wap_selected_client') ?? '';
-
-    // Super admin: requires an explicit selection — no default tenant.
-    if (access.includes('*')) {
-      return selected;
-    }
-
-    // Regular user with multiple clients: honor their selection if it's in scope.
-    if (access.length > 1 && selected && access.includes(selected)) {
-      return selected;
-    }
-
-    return access[0];
+    // Single source of truth — delegates to the reactive `activeClient` signal
+    // so a client switch is observable by dependent state (see ChatService).
+    return this.activeClient();
   }
 
   /** Set the active client for users with access to more than one (or '*'). */
@@ -157,6 +164,7 @@ export class AuthService {
       throw new Error(`User does not have access to ${clientId}`);
     }
     sessionStorage.setItem('wap_selected_client', clientId);
+    this._selectedClient.set(clientId);
   }
 
   /** Get the client name for display (from user metadata or fallback) */
@@ -192,6 +200,7 @@ export class AuthService {
     sessionStorage.removeItem(SESSION_ID_KEY);
     sessionStorage.removeItem('wap_selected_client');
     window.name = '';
+    this._selectedClient.set('');
     this._user.set(null);
   }
 

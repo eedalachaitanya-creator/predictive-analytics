@@ -143,6 +143,23 @@ export class UploadComponent implements OnInit {
     });
   }
 
+  /** Like openPreview, but for SAVED (committed) data — used by the post-commit
+   *  "your data has been saved" banner so the client can see what was actually
+   *  saved. Reuses the same preview modal; only the data source differs. */
+  openSavedPreview(key: string) {
+    this.previewOpen.set(true);
+    this.previewLoading.set(true);
+    this.previewError.set('');
+    this.previewData.set(null);
+    this.uploadSvc.savedPreview(this.clientId, key as MasterType).subscribe({
+      next: (data) => { this.previewData.set(data); this.previewLoading.set(false); },
+      error: (err) => {
+        this.previewLoading.set(false);
+        this.previewError.set(err?.message ?? 'Could not load the preview.');
+      },
+    });
+  }
+
   closePreview() {
     this.previewOpen.set(false);
     this.previewData.set(null);

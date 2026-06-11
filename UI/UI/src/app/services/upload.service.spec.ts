@@ -126,3 +126,39 @@ describe('UploadService.preview — staged file preview', () => {
     expect(result.rows[0][0]).toBe('CUST-00001');
   });
 });
+
+
+/**
+ * After a client commits an upload, the success banner lets them preview what was
+ * SAVED. That reads the committed table (not staging), via GET /uploads/saved-preview,
+ * and returns the same UploadPreview shape so the existing preview modal renders it.
+ */
+describe('UploadService.savedPreview — committed data preview', () => {
+  let svc: UploadService;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [UploadService, provideHttpClient(), provideHttpClientTesting()],
+    });
+    svc = TestBed.inject(UploadService);
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => http.verify());
+
+  it('calls GET /uploads/saved-preview with clientId + masterType and returns rows', () => {
+    let result: any;
+    svc.savedPreview('CLT-001', 'customer').subscribe(r => (result = r));
+    const req = http.expectOne(
+      `${environment.apiUrl}/uploads/saved-preview?clientId=CLT-001&masterType=customer`);
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      masterType: 'customer', fileName: 'customer_master.csv',
+      columns: ['customer_id', 'customer_name'],
+      rows: [['CUST-00001', 'John Doe']], shownRows: 1, totalRows: 700,
+    });
+    expect(result.columns).toEqual(['customer_id', 'customer_name']);
+    expect(result.totalRows).toBe(700);
+    expect(result.rows[0][0]).toBe('CUST-00001');
+  });
+});

@@ -1537,6 +1537,64 @@ def preview_upload(
     }
 
 
+@router.get("/uploads/saved-preview")
+def saved_preview(
+    clientId: str = Query(...),
+    masterType: str = Query(...),
+    limit: int = Query(MAX_PREVIEW_ROWS, ge=1, le=MAX_PREVIEW_ROWS),
+    user: dict = Depends(get_current_user),
+):
+    """Preview SAVED (committed) master data, so after committing an upload the
+    "your data has been saved" banner can show the client WHAT was saved.
+
+    Unlike preview_upload (which reads the pending batch's staging table), this
+    reads the REAL table scoped to client_id — there is no batch after a commit.
+    Returns the same UploadPreview shape so the frontend renders it with the same
+    preview modal. A master with no committed rows returns columns + 0 rows (a
+    valid state), NOT a 404 — "no saved rows" is not an error here.
+    """
+    _require_client_access(user, clientId)
+    if masterType not in MASTER_TYPE_TO_TABLE:
+        raise HTTPException(status_code=404, detail=f"Unknown master type: {masterType}")
+
+    real_table, expected_cols = MASTER_TYPE_TO_TABLE[masterType]
+    cols = [c for c in expected_cols if c != "client_id"]   # hide internal client_id
+    col_list = ", ".join(f'"{c}"' for c in cols)
+
+    with engine.connect() as conn:
+        total = conn.execute(
+            text(f"SELECT COUNT(*) FROM {real_table} WHERE client_id = :cid"),
+            {"cid": clientId},
+        ).scalar() or 0
+
+        # ctid ≈ physical order — cheap, stable, and good enough for a preview
+        # of saved rows (mirrors the staged preview, which orders by ctid too).
+        rows = conn.execute(
+            text(f"SELECT {col_list} FROM {real_table} "
+                 f"WHERE client_id = :cid ORDER BY ctid LIMIT :lim"),
+            {"cid": clientId, "lim": limit},
+        ).fetchall()
+
+        # Name the header after the file the client last uploaded for this master
+        # (same source as preview_upload), falling back to a generic label.
+        arow = conn.execute(
+            text("SELECT split_part(details, ' · ', 2) FROM audit_log "
+                 "WHERE client_id = :cid AND action_type = 'file_upload' "
+                 "AND split_part(details, ' · ', 1) = :mt ORDER BY ts DESC LIMIT 1"),
+            {"cid": clientId, "mt": masterType},
+        ).fetchone()
+
+    file_name = arow[0] if arow and arow[0] else f"{masterType} (saved)"
+    return {
+        "masterType": masterType,
+        "fileName": file_name,
+        "columns": cols,
+        "rows": [list(r) for r in rows],
+        "shownRows": len(rows),
+        "totalRows": total,
+    }
+
+
 @router.get("/uploads/batch")
 def get_pending_batch(
     clientId: str = Query(...),

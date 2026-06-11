@@ -26,12 +26,21 @@
       <div class="batch-body">
         <div class="batch-stats">
           @for (entry of commitResultEntries(); track entry.key) {
-            <div class="batch-chip">
+            <div class="batch-chip" [class.clickable]="entry.value > 0"
+                 (click)="entry.value > 0 && openSavedPreview(entry.key)"
+                 (keydown.enter)="entry.value > 0 && openSavedPreview(entry.key)"
+                 (keydown.space)="entry.value > 0 && openSavedPreview(entry.key)"
+                 [attr.role]="entry.value > 0 ? 'button' : null"
+                 [attr.tabindex]="entry.value > 0 ? 0 : null"
+                 [attr.title]="entry.value > 0 ? 'Preview the saved ' + masterDisplay(entry.key).label + ' data' : null">
               <div class="chip-icon">{{ masterDisplay(entry.key).icon }}</div>
               <div class="chip-text">
                 <div class="chip-label">{{ masterDisplay(entry.key).label }}</div>
                 <div class="chip-count">{{ entry.value | number }} <span>added</span></div>
               </div>
+              @if (entry.value > 0) {
+                <div class="chip-preview-hint">👁 Preview</div>
+              }
             </div>
           }
         </div>

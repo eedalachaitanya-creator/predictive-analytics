@@ -80,6 +80,14 @@ export class UploadService {
       `/uploads/preview?clientId=${clientId}&masterType=${masterType}`);
   }
 
+  /** Preview of SAVED (committed) master data, so after committing the user can
+   *  see what was saved. Reads the real table (not staging), same shape as
+   *  preview(). Backed by GET /uploads/saved-preview. */
+  savedPreview(clientId: string, masterType: MasterType): Observable<UploadPreview> {
+    return this.api.get<UploadPreview>(
+      `/uploads/saved-preview?clientId=${clientId}&masterType=${masterType}`);
+  }
+
   removeUpload(clientId: string, masterType: MasterType): Observable<void> {
     return this.api.delete<void>(`/uploads/${masterType}?clientId=${clientId}`).pipe(
       tap(() => {

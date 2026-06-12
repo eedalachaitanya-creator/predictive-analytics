@@ -101,6 +101,18 @@ def _build_system_prompt(client_id: str) -> str:
     curated table catalog so the agent can answer structured questions across
     all business tables (not just the specialized tools)."""
     prompt = SYSTEM_PROMPT_TEMPLATE.format(client_id=client_id)
+
+    # Scope policy (second layer behind agent/scope_guard's pre-flight gate):
+    # the Analyst must refuse anything outside its churn/retention domain instead
+    # of being a general-purpose assistant.
+    from agent.scope_guard import SCOPE_DESCRIPTION, SCOPE_REFUSAL
+    prompt += (
+        f"\n\nSCOPE — you ONLY answer questions about: {SCOPE_DESCRIPTION}\n"
+        "If the user asks anything outside this scope (general programming or "
+        "coding, math, trivia, world knowledge, writing unrelated content, etc.), "
+        "do NOT answer it and do NOT provide the requested content. Reply with "
+        f"exactly: \"{SCOPE_REFUSAL}\""
+    )
     try:
         from app.database import engine
         from agent.schema_catalog import compact_catalog
@@ -312,6 +324,14 @@ def ask_agent(
             "ask_agent requires a client_id — refusing to run the agent "
             "without tenant scoping."
         )
+
+    # Domain scope gate: the Analyst answers ONLY churn / retention / customer-data
+    # questions. Off-topic requests (general coding, math, trivia, …) are refused
+    # HERE — before the agent is built or any tool runs. Fail-open: a classifier
+    # error lets the question through rather than wrongly refusing a real one.
+    from agent.scope_guard import is_in_scope, SCOPE_REFUSAL
+    if not is_in_scope(question):
+        return SCOPE_REFUSAL
 
     agent = get_agent()
 

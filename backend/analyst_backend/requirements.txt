@@ -1,5 +1,5 @@
 --find-links ./wheels
-ai-firewall==0.2.2
+ai-firewall==0.3.0
 
 # ── Web framework ──────────────────────────────────────────────────────────────
 fastapi==0.111.0

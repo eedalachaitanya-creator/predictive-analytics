@@ -55,3 +55,30 @@ def filter_chunks(hits: list) -> list:
     except Exception as exc:
         log.error("gateway filter_chunks failed (%s); returning chunks unchanged.", exc)
         return hits
+
+
+def sanitize_ingest(text: str) -> str:
+    """② INGEST — sanitize a document before it is embedded into the vector store,
+    so a poisoned customer review can't plant an injection that later gets
+    retrieved into the LLM context. Never raises (a sanitize failure must not
+    abort a reindex)."""
+    if not _ENABLED or not isinstance(text, str):
+        return text
+    try:
+        return _GATEWAY.ingest_document(text)
+    except Exception as exc:
+        log.error("gateway sanitize_ingest failed (%s); embedding text unchanged.", exc)
+        return text
+
+
+def guard_tool(text: str) -> str:
+    """④ TOOL OUTPUT — sanitize a tool result (DB rows, scraped/retrieved text)
+    before it re-enters the model context. Tool outputs are attacker-influenced
+    (a customer-provided name/review/address can carry injection). Never raises."""
+    if not _ENABLED or not isinstance(text, str):
+        return text
+    try:
+        return _GATEWAY.guard_tool(text)
+    except Exception as exc:
+        log.error("gateway guard_tool failed (%s); returning tool output unchanged.", exc)
+        return text

@@ -136,10 +136,15 @@ def reindex(client_id, source_type, *, embed_fn=None, batch_size=100) -> dict:
 
     pending = []  # (source_id, content, content_hash, metadata_json)
     skipped = 0
+    from app.llm_gateway import sanitize_ingest
     for r in rows:
         content = cfg["content"](r)
         if not content:
             continue
+        # ② ingest guard: sanitize attacker-influenced source text (e.g. customer
+        # reviews) BEFORE embedding, so a poisoned document can't plant an
+        # injection in the vector store. Hash is over the sanitized text → stable.
+        content = sanitize_ingest(content)
         source_id = str(r[cfg["source_id"]])
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         if existing.get(source_id) == content_hash:

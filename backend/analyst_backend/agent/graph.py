@@ -226,12 +226,29 @@ def build_graph():
     # Create ToolNode from our tool list
     tool_node = ToolNode(ALL_TOOLS)
 
+    # ④ tool-output guard: every tool result is sanitized before it re-enters the
+    # model context. Tool outputs are attacker-influenced — DB rows, customer
+    # reviews, and scraped text can carry an injection planted in a customer field.
+    def guarded_tools(state):
+        from app.llm_gateway import guard_tool
+        result = tool_node.invoke(state)
+        msgs = result["messages"] if isinstance(result, dict) and "messages" in result else (result or [])
+        guarded = []
+        for m in msgs:
+            content = getattr(m, "content", None)
+            if isinstance(content, str):
+                clean = guard_tool(content)
+                if clean != content:
+                    m = m.model_copy(update={"content": clean})
+            guarded.append(m)
+        return {"messages": guarded}
+
     # Initialize graph
     graph = StateGraph(AgentState)
 
     # Add nodes
     graph.add_node("agent", agent_node)
-    graph.add_node("tools", tool_node)
+    graph.add_node("tools", guarded_tools)
 
     # Set entry point
     graph.set_entry_point("agent")

@@ -69,7 +69,11 @@ def guard_question(
             from fastapi import HTTPException
             raise HTTPException(
                 status_code=400,
-                detail="Your message was blocked by the security filter.",
+                detail=(
+                    "⚠️ That message looks like a possible prompt-injection "
+                    "attempt, so I couldn't process it. Please rephrase your question "
+                    "and try again."
+                ),
             )
 
     return question

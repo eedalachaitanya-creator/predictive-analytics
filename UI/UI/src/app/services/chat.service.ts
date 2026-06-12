@@ -84,12 +84,22 @@ export class ChatService {
 
     this.api.post<ChatResponse>('/chat/ask', body).pipe(
       catchError(err => {
-        this.error.set('Failed to get a response. Please try again.');
+        // A 4xx carries a meaningful, user-facing message from the backend
+        // (e.g. the firewall's "looks like a prompt-injection attempt…" block).
+        // Surface it verbatim so the user sees WHY, instead of a generic error.
+        // 5xx / network failures stay generic — those aren't actionable by the user.
+        const clientError =
+          err?.status >= 400 && err?.status < 500 &&
+          typeof err?.message === 'string' && err.message.length > 0;
+        const assistantText = clientError
+          ? err.message
+          : 'Sorry, I encountered an error processing your question. Please try again.';
+        this.error.set(clientError ? err.message : 'Failed to get a response. Please try again.');
         this.loading.set(false);
         // Add error message as assistant
         this.messages.update(msgs => [...msgs, {
           role: 'assistant' as const,
-          content: 'Sorry, I encountered an error processing your question. Please try again.',
+          content: assistantText,
           timestamp: new Date().toISOString(),
         }]);
         return of(null);

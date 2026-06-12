@@ -314,9 +314,11 @@ def ask_agent(
         # on the same worker if something else touches it.
         current_client_id.reset(token)
 
-    # Extract the last AI message
+    # Extract the last AI message and guard it on the way out (⑤ egress: redact
+    # any injection the model echoed back, before it reaches the user).
+    from app.llm_gateway import guard_response
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and msg.content:
-            return msg.content
+            return guard_response(msg.content)
 
     return "Agent did not produce a response."

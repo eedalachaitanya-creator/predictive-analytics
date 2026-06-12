@@ -244,7 +244,7 @@ def _require_client_access(user: dict, client_id: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/ask", response_model=ChatResponse)
-def ask_agent_endpoint(req: ChatRequest, user: dict = Depends(get_current_user)):
+def ask_agent_endpoint(req: ChatRequest, request: Request, user: dict = Depends(get_current_user)):
     """
     Send a question to the Analyst Agent and get a response.
 
@@ -261,11 +261,12 @@ def ask_agent_endpoint(req: ChatRequest, user: dict = Depends(get_current_user))
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    # Prompt-injection firewall — MONITOR mode: logs suspicious prompts (scoped to
-    # client_id) but never blocks. No-op if the ai_firewall package isn't installed.
-    # Flip app/prompt_firewall.py to enforce mode to start rejecting attacks.
+    # Prompt-injection firewall — MONITOR mode: logs + persists suspicious prompts
+    # to audit_log (scoped to client_id + user) but never blocks. No-op if the
+    # ai_firewall package isn't installed. Flip app/prompt_firewall.py to enforce
+    # mode to start rejecting attacks.
     from app.prompt_firewall import guard_question
-    guard_question(req.question, client_id=req.clientId)
+    guard_question(req.question, client_id=req.clientId, user=user, request=request)
 
     # Generate or reuse conversation ID
     conv_id = req.conversationId or f"conv-{uuid.uuid4().hex[:12]}"

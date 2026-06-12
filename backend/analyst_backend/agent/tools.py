@@ -724,6 +724,10 @@ def search_customer_feedback(query: str) -> str:
         hits = search_documents(
             tenant, query, k=6, source_types=["customer_review"]
         )
+        # ③ retrieval guard: customer reviews are attacker-influenced text — sanitize
+        # any injection planted in a review before it enters the LLM context.
+        from app.llm_gateway import filter_chunks
+        hits = filter_chunks(hits)
         if not hits:
             return "No matching customer feedback found for this tenant."
 

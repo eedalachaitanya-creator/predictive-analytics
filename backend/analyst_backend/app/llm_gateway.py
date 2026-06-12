@@ -71,6 +71,36 @@ def sanitize_ingest(text: str) -> str:
         return text
 
 
+def screen_ingest(text: str):
+    """② INGEST (hybrid document policy) — decide what to do with a document about
+    to be embedded into the RAG store. Returns (quarantine, text_to_embed, meta):
+
+      - quarantine=True  → the document carries a HIGH/CRITICAL-severity injection;
+                           do NOT embed it (caller skips + audits). text_to_embed="".
+      - quarantine=False → embed text_to_embed: a lower-severity injection is
+                           redacted (sanitized), a clean document passes through.
+
+    `meta` carries severity/risk/categories for the quarantine audit. NEVER raises
+    (fail-open: on any error the original text is returned for embedding) — a
+    firewall fault must not break a tenant's reindex."""
+    if not _ENABLED or not isinstance(text, str):
+        return (False, text, {})
+    try:
+        det = _GATEWAY.scan_document(text)
+        if getattr(det, "is_suspicious", False) and \
+                getattr(det, "severity", None) in ("high", "critical"):
+            return (True, "", {
+                "severity": det.severity,
+                "risk": getattr(det, "risk_score", None),
+                "categories": list(getattr(det, "matched_categories", ()) or ()),
+            })
+        # clean, or lower-severity → sanitize (redact any injected span) and embed
+        return (False, _GATEWAY.ingest_document(text), {})
+    except Exception as exc:
+        log.error("gateway screen_ingest failed (%s); embedding text unchanged.", exc)
+        return (False, text, {})
+
+
 def guard_tool(text: str) -> str:
     """④ TOOL OUTPUT — sanitize a tool result (DB rows, scraped/retrieved text)
     before it re-enters the model context. Tool outputs are attacker-influenced

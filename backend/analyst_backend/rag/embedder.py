@@ -136,16 +136,29 @@ def reindex(client_id, source_type, *, embed_fn=None, batch_size=100) -> dict:
 
     pending = []  # (source_id, content, content_hash, metadata_json)
     skipped = 0
-    from app.llm_gateway import sanitize_ingest
+    quarantined = 0
+    from app.llm_gateway import screen_ingest
     for r in rows:
         content = cfg["content"](r)
         if not content:
             continue
-        # ② ingest guard: sanitize attacker-influenced source text (e.g. customer
-        # reviews) BEFORE embedding, so a poisoned document can't plant an
-        # injection in the vector store. Hash is over the sanitized text → stable.
-        content = sanitize_ingest(content)
         source_id = str(r[cfg["source_id"]])
+        # ② ingest guard (hybrid policy): scan attacker-influenced source text (e.g.
+        # customer reviews) BEFORE embedding. A HIGH/CRITICAL-severity injection is
+        # QUARANTINED — the document is not embedded at all (it can never surface in
+        # a future query); lower-severity text is sanitized (injected span redacted)
+        # and embedded. Fail-open so a firewall fault can't abort the reindex.
+        quarantine, content, verdict = screen_ingest(content)
+        if quarantine:
+            quarantined += 1
+            log.warning(
+                "RAG ingest QUARANTINED poisoned document client=%s source=%s id=%s "
+                "severity=%s categories=%s",
+                client_id, source_type, source_id,
+                verdict.get("severity"), verdict.get("categories"),
+            )
+            continue
+        # Hash is over the sanitized text → stable idempotency.
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         if existing.get(source_id) == content_hash:
             skipped += 1
@@ -169,7 +182,8 @@ def reindex(client_id, source_type, *, embed_fn=None, batch_size=100) -> dict:
         embedded += len(batch)
 
     stats = {"fetched": len(rows), "embedded": embedded,
-             "skipped": skipped, "total": embedded + skipped}
+             "skipped": skipped, "quarantined": quarantined,
+             "total": embedded + skipped}
     log.info("reindex client=%s source=%s -> %s", client_id, source_type, stats)
     return stats
 

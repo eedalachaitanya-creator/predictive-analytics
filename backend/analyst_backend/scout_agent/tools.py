@@ -376,15 +376,62 @@ def list_platforms(input: str = "") -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Firewall — ④ tool-output guard
+# ──────────────────────────────────────────────────────────────────────
+
+def _guard_output(tool_obj):
+    """Wrap a LangChain tool so its string result passes through the firewall's
+    tool-output guard (checkpoint ④) before re-entering the model.
+
+    Scout's tools scrape live competitor pages — attacker-controllable text —
+    so a poisoned listing ("...Ignore all previous instructions...") is the
+    classic indirect prompt-injection vector. Sanitizing here neutralizes it
+    before the ReAct loop ever feeds it back to the LLM.
+
+    Fail-open: if the firewall/langchain can't be imported, or the tool can't be
+    rewrapped, the original tool is returned unchanged — security tooling must
+    never take the Scout chatbot down. The new tool preserves the original
+    name/description/args_schema, so the agent calls it identically.
+    """
+    try:
+        import functools
+        from langchain_core.tools import StructuredTool
+        from app.llm_gateway import guard_tool
+
+        inner = getattr(tool_obj, "func", None)
+        if inner is None:                       # async-only / unusual tool — leave as-is
+            return tool_obj
+
+        @functools.wraps(inner)
+        def _wrapped(*args, **kwargs):
+            out = inner(*args, **kwargs)
+            return guard_tool(out) if isinstance(out, str) else out
+
+        return StructuredTool.from_function(
+            func=_wrapped,
+            name=tool_obj.name,
+            description=tool_obj.description,
+            args_schema=tool_obj.args_schema,
+            metadata={**(tool_obj.metadata or {}), "firewall_guarded": True},
+        )
+    except Exception as exc:                     # fail open
+        logger.warning("scout tool-output guard unavailable (%s); tool unwrapped.", exc)
+        return tool_obj
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Export — import this list in scout_agent.py
 # ──────────────────────────────────────────────────────────────────────
 
 SCOUT_TOOLS = [
-    search_products,
-    compare_prices,
-    get_features,
-    get_price_history,
-    get_alerts,
-    run_price_monitor,
-    list_platforms,
+    _guard_output(t)
+    for t in (
+        search_products,
+        compare_prices,
+        get_features,
+        get_price_history,
+        get_alerts,
+        run_price_monitor,
+        list_platforms,
+    )
 ]

@@ -315,13 +315,61 @@ def get_all_websites():
     return {"data": [_shape_site(s) for s in sites]}
 
 
+def _canonical_platform_name(raw: str) -> str:
+    """
+    Produce a stable canonical key for duplicate detection.
+
+    Rules (applied in order):
+      1. Strip whitespace, lowercase.
+      2. Strip scheme (https://, http://).
+      3. Strip leading 'www.'.
+      4. Strip path / query / fragment.
+      5. Strip trailing TLD-like suffixes (.com, .in, .co.uk, .net, .org, .io …)
+         so 'amazon', 'amazon.com', and 'amazon.in' all collapse to 'amazon'.
+
+    Examples:
+      'Flipkart'          → 'flipkart'
+      'FlipKart'          → 'flipkart'
+      'amazon.in'         → 'amazon'
+      'amazon.com'        → 'amazon'
+      'Amazon'            → 'amazon'
+      'www.myntra.com'    → 'myntra'
+      'https://snapdeal.com/search' → 'snapdeal'
+    """
+    import re as _re
+    s = raw.strip().lower()
+    s = _re.sub(r'^https?://', '', s)          # strip scheme
+    s = _re.sub(r'^www\.', '', s)              # strip www.
+    s = s.split('/')[0].split('?')[0].split('#')[0]  # strip path/query/fragment
+    # Strip common TLD suffixes — order matters: longer patterns first
+    s = _re.sub(
+        r'\.(com\.au|co\.uk|co\.in|com|net|org|in|io|co|store|shop|app)$',
+        '', s,
+    )
+    return s.strip()
+
+
 @scout_router.post("/websites")
 async def add_website(payload: AddWebsiteRequest):
     name = payload.name.strip()
     if not name:
         raise HTTPException(400, "Website name is required.")
-    if db.get_website_by_name(name):
-        raise HTTPException(409, f"'{name}' is already added.")
+
+    # Normalise before the duplicate check so 'Flipkart', 'flipkart',
+    # 'flipkart.com' and 'www.flipkart.com' all resolve to the same key.
+    canonical = _canonical_platform_name(name)
+    if not canonical:
+        raise HTTPException(400, "Could not derive a platform name from the input.")
+
+    # Case-insensitive, TLD-insensitive duplicate check across all sites.
+    existing_sites = db.get_all_websites()
+    for site in existing_sites:
+        if _canonical_platform_name(site["name"]) == canonical:
+            raise HTTPException(
+                409,
+                f"'{site['name']}' is already added. "
+                f"('{name}' resolves to the same platform.)"
+            )
 
     # Register this add-website job in the cancellation registry BEFORE the
     # slow work starts. If we registered after, the user's Cancel click

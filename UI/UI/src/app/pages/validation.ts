@@ -44,6 +44,22 @@ interface ValidationDetailResponse {
   columns: ColumnDetail[];
 }
 
+/**
+ * Humanize a raw DB column name for display — customer_id -> 'Customer ID',
+ * order_value_usd -> 'Order Value USD'. Mirrors clients/upload formatColumnName
+ * so no table in the app shows raw snake_case. Exported for unit tests.
+ */
+export function humanizeColumnName(col: string): string {
+  if (!col) return col;
+  const acronyms = new Set(['id', 'usd', 'rfm', 'ltv', 'sku', 'api', 'url', 'csv', 'db', 'pv']);
+  return col
+    .split('_')
+    .map(w => !w ? w
+      : acronyms.has(w.toLowerCase()) ? w.toUpperCase()
+      : w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 @Component({
   selector: 'app-validation',
   standalone: true,
@@ -55,6 +71,9 @@ export class ValidationComponent implements OnInit {
   private api = inject(ApiService);
   private auth = inject(AuthService);
   private clientId = this.auth.getClientId();
+
+  /** Template helper — humanize a snake_case column name for display. */
+  formatColumnName = humanizeColumnName;
 
   // ── Page-level state ────────────────────────────────────────────
   loading     = signal(false);
@@ -125,7 +144,7 @@ export class ValidationComponent implements OnInit {
           if (f.missingDetails && f.missingDetails.length > 0) {
             for (const d of f.missingDetails) {
               warns.push(
-                `${d.nullCount} rows in ${f.name} have missing ${d.column}`
+                `${d.nullCount} rows in ${f.name} have missing ${humanizeColumnName(d.column)}`
               );
             }
           }

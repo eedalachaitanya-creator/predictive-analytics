@@ -159,7 +159,7 @@
             <tbody>
               @for (c of cols(); track c.col) {
                 <tr>
-                  <td>{{ c.col }}</td>
+                  <td>{{ formatColumnName(c.col) }} <span class="col-raw">({{ c.col }})</span></td>
                   <td>{{ c.nonNull }}</td>
                   <td>{{ c.unique }}</td>
                   <td>{{ c.req ? '✅' : '—' }}</td>

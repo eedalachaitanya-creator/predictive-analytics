@@ -1,1 +1,12 @@
 :host { display: block; }
+
+/* In the Column Detail grid we show the humanized label as the primary name and
+   the REAL (raw) DB column name muted in brackets, so clients know the exact
+   column to reference/fix in their uploaded file. */
+.col-raw {
+  margin-left: 4px;
+  color: var(--text-muted, #8a9bbb);
+  font-weight: 400;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}

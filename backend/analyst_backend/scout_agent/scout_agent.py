@@ -172,6 +172,18 @@ class ScoutAgent:
     def chat(self, message: str) -> str:
         """Send a message and get a response."""
         try:
+            # Domain scope guardrail — Scout only answers shopping /
+            # price-comparison questions. Off-topic requests ("write a
+            # python program for even and odd", trivia, essays, etc.) are
+            # refused HERE, before the agent is invoked or any tool runs.
+            # Fail-open: a classifier error lets the message through rather
+            # than wrongly refusing a real shopping question.
+            from scout_agent.scope_guard import is_in_scope, SCOPE_REFUSAL
+            if not is_in_scope(message):
+                self.history.append(HumanMessage(content=message))
+                self.history.append(AIMessage(content=SCOPE_REFUSAL))
+                return SCOPE_REFUSAL
+
             callbacks = []
             handler = get_langchain_handler(session_id=self.session_id)
             if handler:

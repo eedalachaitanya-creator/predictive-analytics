@@ -289,10 +289,12 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             return
 
         # Stage 4: Compute RFM features
+        # --no-plots: the Downloads/report UI was removed, so the matplotlib figures
+        # these ML stages used to render are never served. Skipping them saves the
+        # plot rendering + the matplotlib/seaborn import in the subprocess, and drops
+        # the old plots->no-plots fallback (which doubled a stage's runtime on failure).
         _update_stage(job, 3, "running", f"Computing RFM features for {client_id}...")
-        ok, msg = _run_python_module("ml.compute_rfm", ["--db-url", _DB_URL, "--client-id", client_id])
-        if not ok:
-            ok, msg = _run_python_module("ml.compute_rfm", ["--db-url", _DB_URL, "--no-plots", "--client-id", client_id])
+        ok, msg = _run_python_module("ml.compute_rfm", ["--db-url", _DB_URL, "--no-plots", "--client-id", client_id])
         _update_stage(job, 3, "done" if ok else "error", msg[:200])
 
         # Stage 5: Train ML models
@@ -306,16 +308,12 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         # default) and the AUC selection degenerates to "pick the only
         # model trained."
         _update_stage(job, 4, "running", f"Training models for {client_id}...")
-        ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id, "--model-type", "all"])
-        if not ok:
-            ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--no-plots", "--client-id", client_id, "--model-type", "all"])
+        ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id, "--model-type", "all", "--no-plots"])
         _update_stage(job, 4, "done" if ok else "error", msg[:200])
 
         # Stage 6: Evaluate models
         _update_stage(job, 5, "running", "Evaluating model performance...")
-        ok, msg = _run_python_module("ml.evaluate_model", ["--client-id", client_id])
-        if not ok:
-            ok, msg = _run_python_module("ml.evaluate_model", ["--no-plots", "--client-id", client_id])
+        ok, msg = _run_python_module("ml.evaluate_model", ["--client-id", client_id, "--no-plots"])
         _update_stage(job, 5, "done" if ok else "error", msg[:200])
 
         # Stage 7: Score customers (LEGACY model → baseline churn_scores)

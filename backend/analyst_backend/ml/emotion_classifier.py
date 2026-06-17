@@ -11,6 +11,9 @@ all collapse cleanly to the VADER fallback.
 
 VOCAB: delighted, satisfied, neutral, frustrated, disappointed, angry
 
+Note: VADER maps compound scores to a 5-bucket label set and never emits
+"frustrated" directly — that label is only reachable via the LLM path.
+
 Usage (CLI):
     python -m ml.emotion_classifier \\
         --db-url postgresql://... --client-id CLT-001 --update-unscored
@@ -25,6 +28,13 @@ from typing import Optional, Tuple
 from sqlalchemy import create_engine, text
 
 from app.llm_gateway import screen_ingest
+
+# ── VADER singleton (constructed once at module load if available) ──────────────
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _SIA
+    _vader_analyzer: Optional[object] = _SIA()
+except Exception:
+    _vader_analyzer = None
 
 # ── Public vocabulary ──────────────────────────────────────────────────────────
 VOCAB = ("delighted", "satisfied", "neutral", "frustrated", "disappointed", "angry")
@@ -52,9 +62,12 @@ _PROMPT = (
 # ── VADER fallback ─────────────────────────────────────────────────────────────
 def _vader(text_in: str) -> Tuple[str, float]:
     """Map VADER compound score to an emotion + distress_score."""
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    global _vader_analyzer
+    if _vader_analyzer is None:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _SIA
+        _vader_analyzer = _SIA()
 
-    c = SentimentIntensityAnalyzer().polarity_scores(text_in or "")["compound"]
+    c = _vader_analyzer.polarity_scores(text_in or "")["compound"]
     if c <= -0.6:
         emo = "angry"
     elif c <= -0.2:
@@ -110,9 +123,13 @@ def classify_text(raw: str, llm=None) -> Tuple[str, float, str]:
         emo = str(data["emotion"]).strip().lower()
         dist = float(data["distress_score"])
 
-        # Validate contract — out-of-vocab or out-of-range → VADER fallback
-        if emo not in VOCAB or not (0.0 <= dist <= 1.0):
-            raise ValueError("LLM returned out-of-contract values")
+        # Clamp distress into [0, 1] before validation so minor float drift
+        # (e.g. 1.0000001) doesn't needlessly push us to the VADER fallback.
+        dist = max(0.0, min(1.0, dist))
+
+        # Validate contract — out-of-vocab → VADER fallback (range is now guaranteed)
+        if emo not in VOCAB:
+            raise ValueError("LLM returned out-of-vocab emotion")
 
         return emo, round(dist, 3), "llm"
 
@@ -143,16 +160,6 @@ def classify_unscored(
         ("support_tickets", "ticket_id", "ticket_text", "tickets"),
         ("customer_reviews", "review_id", "review_text", "reviews"),
     ):
-        limit_clause = f"LIMIT {int(limit)}" if limit else ""
-        sel = text(f"""
-            SELECT {id_col} AS rid, {text_col} AS body
-            FROM {table}
-            WHERE client_id = :c
-              AND emotion_scored_at IS NULL
-              AND {text_col} IS NOT NULL
-            ORDER BY {id_col}
-            {limit_clause}
-        """)
         upd = text(f"""
             UPDATE {table}
             SET emotion = :emo,
@@ -163,15 +170,29 @@ def classify_unscored(
               AND {id_col} = :rid
         """)
 
-        with engine.begin() as conn:
-            rows = conn.execute(sel, {"c": client_id}).fetchall()
-            for r in rows:
-                emo, dist, model = classify_text(r.body, llm=llm)
-                conn.execute(
-                    upd,
-                    {"emo": emo, "dist": dist, "model": model, "c": client_id, "rid": r.rid},
-                )
-                counts[count_key] += 1
+        processed = 0
+        while True:
+            remaining = None if limit is None else max(0, limit - processed)
+            if remaining == 0:
+                break
+            take = batch_size if remaining is None else min(batch_size, remaining)
+            sel = text(
+                f"SELECT {id_col} AS rid, {text_col} AS body FROM {table} "
+                f"WHERE client_id=:c AND emotion_scored_at IS NULL AND {text_col} IS NOT NULL "
+                f"ORDER BY {id_col} LIMIT {int(take)}"
+            )
+            with engine.begin() as conn:
+                rows = conn.execute(sel, {"c": client_id}).fetchall()
+                if not rows:
+                    break
+                for r in rows:
+                    emo, dist, model = classify_text(r.body, llm=llm)
+                    conn.execute(
+                        upd,
+                        {"emo": emo, "dist": dist, "model": model, "c": client_id, "rid": r.rid},
+                    )
+            processed += len(rows)
+            counts[count_key] += len(rows)
 
     return counts
 
@@ -184,6 +205,10 @@ def main() -> None:
     ap.add_argument("--update-unscored", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
     a = ap.parse_args()
+
+    if not a.update_unscored:
+        print("Hint: pass --update-unscored to score rows with emotion_scored_at IS NULL.")
+        return
 
     eng = create_engine(a.db_url, future=True)
     print(classify_unscored(eng, a.client_id, limit=a.limit))

@@ -86,9 +86,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
   // Vendor config (loaded from database)
   vendorCfg = signal<{param: string; val: string; type: string; desc: string}[]>([]);
 
-  // Pipeline run state (button + error only; progress panel removed)
+  // Pipeline run state
   private readonly predMode = 'full' as const;
-  runError = signal<string | null>(null);
+  runError   = signal<string | null>(null);
+  runSuccess = signal(false);  // ← NEW: tracks successful pipeline completion
   private sub?: Subscription;
 
   get running() { return this.pipelineSvc.isRunning(); }
@@ -102,14 +103,27 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   runPipeline() {
     this.runError.set(null);
+    this.runSuccess.set(false);  // reset success banner on each new run
+
     const req: PipelineRunRequest = { clientId: this.clientId, mode: this.predMode };
     this.pipelineSvc.run(req).subscribe({
       next: job => {
-        // Polling keeps pipelineSvc.isRunning() accurate so the button
-        // re-enables when the backend finishes, even though we no longer
-        // render the progress panel.
         this.sub = this.pipelineSvc.pollJob(job.jobId, this.clientId).subscribe({
-          error: e => this.runError.set(e.message),
+          next: (polledJob: any) => {
+            // Some pipeline services emit the final job object via next()
+            // rather than complete() — handle both cases here.
+            if (polledJob?.status === 'done' || polledJob?.status === 'completed') {
+              this.runSuccess.set(true);
+              setTimeout(() => this.runSuccess.set(false), 5000);
+            }
+          },
+          complete: () => {
+            // Fires when the polling observable closes without error —
+            // i.e. the job finished successfully.
+            this.runSuccess.set(true);
+            setTimeout(() => this.runSuccess.set(false), 5000);
+          },
+          error: e => this.runError.set(e.message ?? 'Pipeline failed.'),
         });
       },
       error: e => this.runError.set(e.message ?? 'Failed to start pipeline.'),

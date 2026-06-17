@@ -127,9 +127,18 @@
       @if (running) { Do not close this tab while the pipeline is running }
       @else { Typically 5–15 seconds · requires all 11 master files uploaded }
     </div>
+
+    <!-- Success / error feedback — sits directly under the button, centered -->
+    @if (runSuccess()) {
+      <div class="notice success" style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;font-size:14px;padding:10px 20px;border-radius:8px">
+        ✅ <strong>Pipeline completed successfully</strong> 
+      </div>
+    }
+    @if (runError()) {
+      <div class="notice warning" style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;font-size:14px;padding:10px 20px;border-radius:8px">
+        ❌ {{ runError() }}
+      </div>
+    }
   </div>
 
-  @if (runError()) {
-    <div class="notice warning mb-20">❌ {{ runError() }}</div>
-  }
 </div>

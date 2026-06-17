@@ -110,19 +110,25 @@ class PipelineRunResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 STAGE_LABELS = [
-    "Validate database connection",
-    "Analyze review sentiment",
-    "Refresh materialized view",
-    "Compute RFM features",
-    "Train ML models",
-    "Evaluate models",
-    "Score customers (churn predictions)",
-    "Temporal churn modeling (forward 90-day)",
-    "Generate risk summary",
-    "Compute purchase cycles",
-    "Run refill alerts + outreach",
-    "Finalize outputs",
+    "Validate database connection",         # 0
+    "Analyze review sentiment",             # 1
+    "Ingest external signals",              # 2  (STAGE_INGEST — gated by EXTERNAL_SIGNALS_SYNTHETIC)
+    "Classify signal emotion",              # 3  (STAGE_EMOTION)
+    "Refresh materialized view",            # 4
+    "Compute RFM features",                 # 5
+    "Train ML models",                      # 6
+    "Evaluate models",                      # 7
+    "Score customers (churn predictions)",  # 8
+    "Temporal churn modeling (forward 90-day)",  # 9
+    "Generate risk summary",                # 10
+    "Compute purchase cycles",              # 11
+    "Run refill alerts + outreach",         # 12
+    "Finalize outputs",                     # 13
 ]
+
+# Friendly named constants for the two new stages (indices into STAGE_LABELS above)
+STAGE_INGEST = 2
+STAGE_EMOTION = 3
 
 
 def _make_stages() -> list[PipelineStage]:
@@ -257,7 +263,30 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         ok, msg = _run_python_module("ml.sentiment", ["--db-url", _DB_URL, "--client-id", client_id, "--update-all"])
         _update_stage(job, 1, "done" if ok else "error", msg[:200])
 
-        # Stage 3: Refresh materialized view
+        # Stage 3 (STAGE_INGEST): Ingest external signals — gated by env flag so
+        # synthetic ingestion never runs against real production tenants.
+        if os.getenv("EXTERNAL_SIGNALS_SYNTHETIC") == "1":
+            _update_stage(job, STAGE_INGEST, "running", "Ingesting external signals…")
+            ok, msg = _run_python_module(
+                "ml.connectors.ingest",
+                ["--db-url", _DB_URL, "--client-id", client_id],
+            )
+            _update_stage(job, STAGE_INGEST, "done" if ok else "error", msg[:200])
+        else:
+            _update_stage(job, STAGE_INGEST, "skipped", "synthetic ingest disabled")
+
+        # Stage 4 (STAGE_EMOTION): Classify emotion on unscored signal rows.
+        # Non-fatal: a classifier failure marks the stage error but does NOT
+        # abort the pipeline — downstream temporal features degrade gracefully
+        # to zero emotion columns rather than blocking churn scoring.
+        _update_stage(job, STAGE_EMOTION, "running", "Classifying signal emotion…")
+        ok, msg = _run_python_module(
+            "ml.emotion_classifier",
+            ["--db-url", _DB_URL, "--client-id", client_id, "--update-unscored"],
+        )
+        _update_stage(job, STAGE_EMOTION, "done" if ok else "error", msg[:200])
+
+        # Stage 5: Refresh materialized view
         # Audit fix (2026-04-29): the previous implementation marked the
         # stage 'error' and IMMEDIATELY overwrote it with 'done', silently
         # swallowing real refresh failures (permission denied, lock
@@ -267,37 +296,37 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         # error mark the stage as failed so downstream stages don't run
         # against stale features.
         from sqlalchemy.exc import ProgrammingError
-        _update_stage(job, 2, "running", "Refreshing mv_customer_features...")
+        _update_stage(job, 4, "running", "Refreshing mv_customer_features...")
         try:
             with engine.connect() as conn:
                 conn.execute(text("REFRESH MATERIALIZED VIEW mv_customer_features"))
                 conn.commit()
-            _update_stage(job, 2, "done", "Materialized view refreshed")
+            _update_stage(job, 4, "done", "Materialized view refreshed")
         except ProgrammingError as e:
             if 'does not exist' in str(e).lower():
                 _update_stage(
-                    job, 2, "done",
+                    job, 4, "done",
                     "MV does not exist yet (first-run on a fresh DB)",
                 )
             else:
-                _update_stage(job, 2, "error", f"View refresh failed: {str(e)[:120]}")
+                _update_stage(job, 4, "error", f"View refresh failed: {str(e)[:120]}")
                 job["status"] = "failed"
                 return
         except Exception as e:
-            _update_stage(job, 2, "error", f"View refresh failed: {str(e)[:120]}")
+            _update_stage(job, 4, "error", f"View refresh failed: {str(e)[:120]}")
             job["status"] = "failed"
             return
 
-        # Stage 4: Compute RFM features
+        # Stage 6: Compute RFM features
         # --no-plots: the Downloads/report UI was removed, so the matplotlib figures
         # these ML stages used to render are never served. Skipping them saves the
         # plot rendering + the matplotlib/seaborn import in the subprocess, and drops
         # the old plots->no-plots fallback (which doubled a stage's runtime on failure).
-        _update_stage(job, 3, "running", f"Computing RFM features for {client_id}...")
+        _update_stage(job, 5, "running", f"Computing RFM features for {client_id}...")
         ok, msg = _run_python_module("ml.compute_rfm", ["--db-url", _DB_URL, "--no-plots", "--client-id", client_id])
-        _update_stage(job, 3, "done" if ok else "error", msg[:200])
+        _update_stage(job, 5, "done" if ok else "error", msg[:200])
 
-        # Stage 5: Train ML models
+        # Stage 7: Train ML models
         # --model-type all trains BOTH XGBoost and Random Forest on the
         # same feature set, then train_model.py picks the AUC-winner per
         # tenant (per-tenant filenames since the 2026-04-27 rewrite).
@@ -307,59 +336,59 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         # Without --model-type all, only XGBoost would train (the argparse
         # default) and the AUC selection degenerates to "pick the only
         # model trained."
-        _update_stage(job, 4, "running", f"Training models for {client_id}...")
+        _update_stage(job, 6, "running", f"Training models for {client_id}...")
         ok, msg = _run_python_module("ml.train_model", ["--source", "db", "--db-url", _DB_URL, "--client-id", client_id, "--model-type", "all", "--no-plots"])
-        _update_stage(job, 4, "done" if ok else "error", msg[:200])
-
-        # Stage 6: Evaluate models
-        _update_stage(job, 5, "running", "Evaluating model performance...")
-        ok, msg = _run_python_module("ml.evaluate_model", ["--client-id", client_id, "--no-plots"])
-        _update_stage(job, 5, "done" if ok else "error", msg[:200])
-
-        # Stage 7: Score customers (LEGACY model → baseline churn_scores)
-        _update_stage(job, 6, "running", f"Scoring {client_id} customers...")
-        ok, msg = _run_python_module("ml.predict", ["--mode", "cli", "--source", "db", "--db-url", _DB_URL, "--output", "all", "--client-id", client_id])
         _update_stage(job, 6, "done" if ok else "error", msg[:200])
 
-        # Stage 8: Temporal churn modeling (forward 90-day)
+        # Stage 8: Evaluate models
+        _update_stage(job, 7, "running", "Evaluating model performance...")
+        ok, msg = _run_python_module("ml.evaluate_model", ["--client-id", client_id, "--no-plots"])
+        _update_stage(job, 7, "done" if ok else "error", msg[:200])
+
+        # Stage 9: Score customers (LEGACY model → baseline churn_scores)
+        _update_stage(job, 8, "running", f"Scoring {client_id} customers...")
+        ok, msg = _run_python_module("ml.predict", ["--mode", "cli", "--source", "db", "--db-url", _DB_URL, "--output", "all", "--client-id", client_id])
+        _update_stage(job, 8, "done" if ok else "error", msg[:200])
+
+        # Stage 10: Temporal churn modeling (forward 90-day)
         # The legacy model above already wrote baseline scores into
-        # churn_scores (Stage 7). This stage builds point-in-time snapshots,
+        # churn_scores (Stage 9). This stage builds point-in-time snapshots,
         # trains the leakage-free temporal model, and — on success — OVERWRITES
         # churn_scores with its forward-90-day predictions (what the dashboard
         # then shows). If the tenant lacks enough history or the leakage gate
         # hard-fails, ml.temporal_pipeline falls back gracefully: it ALWAYS
         # exits 0 and prints `MODE=temporal|fallback`, leaving the baseline
-        # Stage-7 scores untouched. So this stage can never fail the pipeline
+        # Stage-9 scores untouched. So this stage can never fail the pipeline
         # or leave churn_scores in a broken state.
-        _update_stage(job, 7, "running", f"Temporal churn modeling for {client_id}...")
+        _update_stage(job, 9, "running", f"Temporal churn modeling for {client_id}...")
         ok, msg = _run_python_module("ml.temporal_pipeline", ["--client-id", client_id, "--db-url", _DB_URL])
         if ok and "MODE=temporal" in msg:
-            _update_stage(job, 7, "done", f"Temporal predictions applied — {msg.strip()[:160]}")
+            _update_stage(job, 9, "done", f"Temporal predictions applied — {msg.strip()[:160]}")
         elif ok:
-            _update_stage(job, 7, "done", f"Baseline model kept (temporal fallback) — {msg.strip()[:160]}")
+            _update_stage(job, 9, "done", f"Baseline model kept (temporal fallback) — {msg.strip()[:160]}")
         else:
-            # Unexpected non-zero exit: keep the Stage-7 baseline scores; do not
+            # Unexpected non-zero exit: keep the Stage-9 baseline scores; do not
             # fail the run (the dashboard still has valid legacy predictions).
-            _update_stage(job, 7, "done", f"Temporal stage skipped, baseline scores kept — {msg[:140]}")
+            _update_stage(job, 9, "done", f"Temporal stage skipped, baseline scores kept — {msg[:140]}")
 
-        # Stage 9: Generate risk summary
-        _update_stage(job, 8, "running", "Generating risk summary...")
+        # Stage 11: Generate risk summary
+        _update_stage(job, 10, "running", "Generating risk summary...")
         risk_file = ML_DIR / "output" / "risk_summary.txt"
         if risk_file.exists():
-            _update_stage(job, 8, "done", "Risk summary available")
+            _update_stage(job, 10, "done", "Risk summary available")
         else:
-            _update_stage(job, 8, "done", "Risk summary generated from scores")
+            _update_stage(job, 10, "done", "Risk summary generated from scores")
 
-        # Stage 10: Compute purchase cycles
-        _update_stage(job, 9, "running", "Computing purchase cycles...")
+        # Stage 12: Compute purchase cycles
+        _update_stage(job, 11, "running", "Computing purchase cycles...")
         ok, msg = _run_python_module("ml.compute_purchase_cycles", ["--db-url", _DB_URL, "--client-id", client_id])
-        _update_stage(job, 9, "done" if ok else "error", msg[:200])
+        _update_stage(job, 11, "done" if ok else "error", msg[:200])
 
-        # Stage 11: Run refill alerts + outreach generation
-        _update_stage(job, 10, "running", "Generating refill alerts + outreach emails...")
+        # Stage 13: Run refill alerts + outreach generation
+        _update_stage(job, 12, "running", "Generating refill alerts + outreach emails...")
         if mode in ("retention", "full"):
             ok, msg = _run_python_module("ml.alerts")
-            _update_stage(job, 10, "done" if ok else "error", msg[:200])
+            _update_stage(job, 12, "done" if ok else "error", msg[:200])
             # Also generate template-based churn outreach emails
             try:
                 from app.messages_router import generate_outreach, GenerateOutreachRequest
@@ -374,10 +403,10 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             except Exception as e:
                 log.warning("Churn outreach generation failed (non-blocking): %s", e)
         else:
-            _update_stage(job, 10, "done", "Skipped (mode: {})".format(mode))
+            _update_stage(job, 12, "done", "Skipped (mode: {})".format(mode))
 
-        # Stage 12: Finalize — save all output files to database + build summary
-        _update_stage(job, 11, "running", "Finalizing outputs & storing to database...")
+        # Stage 14: Finalize — save all output files to database + build summary
+        _update_stage(job, 13, "running", "Finalizing outputs & storing to database...")
         try:
             from db.pipeline_outputs_store import save_all_output_files
             output_dir = str(ML_DIR / "output")
@@ -388,7 +417,7 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
 
         summary = _build_summary(client_id)
         job["summary"] = summary
-        _update_stage(job, 11, "done", "Pipeline complete")
+        _update_stage(job, 13, "done", "Pipeline complete")
 
         # Check if any stage failed
         has_errors = any(s["status"] == "error" for s in job["stages"])

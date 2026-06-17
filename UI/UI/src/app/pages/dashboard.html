@@ -33,7 +33,7 @@
   @if (svc.data(); as d) {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <p class="text-muted" style="font-size:12px">
-        {{ auth.getClientName() }} ({{ auth.getClientId() }}) · Last run: {{ kpis()?.lastRunDate ?? '—' }} ·
+        {{ auth.getClientName() }} · Last run: {{ kpis()?.lastRunDate ?? '—' }} ·
         {{ kpis()?.totalCustomers | number }} customers · {{ kpis()?.totalOrders | number }} orders
       </p>
       <button class="btn outline sm" (click)="refresh()">↻ Refresh</button>

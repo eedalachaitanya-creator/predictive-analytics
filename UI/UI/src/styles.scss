@@ -86,7 +86,7 @@ html,body{height:100%;font-family:'Sora',sans-serif;background:var(--bg-base);co
 /* Upload Zone */
 .upload-zone{border:2px dashed var(--border-bright);border-radius:var(--radius);padding:24px 18px;text-align:center;cursor:pointer;transition:var(--transition);background:rgba(26,111,212,.02)}
 .upload-zone:hover,.upload-zone.dragover{border-color:var(--accent-blue);background:rgba(26,111,212,.05)}
-.upload-zone.uploaded{border-color:var(--accent-green);background:rgba(5,150,105,.04);border-style:solid}
+.upload-zone.uploaded{border-color:var(--accent-green);background:rgba(5,150,105,.04);border-style:solid;display:flex;align-items:center;text-align:left;cursor:default}
 .upload-zone .icon{font-size:26px;margin-bottom:8px}
 .upload-zone .hint{font-size:13px;color:var(--text-secondary)}
 .upload-zone .cols{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:6px;line-height:1.7}

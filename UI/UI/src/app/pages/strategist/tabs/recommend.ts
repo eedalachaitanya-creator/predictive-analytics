@@ -158,6 +158,16 @@ export class StrategistRecommendTab {
       ourCosts[p.name.trim()] = v;
     }
 
+    if (this.minMargin() < 0 || this.minMargin() > 200) {
+      this.error.set('Minimum margin must be between 0% and 200%.');
+      return;
+    }
+
+    if (this.targetMargin() < 0 || this.targetMargin() > 200) {
+      this.error.set('Target margin must be between 0% and 200%.');
+      return;
+    }
+
     if (this.minMargin() >= this.targetMargin()) {
       this.error.set('Minimum margin must be less than target margin.');
       return;
@@ -196,10 +206,33 @@ export class StrategistRecommendTab {
         this.loading.set(false);
       },
       error: (err) => {
-        this.error.set(err?.error?.detail || err?.message || 'Something went wrong. Please try again.');
+        this.error.set(this.extractErrorMessage(err));
         this.loading.set(false);
       }
     });
+  }
+
+  /**
+   * Turn an HttpErrorResponse into a human-readable string.
+   *
+   * FastAPI validation errors (HTTP 422) return `detail` as an ARRAY of
+   * Pydantic error objects (e.g. [{ loc, msg, type, input }]), not a string.
+   * Binding that array directly to the template (`{{ error() }}`) makes
+   * Angular call Array.prototype.toString(), which renders each element via
+   * Object.prototype.toString() — producing the literal text "[object
+   * Object]". This helper extracts the actual `msg` field(s) so the user
+   * sees the real validation message (e.g. "Input should be greater than or
+   * equal to 0") instead.
+   */
+  private extractErrorMessage(err: any): string {
+    const detail = err?.error?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      const msgs = detail.map((d: any) => d?.msg || JSON.stringify(d)).filter(Boolean);
+      if (msgs.length) return msgs.join(' ');
+    }
+    if (detail && typeof detail === 'object' && detail.msg) return detail.msg;
+    return err?.message || 'Something went wrong. Please try again.';
   }
 
   saveCosts() {

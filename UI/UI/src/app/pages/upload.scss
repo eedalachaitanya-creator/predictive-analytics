@@ -267,3 +267,59 @@
   tbody tr:nth-child(even) { background: var(--surface-2, #f8fafc); }
   tbody td { color: var(--text-muted, #475569); }
 }
+
+/* ── Grid children + uploaded zone fix ────────────────────────────────────
+   Grid items don't shrink below their content width by default, which causes
+   the 3-column upload grid to overflow horizontally when filenames are long.
+   min-width:0 allows them to shrink. Uploaded zone gets reduced padding and
+   stacked buttons so everything fits cleanly at narrow column widths.       */
+.grid-3 > div,
+.grid-2 > div {
+  min-width: 0;
+}
+
+.upload-zone.uploaded {
+  padding: 12px 14px;
+
+  > div {
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: nowrap;
+
+    > div:first-child {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+
+      .upload-success {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 12px;
+      }
+
+      > div:last-child {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+        white-space: nowrap;
+      }
+    }
+
+    > div:last-child {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      flex-shrink: 0;
+
+      .btn {
+        font-size: 11px;
+        padding: 4px 10px;
+      }
+    }
+  }
+}

@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { ScoutService } from '../../../services/scout.service';
+import { ScoutService, AgentChatResponse, AgentSessionDeleteResponse } from '../../../services/scout.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -51,6 +51,18 @@ export class ScoutChatTab implements AfterViewChecked {
     // - gfm: GitHub-flavored markdown (tables, strikethrough, etc.)
     // - breaks: single newline → <br> (matches how the agent writes replies)
     marked.setOptions({ gfm: true, breaks: true });
+
+    // FIX: Custom renderer so all links open in a new tab.
+    // Without this, "View on Amazon" / "View on Flipkart" links navigate
+    // the user away from the app (same-tab). target="_blank" keeps the app
+    // open. rel="noopener noreferrer" is a security best-practice: it
+    // prevents the opened page from accessing window.opener.
+    const renderer = new marked.Renderer();
+    renderer.link = ({ href, title, text }: { href: string; title?: string | null; text: string }) => {
+      const titleAttr = title ? ` title="${title}"` : '';
+      return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    };
+    marked.use({ renderer });
   }
 
   ngAfterViewChecked() {
@@ -72,8 +84,9 @@ export class ScoutChatTab implements AfterViewChecked {
     this.sending.set(true);
     this.shouldScroll = true;
 
+    // FIX: typed as AgentChatResponse instead of `any` to resolve TS2571
     this.svc.agentChat(text, this.sessionId()).subscribe({
-      next: (res: any) => {
+      next: (res: AgentChatResponse) => {
         const reply: ChatMessage = {
           role: 'assistant',
           content: res.response || '(no response)',
@@ -98,18 +111,20 @@ export class ScoutChatTab implements AfterViewChecked {
     }
   }
 
- newChat() {
-  // No confirmation — New Chat is intentional and recoverable (user can
-  // always retype their question). Avoids the browser's ugly native
-  // confirm() dialog that doesn't match our app style.
-  this.svc.agentDeleteSession(this.sessionId()).subscribe({
-    next: () => {},
-    error: () => {}
-  });
-  this.messages.set([]);
-  this.sessionId.set(this.generateSessionId());
-  this.error.set('');
-}
+  // FIX: corrected indentation — was 1-space (outside class body in TS's view),
+  // causing `this` to have no type context → TS2571 "Object is of type unknown".
+  newChat() {
+    // No confirmation — New Chat is intentional and recoverable (user can
+    // always retype their question). Avoids the browser's ugly native
+    // confirm() dialog that doesn't match our app style.
+    this.svc.agentDeleteSession(this.sessionId()).subscribe({
+      next: (_res: AgentSessionDeleteResponse) => {},
+      error: () => {}
+    });
+    this.messages.set([]);
+    this.sessionId.set(this.generateSessionId());
+    this.error.set('');
+  }
 
   /**
    * Quick-suggestion chips on the empty state should fire and forget —

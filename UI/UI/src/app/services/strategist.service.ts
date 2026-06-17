@@ -7,7 +7,6 @@ import { environment } from '../../environments/environment';
 const BASE = environment.apiUrl.replace('/api/v1', '');
 
 function headers(): HttpHeaders {
-  // sessionStorage so the session dies with the browser tab — see auth.service.ts
   const token = sessionStorage.getItem('wap_token');
   return new HttpHeaders({
     'Content-Type': 'application/json',
@@ -84,7 +83,7 @@ export interface PricingRecommendation {
   competitor_avg:      number;
   competitor_max:      number;
   competitor_median?:  number;
-  platform_breakdown?: PlatformPrice[];   // ← per-website prices
+  platform_breakdown?: PlatformPrice[];
   margin_percent:      number;
   market_trend:        string;
   confidence:          string;
@@ -92,6 +91,7 @@ export interface PricingRecommendation {
   reasoning:           string;
   churn_context?:      ChurnContext | null;
 }
+
 export interface StrategistResponse {
   run_id:            string;
   client_id:         string;
@@ -102,7 +102,7 @@ export interface StrategistResponse {
   elapsed_seconds:   number;
 }
 
-export interface MarketTrend  { product_name: string; trend: string; }
+export interface MarketTrend   { product_name: string; trend: string; }
 export interface SampleRequest { scout_output: ScoutOutput; client_id: string; }
 
 export interface PriceContext {
@@ -164,25 +164,34 @@ export class StrategistService {
       .pipe(catchError(e => throwError(() => e)));
   }
 
-  /** Autocomplete support for the Pricing Engine product input.
-   *  Passes the user's current text as `q`; backend does case-insensitive
-   *  substring match against canonical_name, ranked by listing count. */
-  /** Search products in client's catalog for autocomplete */
   searchProducts(clientId: string, q: string): Observable<{ count: number; products: { name: string; sku: string; saved_cost: number }[] }> {
     const qPart = q ? `?q=${encodeURIComponent(q)}&limit=10` : `?limit=20`;
     return this.http.get<any>(`${BASE}/api/db/scout-products${qPart}`, { headers: headers() })
       .pipe(catchError(() => of({ count: 0, products: [] })));
   }
-  /** Fetch client config (incl. preferred currency) for UI prefill */
+
   getClientConfig(clientId: string): Observable<any> {
     return this.http.get<any>(`${BASE}/api/db/client-config/${clientId}`, { headers: headers() })
       .pipe(catchError(() => of({ currency: 'INR' })));
   }
 
-getPriceHistoryProducts(q: string): Observable<any> {
+  getPriceHistoryProducts(q: string): Observable<any> {
     return this.http.get<any>(
       `${BASE}/api/db/price-history-products?q=${encodeURIComponent(q)}&limit=10`,
       { headers: headers() }
     ).pipe(catchError(e => throwError(() => e)));
+  }
+
+  /**
+   * PA-046 fix: fetch product names scoped to this client_id from the
+   * `products` table in Analyst DB. Returns empty list for new clients
+   * who haven't uploaded data yet — never leaks global demo products.
+   * Used by Market Trends "Your products" chip section.
+   */
+  getClientProducts(clientId: string, limit = 20): Observable<{ count: number; products: string[] }> {
+    return this.http.get<{ count: number; products: string[] }>(
+      `${BASE}/api/db/client-products?client_id=${encodeURIComponent(clientId)}&limit=${limit}`,
+      { headers: headers() }
+    ).pipe(catchError(() => of({ count: 0, products: [] })));
   }
 }

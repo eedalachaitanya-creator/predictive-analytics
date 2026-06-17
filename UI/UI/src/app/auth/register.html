@@ -38,6 +38,7 @@
         (ngModelChange)="companyName.set($event)"
         (blur)="companyNameTouched.set(true)"
         placeholder="e.g., Costco Wholesale"
+        maxlength="100"
         [disabled]="loading()"
         required />
       <div class="field-error-area mb-12">
@@ -76,6 +77,7 @@
         (ngModelChange)="contactName.set($event)"
         (blur)="contactNameTouched.set(true)"
         placeholder="e.g., John Smith"
+        maxlength="100"
         [disabled]="loading()"
         required />
       <div class="field-error-area mb-12">
@@ -143,6 +145,9 @@
           </div>
           <div class="pw-rule" [class.pass]="rules().hasSpecial">
             <span class="pw-rule-icon">{{ rules().hasSpecial ? '✓' : '○' }}</span> One special character (!&#64;#$%...)
+          </div>
+          <div class="pw-rule" [class.pass]="rules().noSpaces">
+            <span class="pw-rule-icon">{{ rules().noSpaces ? '✓' : '○' }}</span> No spaces
           </div>
         </div>
       }

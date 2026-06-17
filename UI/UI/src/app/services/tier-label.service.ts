@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
 
@@ -33,13 +33,32 @@ export class TierLabelService {
   /** Read-only signal — components can subscribe to re-render on change. */
   readonly labels = this._labels.asReadonly();
 
-  /** Translate a canonical tier name ('Platinum') to its display label ('💎 Platinum'). */
+  /**
+   * Translate a canonical tier name ('Platinum') to its display label ('💎 Platinum').
+   *
+   * The canonical value coming in is ALWAYS the bare enum from the DB column
+   * `customer_tier`: 'Platinum', 'Gold', 'Silver', 'Bronze' (or lowercase/mixed
+   * variants). It is never the display label itself — display labels live only
+   * in `_labels` and are written there by refresh(). Normalizing to title-case
+   * is therefore safe and correct: we only need to handle case variation in the
+   * raw enum, not strip emojis or other display-only prefixes.
+   */
   translate(canonical: string | null | undefined): string {
     if (!canonical) return '';
-    // Normalize: strip whitespace, capitalize first letter so 'platinum'/'PLATINUM' → 'Platinum'.
-    const key = canonical.trim();
-    const normalized = key.charAt(0).toUpperCase() + key.slice(1).toLowerCase();
-    return this._labels()[normalized] ?? canonical;
+
+    const trimmed = canonical.trim();
+
+    // Fast path: exact match (covers 'Platinum', 'Gold', etc. from the DB).
+    if (this._labels()[trimmed]) return this._labels()[trimmed];
+
+    // Slow path: case-insensitive match — handles 'platinum', 'GOLD', etc.
+    // Only title-cases the FIRST word so 'platinum elite' → 'Platinum elite',
+    // not 'Platinum Elite'. We match on the first word because the canonical
+    // enum is always a single word.
+    const firstWord = trimmed.split(/\s+/)[0];
+    const titleFirst = firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+
+    return this._labels()[titleFirst] ?? canonical;
   }
 
   /**

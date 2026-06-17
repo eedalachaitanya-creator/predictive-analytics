@@ -15,14 +15,11 @@
 </div>
 
 <!-- Alerts Table -->
-<!-- Alerts Table -->
 @if (alertsTotal() > 0) {
   <div class="card mb-24">
     <div class="card-header">
       <div class="card-title">🔔 Recent Price Alerts</div>
     </div>
-    <!-- Fixed-height scroll container so long lists don't push the Products
-         table off-screen. 50 rows fit comfortably in ~500px. -->
     <div class="table-scroll paged-scroll">
       <table class="data-table recentproducts-table">
         <thead>
@@ -40,12 +37,8 @@
           @for (a of alerts(); track a.id) {
             <tr [class.unread]="!a.acknowledged">
               <td>{{ changeIcon(a) }}</td>
-              <!-- Show the scraped technical title (e.g., "Dyson Supersonic
-                   HD08 Hair Dryer Vinca Blue/Rosé") rather than the user's
-                   search query. Falls back to product_name for any old
-                   alerts that don't have a title joined from product_results. -->
               <td><strong>{{ a.title || a.product_name }}</strong></td>
-              <td><span class="badge gray">{{ a.platform }}</span></td>
+              <td><span class="badge gray" [title]="a.platform">{{ displayName(a.platform) }}</span></td>
               <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, currencyFor(a.platform)) : '—' }}</td>
               <td class="font-mono"><strong>{{ fmt(a.new_price, currencyFor(a.platform)) }}</strong></td>
               <td [class]="changeClass(a)"><strong>{{ fmtChange(a) }}</strong></td>
@@ -91,14 +84,12 @@
         <thead>
           <tr>
             <th class="sticky-col">Product</th>
-            @for (p of platforms(); track p) { <th>{{ p }}</th> }
+            @for (p of platforms(); track p) { <th [title]="p">{{ displayName(p) }}</th> }
           </tr>
         </thead>
         <tbody>
           @for (row of products(); track row.product_name) {
             <tr class="clickable" (click)="loadHistory(row.product_name)" [class.selected]="selectedProduct() === row.product_name">
-              <!-- Hovering the canonical name reveals each platform's
-                   technical SKU title via native browser tooltip. -->
               <td class="sticky-col">
                 <strong [title]="allTitlesFor(row)">{{ row.product_name }}</strong>
               </td>
@@ -129,7 +120,7 @@
                         <tbody>
                           @for (h of priceHistory(); track $index) {
                             <tr>
-                              <td><span class="badge gray">{{ h.platform }}</span></td>
+                              <td><span class="badge gray" [title]="h.platform">{{ displayName(h.platform) }}</span></td>
                               <td class="font-mono">{{ fmt(h.price, h.currency) }}</td>
                               <td class="text-muted">{{ h.scraped_at | date:'medium' }}</td>
                             </tr>
@@ -146,19 +137,18 @@
           }
         </tbody>
       </table>
+    </div>
+    <div class="pagination-bar">
+      <span class="pagination-info">Showing {{ productsRange() }}</span>
+      <div class="pagination-controls">
+        <button class="btn sm outline" (click)="prevProductsPage()" [disabled]="productsPage() <= 1">
+          ‹ Prev
+        </button>
+        <span class="page-indicator">Page {{ productsPage() }}</span>
+        <button class="btn sm outline" (click)="nextProductsPage()" [disabled]="!productsHasNext()">
+          Next ›
+        </button>
       </div>
-        <div class="pagination-bar">
-        <span class="pagination-info">Showing {{ productsRange() }}</span>
-        <div class="pagination-controls">
-          <button class="btn sm outline" (click)="prevProductsPage()" [disabled]="productsPage() <= 1">
-            ‹ Prev
-          </button>
-          <span class="page-indicator">Page {{ productsPage() }}</span>
-          <button class="btn sm outline" (click)="nextProductsPage()" [disabled]="!productsHasNext()">
-            Next ›
-          </button>
-        </div>
-      </div>
-
+    </div>
   }
 </div>

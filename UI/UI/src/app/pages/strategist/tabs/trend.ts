@@ -31,11 +31,11 @@ export class StrategistTrendTab implements OnInit {
   ngOnInit() { this.loadProducts(); }
 
   loadProducts() {
-    this.svc.getSampleRequest(this.clientId).subscribe({
-      next: (res: any) => {
-        const names = (res?.scout_output?.products || []).map((p: any) => p.name);
-        this.products.set(names);
-      },
+    // PA-046 fix: use /api/db/client-products (scoped to this client_id) instead of
+    // /api/strategist/sample-request (global Scout DB — leaked demo products to new
+    // clients who have not uploaded data or searched for any products yet).
+    this.svc.getClientProducts(this.clientId).subscribe({
+      next: (res) => { this.products.set(res.products ?? []); },
       error: () => { this.products.set([]); }
     });
   }

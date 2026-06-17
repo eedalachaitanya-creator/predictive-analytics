@@ -2,6 +2,32 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty-state { padding: 32px; text-align: center; color: var(--text-muted); font-size: 13px; }
 .table-scroll { overflow-x: auto; }
+
+/* ── Column overflow fix ───────────────────────────────────────────────
+   Platform names used as <th> headers can be full UTM URLs when a site's
+   name was saved as a URL. Without max-width + ellipsis the column expands
+   to fit the full URL string, breaking horizontal layout for all columns.
+   The title attribute (set in the template) shows the full value on hover.  */
+.products-table th,
+.products-table td {
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Product name (sticky first column) gets more room — it's the primary
+   identifier and should never be clipped to the point of being unreadable. */
+.products-table th.sticky-col,
+.products-table td.sticky-col {
+  max-width: 220px;
+}
+
+/* Price cells are short (₹1,234) — no need for ellipsis, just nowrap. */
+.products-table td.font-mono {
+  max-width: 120px;
+  text-align: right;
+}
 .sticky-col { position: sticky; left: 0; z-index: 1; background: var(--bg-card); min-width: 180px; }
 thead .sticky-col { background: #F5F8FF; } 
 .clickable { cursor: pointer; transition: background 0.15s; }
@@ -15,7 +41,31 @@ thead .sticky-col { background: #F5F8FF; }
 .history-inner th { background: transparent !important; }
 
 tr.unread td { background: rgba(26,111,212,0.03); }
- .paged-scroll { max-height: 550px; overflow-y: auto; }
+.paged-scroll { max-height: 550px; overflow-y: auto; }
+
+/* ── Alerts table layout fix ───────────────────────────────────────────
+   Without explicit column widths the browser splits the table unevenly,
+   making it appear as if Product/Platform and the price columns are in
+   two separate halves (visible as a horizontal scroll gap in the UI).    */
+.recentproducts-table {
+  width: 100%;
+  table-layout: fixed;
+
+  th:nth-child(1), td:nth-child(1) { width: 32px; }   /* icon */
+  th:nth-child(2), td:nth-child(2) { width: 35%; }    /* product */
+  th:nth-child(3), td:nth-child(3) { width: 15%; }    /* platform */
+  th:nth-child(4), td:nth-child(4) { width: 12%; }    /* old price */
+  th:nth-child(5), td:nth-child(5) { width: 12%; }    /* new price */
+  th:nth-child(6), td:nth-child(6) { width: 10%; }    /* change */
+  th:nth-child(7), td:nth-child(7) { width: 10%; }    /* when */
+
+  td:nth-child(2) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 .pagination-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-top: 1px solid var(--border, #e5e7eb); font-size: 13px; }
 .pagination-info { color: var(--text-muted, #6b7280); }
 .pagination-controls { display: flex; align-items: center; gap: 12px; }

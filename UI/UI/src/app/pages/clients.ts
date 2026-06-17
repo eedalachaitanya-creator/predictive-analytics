@@ -184,6 +184,27 @@ export class ClientsComponent implements OnInit {
   viewOffset  = signal(0);
   readonly viewLimit = 100;
 
+  // ── Pagination computeds ────────────────────────────────────────
+  // Derived from viewData so the template never does arithmetic inline.
+  viewCurrentPage = computed(() => {
+    const d = this.viewData();
+    if (!d || d.total === 0) return 1;
+    return Math.floor(d.offset / this.viewLimit) + 1;
+  });
+
+  viewTotalPages = computed(() => {
+    const d = this.viewData();
+    if (!d || d.total === 0) return 1;
+    return Math.ceil(d.total / this.viewLimit);
+  });
+
+  viewHasPrev = computed(() => this.viewOffset() > 0);
+
+  viewHasNext = computed(() => {
+    const d = this.viewData();
+    return !!d && (this.viewOffset() + this.viewLimit) < d.total;
+  });
+
   ngOnInit() { this.loadClients(); }
 
   loadClients() {
@@ -293,17 +314,14 @@ export class ClientsComponent implements OnInit {
   }
 
   nextPage() {
-    const d = this.viewData();
-    if (!d) return;
-    const next = this.viewOffset() + this.viewLimit;
-    if (next >= d.total) return;
-    this.viewOffset.set(next);
+    if (!this.viewHasNext()) return;
+    this.viewOffset.set(this.viewOffset() + this.viewLimit);
     this.fetchTableRows();
   }
 
   prevPage() {
-    const prev = Math.max(0, this.viewOffset() - this.viewLimit);
-    this.viewOffset.set(prev);
+    if (!this.viewHasPrev()) return;
+    this.viewOffset.set(Math.max(0, this.viewOffset() - this.viewLimit));
     this.fetchTableRows();
   }
 

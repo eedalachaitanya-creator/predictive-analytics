@@ -52,6 +52,11 @@ export class AuditComponent implements OnInit {
   events   = signal<AuditEvent[]>([]);
   total    = signal(0);
 
+  // ── Pagination state ───────────────────────────────────────────────────
+  readonly pageSize = 50;
+  page       = signal(1);
+  totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize)));
+
   // ── Filter model — bound to the form via ngModel ───────────────────────
   // Defaults: last 30 days → today. Leaving these empty means "no bound".
   filters = signal({
@@ -63,18 +68,17 @@ export class AuditComponent implements OnInit {
     outcome:     'ALL',
   });
 
-  // Row-count banner, e.g. "Showing 12 of 247 events"
+  // Row-count banner, e.g. "Showing 1–50 of 247 events"
   rowSummary = computed(() => {
-    const n = this.events().length;
     const t = this.total();
     if (t === 0) return 'No events match the current filters.';
-    return `Showing ${n} of ${t} events.`;
+    const start = (this.page() - 1) * this.pageSize + 1;
+    const end   = Math.min(this.page() * this.pageSize, t);
+    return `Showing ${start}–${end} of ${t} events`;
   });
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
   ngOnInit() {
-    // Kick off stats + filter-options in parallel with the initial list fetch.
-    // All three are independent so there's no reason to serialise them.
     this.loadStats();
     this.loadFilterOptions();
     this.applyFilters();
@@ -98,11 +102,17 @@ export class AuditComponent implements OnInit {
   }
 
   applyFilters() {
+    this.page.set(1);  // reset to first page on new filter
+    this.fetchPage();
+  }
+
+  fetchPage() {
     this.loading.set(true);
     this.error.set(null);
+    const offset = (this.page() - 1) * this.pageSize;
     this.http.get<{ events: AuditEvent[]; total: number }>(
       `${this.base}/audit`,
-      { headers: this.authHeaders(), params: this.filterParams() }
+      { headers: this.authHeaders(), params: this.filterParams(offset) }
     ).subscribe({
       next: resp => {
         this.events.set(resp.events);
@@ -118,13 +128,17 @@ export class AuditComponent implements OnInit {
     });
   }
 
+  goToPage(p: number) {
+    if (p < 1 || p > this.totalPages()) return;
+    this.page.set(p);
+    this.fetchPage();
+  }
+
   // ── CSV export ─────────────────────────────────────────────────────────
-  // We fetch as Blob so the browser doesn't try to parse the CSV as JSON,
-  // then build a one-shot object URL for download.
   exportCsv() {
     this.http.get(`${this.base}/audit/export`, {
       headers: this.authHeaders(),
-      params:  this.filterParams(),
+      params:  this.exportParams(),
       responseType: 'blob',
       observe: 'response',
     }).subscribe({
@@ -133,8 +147,6 @@ export class AuditComponent implements OnInit {
         const url  = window.URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href     = url;
-        // Use the filename from the server's Content-Disposition if present,
-        // otherwise fall back to a timestamp-stamped default.
         const cd = resp.headers.get('Content-Disposition') ?? '';
         const m  = /filename="([^"]+)"/.exec(cd);
         a.download = m?.[1] ?? `audit_log_${Date.now()}.csv`;
@@ -150,14 +162,11 @@ export class AuditComponent implements OnInit {
   }
 
   // ── UI helpers ─────────────────────────────────────────────────────────
-  // The filter model is bound via ngModel; this just re-fetches when the user
-  // clicks Apply Filter. We also refetch stats so today's counts stay current.
   onApplyClick() {
     this.applyFilters();
     this.loadStats();
   }
 
-  // Pretty-print ISO timestamp to "YYYY-MM-DD HH:MM:SS" without the T/Z noise.
   formatTs(iso: string): string {
     if (!iso) return '';
     const d = new Date(iso);
@@ -167,9 +176,6 @@ export class AuditComponent implements OnInit {
            `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
-  // Map internal action_type strings (snake_case) to a human label for the
-  // badge. Anything unknown falls through with its raw name so new events
-  // show up immediately without a code change.
   actionLabel(a: string): string {
     const map: Record<string, string> = {
       login:             'Login',
@@ -185,7 +191,6 @@ export class AuditComponent implements OnInit {
     return map[a] ?? a;
   }
 
-  // Badge colour for action type so the eye can scan categories quickly.
   actionColor(a: string): string {
     if (a.startsWith('pipeline'))  return 'purple';
     if (a.startsWith('file'))      return 'blue';
@@ -196,8 +201,6 @@ export class AuditComponent implements OnInit {
     return 'blue';
   }
 
-  // Small trick so the template can update a single filter key with one line:
-  //   (ngModelChange)="updateFilter('client_id', $event)"
   updateFilter<K extends keyof ReturnType<typeof this.filters>>(key: K, val: any) {
     this.filters.update(f => ({ ...f, [key]: val }));
   }
@@ -208,11 +211,11 @@ export class AuditComponent implements OnInit {
     return new HttpHeaders(token ? { Authorization: `Bearer ${token}` } : {});
   }
 
-  private filterParams(): HttpParams {
+  private baseFilterParams(): HttpParams {
     const f = this.filters();
     let p = new HttpParams();
-    if (f.start)                       p = p.set('start', f.start);
-    if (f.end)                         p = p.set('end',   f.end);
+    if (f.start)                                  p = p.set('start',       f.start);
+    if (f.end)                                    p = p.set('end',         f.end);
     if (f.client_id   && f.client_id   !== 'ALL') p = p.set('client_id',   f.client_id);
     if (f.user_email  && f.user_email  !== 'ALL') p = p.set('user_email',  f.user_email);
     if (f.action_type && f.action_type !== 'ALL') p = p.set('action_type', f.action_type);
@@ -220,10 +223,23 @@ export class AuditComponent implements OnInit {
     return p;
   }
 
+  // Paginated fetch — always sends limit + offset
+  private filterParams(offset = 0): HttpParams {
+    return this.baseFilterParams()
+      .set('limit',  String(this.pageSize))
+      .set('offset', String(offset));
+  }
+
+  // Export fetch — no limit/offset so backend returns ALL matching rows
+  private exportParams(): HttpParams {
+    return this.baseFilterParams();
+  }
+
   private today(): string {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
+
   private defaultStart(): string {
     const d = new Date();
     d.setDate(d.getDate() - 30);

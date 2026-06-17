@@ -44,11 +44,6 @@
 
 <!-- Messages -->
 @if (error()) {
-  <!-- Error notice has a manual dismiss button because addWebsite errors
-       persist (don't auto-clear). The flex layout pushes the × to the
-       right edge while keeping the message left-aligned. clearMessages()
-       can't be called from the template directly, but error.set('') is
-       all clearMessages() does for the error part — same effect. -->
   <div class="notice warning mb-16" style="display: flex; align-items: center; gap: 8px">
     <span style="flex: 1">⚠️ {{ error() }}</span>
     <button
@@ -80,55 +75,60 @@
       No platforms configured yet — add one above
     </div>
   } @else {
-    <table class="data-table platforms-table">
-      <thead>
-        <tr>
-          <th>Status</th>
-          <th>Name</th>
-          <th>Search URL</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (site of websites(); track site.name; let i = $index) {
+    <!-- PA_047: wrap in scroll div so overflow scrolls rather than breaks layout -->
+    <div class="table-scroll">
+      <table class="data-table platforms-table">
+        <thead>
           <tr>
-            <td>
-              <label class="toggle" (click)="$event.stopPropagation()">
-                <input type="checkbox" [checked]="site.active" (change)="toggleActive(site)" />
-                <span class="slider"></span>
-              </label>
-            </td>
-            <td>
-              <strong>{{ site.name }}</strong>
-              @if (!site.active) { <span class="badge gray" style="margin-left: 6px">Disabled</span> }
-            </td>
-            <td>
-              @if (editingIdx() === i) {
-                <div class="edit-url-row">
-                  <input
-                    class="form-input"
-                    [value]="editUrl()"
-                    (input)="editUrl.set($any($event.target).value)"
-                    style="font-family: 'DM Mono', monospace; font-size: 11px" />
-                  <button class="btn sm success" (click)="saveEdit(site)">Save</button>
-                  <button class="btn sm ghost" (click)="cancelEdit()">Cancel</button>
-                </div>
-              } @else {
-                <code class="url-code" [title]="site.search_url">{{ site.search_url | slice:0:60 }}{{ site.search_url.length > 60 ? '…' : '' }}</code>
-              }
-            </td>
-            <td>
-              <div class="action-btns">
-                @if (editingIdx() !== i) {
-                  <button class="btn sm outline" (click)="startEdit(i)" title="Edit search URL">✏️</button>
-                }
-                <button class="btn sm danger" (click)="askDeleteWebsite(site)" title="Permanently delete website">🗑️</button>
-              </div>
-            </td>
+            <th>Status</th>
+            <th>Name</th>
+            <th>Search URL</th>
+            <th>Actions</th>
           </tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (site of websites(); track site.name; let i = $index) {
+            <tr>
+              <td>
+                <label class="toggle" (click)="$event.stopPropagation()">
+                  <input type="checkbox" [checked]="site.active" (change)="toggleActive(site)" />
+                  <span class="slider"></span>
+                </label>
+              </td>
+              <td>
+                <strong>{{ site.name }}</strong>
+                @if (!site.active) { <span class="badge gray" style="margin-left: 6px">Disabled</span> }
+              </td>
+              <td>
+                @if (editingIdx() === i) {
+                  <div class="edit-url-row">
+                    <input
+                      class="form-input"
+                      [value]="editUrl()"
+                      (input)="editUrl.set($any($event.target).value)"
+                      style="font-family: 'DM Mono', monospace; font-size: 11px" />
+                    <!-- PA-056 FIX: Save disabled when URL field is empty/whitespace -->
+                    <button class="btn sm success" (click)="saveEdit(site)" [disabled]="!editUrl().trim()">Save</button>
+                    <button class="btn sm ghost" (click)="cancelEdit()">Cancel</button>
+                  </div>
+                } @else {
+                  <!-- PA_047: CSS handles truncation via text-overflow:ellipsis; full URL in title tooltip -->
+                  <code class="url-code" [title]="site.search_url">{{ site.search_url }}</code>
+                }
+              </td>
+              <td>
+                <div class="action-btns">
+                  @if (editingIdx() !== i) {
+                    <button class="btn sm outline" (click)="startEdit(i)" title="Edit search URL">✏️</button>
+                  }
+                  <button class="btn sm danger" (click)="askDeleteWebsite(site)" title="Permanently delete website">🗑️</button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div><!-- /table-scroll -->
   }
 </div>
 

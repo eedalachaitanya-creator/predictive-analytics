@@ -50,7 +50,8 @@ export class RegisterComponent {
       hasUpper:   /[A-Z]/.test(p),
       hasLower:   /[a-z]/.test(p),
       hasNumber:  /\d/.test(p),
-      hasSpecial: /[^A-Za-z0-9]/.test(p),
+      hasSpecial: /[^A-Za-z0-9\s]/.test(p),
+      noSpaces:   p.length > 0 && !/\s/.test(p),
     };
   });
 
@@ -59,7 +60,9 @@ export class RegisterComponent {
   // Inline errors — only show after field is touched
   companyNameError = computed(() => {
     if (!this.companyNameTouched()) return '';
-    if (!this.companyName().trim()) return 'Company name is required.';
+    const name = this.companyName().trim();
+    if (!name) return 'Company name is required.';
+    if (name.length > 100) return 'Company name must be 100 characters or less.';
     return '';
   });
 
@@ -74,7 +77,9 @@ export class RegisterComponent {
 
   contactNameError = computed(() => {
     if (!this.contactNameTouched()) return '';
-    if (!this.contactName().trim()) return 'Full name is required.';
+    const name = this.contactName().trim();
+    if (!name) return 'Full name is required.';
+    if (name.length > 100) return 'Full name must be 100 characters or less.';
     return '';
   });
 
@@ -90,6 +95,7 @@ export class RegisterComponent {
     if (!this.passTouched()) return '';
     if (!this.password()) return 'Password is required.';
     if (this.password() !== this.password().trim()) return 'Password cannot start or end with a space.';
+    if (/\s/.test(this.password())) return 'Password cannot contain spaces.';
     if (!this.allRulesPass()) return 'Password does not meet all requirements below.';
     return '';
   });
@@ -105,10 +111,12 @@ export class RegisterComponent {
   private formValid(): boolean {
     return (
       !!this.companyName().trim() &&
+      this.companyName().trim().length <= 100 &&
       !!this.companyCode().trim() &&
       this.companyCode().length <= 10 &&
       this.CODE_RE.test(this.companyCode()) &&
       !!this.contactName().trim() &&
+      this.contactName().trim().length <= 100 &&
       !!this.contactEmail().trim() &&
       this.EMAIL_RE.test(this.contactEmail().trim()) &&
       !!this.password() &&
@@ -136,9 +144,9 @@ export class RegisterComponent {
     this.loading.set(true);
 
     const body = {
-      client_name:   this.companyName(),
+      client_name:   this.companyName().trim(),
       client_code:   this.companyCode().toUpperCase(),
-      contact_name:  this.contactName(),
+      contact_name:  this.contactName().trim(),
       contact_email: this.contactEmail().trim(),
       password:      this.password().trim(),  // PA_011 fix: strip trailing/leading spaces
     };
@@ -151,10 +159,21 @@ export class RegisterComponent {
       },
       error: (err) => {
         this.loading.set(false);
-        this.error.set(
-          err?.error?.detail ?? err?.message ?? 'Registration failed. Please try again.'
-        );
+        this.error.set(this.extractErrorMessage(err));
       }
     });
+  }
+
+  /** Pulls a human-readable message out of an HttpErrorResponse, even when
+   *  `detail` is a FastAPI validation-error array instead of a string. */
+  private extractErrorMessage(err: any): string {
+    const detail = err?.error?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (Array.isArray(detail) && detail.length) {
+      const first = detail[0];
+      if (typeof first === 'string') return first;
+      if (first?.msg) return first.msg;
+    }
+    return err?.message ?? 'Registration failed. Please try again.';
   }
 }

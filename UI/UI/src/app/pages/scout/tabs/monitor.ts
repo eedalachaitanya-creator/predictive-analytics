@@ -21,6 +21,8 @@ export class ScoutMonitorTab implements OnInit {
   alerts        = signal<any[]>([]);
   alertsTotal   = signal(0);
   alertsPage    = signal(1);              // 1-based page index
+  alertsLoading = signal(false);          // independent of products loading
+  alertsError   = signal('');
 
   products      = signal<any[]>([]);
   productsTotal = signal(0);
@@ -28,8 +30,8 @@ export class ScoutMonitorTab implements OnInit {
 
   platforms     = signal<string[]>([]);
 
-  // ── Other state (unchanged) ─────────────────────────────────────
-  loading         = signal(true);
+  // ── Other state ─────────────────────────────────────────────────
+  loading         = signal(true);         // products table only
   monitoring      = signal(false);
   monitorResult   = signal('');
   selectedProduct = signal<string | null>(null);
@@ -37,8 +39,8 @@ export class ScoutMonitorTab implements OnInit {
   historyLoading  = signal(false);
 
   // ── KPI tiles ───────────────────────────────────────────────────
-  // These now read from totals (not current page) so the tiles always
-  // show the true count even when paging.
+  // These read from totals (not current page) so tiles always show
+  // the true count regardless of which page is active.
   totalProducts  = computed(() => this.productsTotal());
   alertCount     = signal(0);        // unread_count from /alerts response
   totalPlatforms = computed(() => this.svc.activePlatformNames().length);
@@ -72,6 +74,8 @@ export class ScoutMonitorTab implements OnInit {
   // ── Alerts page loading ─────────────────────────────────────────
 
   loadAlerts() {
+    this.alertsLoading.set(true);
+    this.alertsError.set('');
     const page = this.alertsPage();
     const offset = (page - 1) * ALERTS_PAGE_SIZE;
     this.svc.getAlerts({ limit: ALERTS_PAGE_SIZE, offset }).subscribe({
@@ -79,6 +83,11 @@ export class ScoutMonitorTab implements OnInit {
         this.alerts.set(res.alerts || []);
         this.alertsTotal.set(res.total ?? (res.alerts || []).length);
         this.alertCount.set(res.unread_count ?? 0);
+        this.alertsLoading.set(false);
+      },
+      error: (err: any) => {
+        this.alertsError.set(err?.error?.detail ?? err?.message ?? 'Could not load alerts.');
+        this.alertsLoading.set(false);
       }
     });
   }
@@ -153,7 +162,7 @@ export class ScoutMonitorTab implements OnInit {
     return `${start}–${end} of ${total}`;
   }
 
-  // ── Monitor action (unchanged flow, just uses new load methods) ──
+  // ── Monitor action ───────────────────────────────────────────────
 
   runMonitor() {
     this.monitoring.set(true);
@@ -171,7 +180,7 @@ export class ScoutMonitorTab implements OnInit {
     });
   }
 
-  // ── Unchanged below ─────────────────────────────────────────────
+  // ── Price history ────────────────────────────────────────────────
 
   loadHistory(name: string) {
     if (this.selectedProduct() === name) { this.selectedProduct.set(null); return; }
@@ -205,19 +214,51 @@ export class ScoutMonitorTab implements OnInit {
   }
 
   /**
-   * Build a multi-line tooltip showing each platform's actual scraped
-   * title for a tracked-products row.
+   * Derive a short display name for a platform column header.
    *
-   * Example output for a Dyson row:
-   *   amazon.in: Dyson Supersonic HD08 Hair Dryer Vinca Blue/Rosé
-   *   myntra: Dyson Supersonic HD15 Hair Dryer Prussian Blue
-   *   nykaa: Dyson Supersonic Origin HD15 Hair Dryer
+   * When a platform's name was saved as a full URL (e.g. the Myntra UTM URL
+   * visible in the bug screenshot), the raw value is unusable as a column
+   * header — it blows the table layout even with CSS truncation because the
+   * browser allocates minimum content width before overflow kicks in.
    *
-   * Used as the [title] attribute on the row's product-name cell so users
-   * can hover the canonical name and see the technical SKU per platform.
-   * Falls back to "(no titles available)" if no listing has a title yet
-   * — keeps the tooltip behavior predictable.
+   * Strategy (mirrors _canonical_platform_name on the backend):
+   *   1. If it looks like a URL, extract just the hostname.
+   *   2. Strip www. prefix.
+   *   3. Strip common TLD suffixes (.com, .in, etc.).
+   *   4. Title-case the result.
+   *   5. Cap at 20 chars with ellipsis for anything still too long.
+   *
+   * The full raw value is always shown via the [title] tooltip on hover.
    */
+  displayName(platform: string): string {
+    let name = platform.trim();
+
+    // If it looks like a URL, extract just the hostname
+    if (name.startsWith('http://') || name.startsWith('https://') || name.includes('://')) {
+      try {
+        name = new URL(name).hostname;
+      } catch {
+        // Not a valid URL — fall through with original value
+      }
+    }
+
+    // Strip www.
+    name = name.replace(/^www\./, '');
+
+    // Strip common TLD suffixes
+    name = name.replace(/\.(com\.au|co\.uk|co\.in|com|net|org|in|io|co|store|shop|app)$/, '');
+
+    // Title-case (flipkart → Flipkart)
+    name = name.charAt(0).toUpperCase() + name.slice(1);
+
+    // Hard cap at 20 chars — anything still longer gets ellipsis
+    if (name.length > 20) {
+      name = name.slice(0, 18) + '…';
+    }
+
+    return name;
+  }
+
   allTitlesFor(row: any): string {
     const lines: string[] = [];
     for (const p of this.platforms()) {

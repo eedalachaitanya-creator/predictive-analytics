@@ -76,7 +76,7 @@ export class TopbarComponent {
     }
     return {
       title: meta.title,
-      meta: `${name} (${id}) · ${meta.meta}`
+      meta: `${name} · ${meta.meta}`
     };
   });
 

@@ -80,11 +80,11 @@
 .price-col { display: flex; flex-direction: column; gap: 3px; }
 .price-col.highlight .price-col-value { color: #6366F1; }
 .price-col-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-.price-col-value { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-.price-col-value.big { font-size: 24px; font-weight: 700; color: #6366F1; }
+.price-col-value { font-size: 15px; font-weight: 600; color: var(--text-primary); line-height: 28px; }
+.price-col-value.big { font-size: 24px; font-weight: 700; color: #6366F1; line-height: 28px; }
 .price-col-value.cost { color: var(--text-muted); }
 .price-col-value.muted { color: var(--text-muted); }
-.price-divider { font-size: 13px; color: var(--text-muted); padding-bottom: 4px; flex-shrink: 0; }
+.price-divider { font-size: 13px; color: var(--text-muted); line-height: 28px; flex-shrink: 0; }
 .rec-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; font-size: 13px; }
 .stat-item { display: flex; align-items: center; gap: 6px; }
 .stat-label { color: var(--text-muted); font-size: 12px; }

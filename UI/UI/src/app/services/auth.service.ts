@@ -176,7 +176,7 @@ export class AuthService {
       'CLT-001': 'Walmart Inc.',
       'CLT-002': 'Costco Wholesale',
     };
-    return names[id] ?? `Client ${id}`;
+    return names[id] ?? id;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────

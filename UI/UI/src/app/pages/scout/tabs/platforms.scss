@@ -1,3 +1,42 @@
+// ── PA_047 Fix: Prevent long URLs from breaking Scout Agent layout ─
+.table-scroll { overflow-x: auto; }
+
+.platforms-table {
+  table-layout: fixed;
+  width: 100%;
+
+  th:nth-child(1), td:nth-child(1) { width: 64px; }   // Status toggle
+  th:nth-child(2), td:nth-child(2) { width: 140px; }  // Platform name
+  th:nth-child(3), td:nth-child(3) { width: auto; }   // URL column — fills remaining space
+  th:nth-child(4), td:nth-child(4) { width: 90px; }   // Actions
+}
+
+.url-code {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.edit-url-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+
+  .form-input {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 // ── Delete confirmation modal ──────────────────────────────────────
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; animation: fadeIn 150ms ease-out; }
 .modal { background: var(--bg-card, #1e2230); border: 1px solid var(--border-subtle, #2a2f3e); border-radius: 12px; max-width: 520px; width: calc(100% - 40px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); animation: slideUp 200ms ease-out; }

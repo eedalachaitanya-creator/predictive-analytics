@@ -32,6 +32,11 @@ def _latent(customer_id: str, seed: int) -> float:
 
 
 class _Base(ExternalSignalConnector):
+    """Base class for synthetic external signal connectors.
+
+    If `customer_ids` is None/empty, no records are produced (synthetic
+    connectors require an explicit customer list).
+    """
     def __init__(self, seed: int = 42):
         self.seed = seed
 
@@ -55,6 +60,7 @@ class SyntheticJiraConnector(_Base):
     def fetch(self, client_id: str, since: Optional[date] = None,
               customer_ids: Optional[List[str]] = None,
               n_max: int = 4) -> Iterable[RawTicket]:
+        today = date.today()
         custs = customer_ids or []
         for cust in custs:
             rng = random.Random(f"{self.seed}:{client_id}:{cust}:jira")
@@ -62,7 +68,7 @@ class SyntheticJiraConnector(_Base):
             n = rng.randint(0, n_max)
             for i in range(n):
                 age = rng.randint(5, 360)
-                opened = datetime.combine(date.today() - timedelta(days=age),
+                opened = datetime.combine(today - timedelta(days=age),
                                           datetime.min.time())
                 resolved = (opened + timedelta(hours=rng.randint(2, 240))
                             if rng.random() > 0.3 else None)
@@ -90,6 +96,7 @@ class SyntheticGoogleReviewsConnector(_Base):
     def fetch(self, client_id: str, since: Optional[date] = None,
               customer_ids: Optional[List[str]] = None,
               n_max: int = 3) -> Iterable[RawReview]:
+        today = date.today()
         custs = customer_ids or []
         for cust in custs:
             rng = random.Random(f"{self.seed}:{client_id}:{cust}:google")
@@ -106,5 +113,5 @@ class SyntheticGoogleReviewsConnector(_Base):
                     source=self.source,
                     rating=max(1, min(5, rating)),
                     text=txt,
-                    review_date=date.today() - timedelta(days=age),
+                    review_date=today - timedelta(days=age),
                 )

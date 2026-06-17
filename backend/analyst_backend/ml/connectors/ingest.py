@@ -1,9 +1,12 @@
 from __future__ import annotations
 import argparse
+import logging
 import os
 from typing import Iterable, List, Optional
 
 from sqlalchemy import create_engine, text
+
+log = logging.getLogger(__name__)
 
 from ml.connectors.base import RawTicket, RawReview
 
@@ -51,7 +54,7 @@ def ingest_records(conn, records: Iterable) -> dict:
 
 def _customer_ids(conn, client_id: str, limit: Optional[int]) -> List[str]:
     sql = "SELECT customer_id FROM customers WHERE client_id=:c ORDER BY customer_id"
-    if limit:
+    if limit is not None:
         sql += f" LIMIT {int(limit)}"
     return [row[0] for row in conn.execute(text(sql), {"c": client_id}).fetchall()]
 
@@ -67,7 +70,7 @@ def run_ingest(engine, client_id: str, connectors=None,
             try:
                 recs = list(conn_impl.fetch(client_id, customer_ids=custs))
             except Exception as exc:  # one bad connector must not kill ingest
-                print(f"[ingest] connector {conn_impl.source} failed: {exc}")
+                log.warning("[ingest] connector %s failed: %s", conn_impl.source, exc)
                 continue
             c = ingest_records(conn, recs)
             totals["tickets"] += c["tickets"]

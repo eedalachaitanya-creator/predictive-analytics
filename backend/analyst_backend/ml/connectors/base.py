@@ -32,7 +32,10 @@ class RawReview:
 
 
 class ExternalSignalConnector(ABC):
-    """One external app as a source of normalized churn signals."""
+    """One external app as a source of normalized churn signals.
+    
+    Concrete subclasses must set the required class attributes source and signal_kind.
+    """
     source: str
     signal_kind: Literal["ticket", "review"]
 

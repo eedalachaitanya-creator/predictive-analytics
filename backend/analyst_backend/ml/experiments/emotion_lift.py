@@ -56,7 +56,7 @@ def main():
     ap.add_argument("--client-id", required=True)
     a = ap.parse_args()
     if not a.db_url:
-        ap.error("--db-url is required (or set DB_URL)")
+        ap.error("--db-url is required (or set the DB_URL env var)")
     from sqlalchemy import create_engine
     eng = create_engine(a.db_url, future=True)
     res = run_experiment(eng, a.client_id)

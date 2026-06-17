@@ -1,7 +1,6 @@
 from __future__ import annotations
 import argparse
 import os
-from typing import Optional
 
 import numpy as np
 from sklearn.metrics import average_precision_score
@@ -18,7 +17,8 @@ EMOTION_FEATURE_COLS = (
 
 
 def _fit_pr_auc(X, y, Xte, yte, seed):
-    pos = max(1, int((y == 1).sum())); neg = max(1, int((y == 0).sum()))
+    pos = max(1, int((y == 1).sum()))
+    neg = max(1, int((y == 0).sum()))
     clf = XGBClassifier(
         n_estimators=200, max_depth=5, learning_rate=0.1,
         subsample=0.8, colsample_bytree=0.8,
@@ -55,6 +55,8 @@ def main():
     ap.add_argument("--db-url", default=os.getenv("DB_URL"))
     ap.add_argument("--client-id", required=True)
     a = ap.parse_args()
+    if not a.db_url:
+        ap.error("--db-url is required (or set DB_URL)")
     from sqlalchemy import create_engine
     eng = create_engine(a.db_url, future=True)
     res = run_experiment(eng, a.client_id)

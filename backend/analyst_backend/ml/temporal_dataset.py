@@ -300,9 +300,10 @@ def _snapshot_sql() -> str:
             MAX(CASE WHEN t.emotion IN ('disappointed','angry')
                   AND t.opened_date >= CAST(:T AS timestamptz) - INTERVAL '30 days'
                   THEN 1 ELSE 0 END)                   AS had_disappointed_ticket_30d,
-            EXTRACT(DAY FROM (CAST(:T AS timestamptz) - MAX(
-                  CASE WHEN t.distress_score IS NOT NULL THEN t.opened_date END
-            )))::INT                                   AS days_since_worst_ticket
+            EXTRACT(DAY FROM (CAST(:T AS timestamptz) - (
+                  array_agg(t.opened_date ORDER BY t.distress_score DESC)
+                      FILTER (WHERE t.distress_score IS NOT NULL)
+              )[1]))::INT                              AS days_since_worst_ticket
         FROM support_tickets t
         WHERE t.client_id = :client_id
           AND t.opened_date <= CAST(:T AS timestamptz)

@@ -96,15 +96,21 @@ def read_snapshots(engine, client_id: str) -> pd.DataFrame:
 # Feature matrix — drop identifiers, KEEP recency (design §6.5, §8)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def build_feature_matrix(df: pd.DataFrame):
+def build_feature_matrix(df: pd.DataFrame, exclude_cols=None):
     """Split an assembled snapshot frame into (X, y, feature_names).
 
     Drops the identifier/bookkeeping columns (§6.5) and the label; retains every
     remaining numeric feature — recency-at-T included. No gray-zone row drop, no
     recency-column amputation. Returns ``(X, y, feature_names)``.
+
+    ``exclude_cols`` (set/list) drops extra feature columns — used by the
+    emotion-lift experiment (Task 7) to build a baseline without emotion features.
+    When ``None`` (the default), behavior is identical to the prior signature.
     """
+    extra = set(exclude_cols or ())
     y = df["churned"].astype(int).reset_index(drop=True)
-    feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLS]
+    feature_cols = [c for c in df.columns
+                    if c not in NON_FEATURE_COLS and c not in extra]
     # Keep only numeric features (date/string columns are never model inputs).
     X = df[feature_cols].copy()
     numeric = X.select_dtypes(include=[np.number]).columns.tolist()

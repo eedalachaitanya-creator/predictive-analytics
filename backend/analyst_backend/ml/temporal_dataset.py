@@ -248,6 +248,11 @@ def _snapshot_sql() -> str:
                   / NULLIF(COUNT(*), 0), 1)            AS pct_positive_reviews,
             ROUND(COUNT(CASE WHEN r.sentiment = 'negative' THEN 1 END) * 100.0
                   / NULLIF(COUNT(*), 0), 1)            AS pct_negative_reviews,
+            ROUND(AVG(r.distress_score)::NUMERIC, 3)   AS mean_review_distress,
+            ROUND(MAX(r.distress_score)::NUMERIC, 3)   AS max_review_distress,
+            ROUND(COUNT(CASE WHEN r.emotion IN ('disappointed','angry','frustrated')
+                  THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 1)
+                                                       AS pct_negative_emotion_reviews,
             MAX(r.review_date)                         AS last_review_date,
             EXTRACT(DAY FROM (CAST(:T AS timestamptz) - MAX(r.review_date)::timestamptz))::INT
                                                        AS days_since_last_review
@@ -283,7 +288,21 @@ def _snapshot_sql() -> str:
             )::NUMERIC, 1)                                        AS avg_resolution_time_hrs,
             ROUND(COUNT(CASE WHEN t.resolved_date IS NOT NULL AND t.resolved_date <= CAST(:T AS timestamptz)
                              THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 1)
-                                                                  AS pct_tickets_resolved
+                                                                  AS pct_tickets_resolved,
+            ROUND(AVG(t.distress_score)::NUMERIC, 3)   AS mean_ticket_distress,
+            ROUND(MAX(t.distress_score)::NUMERIC, 3)   AS max_ticket_distress,
+            ROUND(COUNT(CASE WHEN t.emotion IN ('disappointed','angry','frustrated')
+                  THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 1)
+                                                       AS pct_negative_emotion_tickets,
+            COUNT(CASE WHEN t.emotion IN ('disappointed','angry','frustrated')
+                  AND t.opened_date >= CAST(:T AS timestamptz) - INTERVAL '30 days'
+                  THEN 1 END)                          AS negative_tickets_30d,
+            MAX(CASE WHEN t.emotion IN ('disappointed','angry')
+                  AND t.opened_date >= CAST(:T AS timestamptz) - INTERVAL '30 days'
+                  THEN 1 ELSE 0 END)                   AS had_disappointed_ticket_30d,
+            EXTRACT(DAY FROM (CAST(:T AS timestamptz) - MAX(
+                  CASE WHEN t.distress_score IS NOT NULL THEN t.opened_date END
+            )))::INT                                   AS days_since_worst_ticket
         FROM support_tickets t
         WHERE t.client_id = :client_id
           AND t.opened_date <= CAST(:T AS timestamptz)
@@ -399,6 +418,15 @@ def _snapshot_sql() -> str:
         COALESCE(ta.resolved_tickets, 0)           AS resolved_tickets,
         COALESCE(ta.avg_resolution_time_hrs, 0)    AS avg_resolution_time_hrs,
         COALESCE(ta.pct_tickets_resolved, 0)       AS pct_tickets_resolved,
+        COALESCE(ta.mean_ticket_distress, 0)       AS mean_ticket_distress,
+        COALESCE(ta.max_ticket_distress, 0)        AS max_ticket_distress,
+        COALESCE(ta.pct_negative_emotion_tickets, 0) AS pct_negative_emotion_tickets,
+        COALESCE(ta.negative_tickets_30d, 0)       AS negative_tickets_30d,
+        COALESCE(ta.had_disappointed_ticket_30d, 0) AS had_disappointed_ticket_30d,
+        COALESCE(ta.days_since_worst_ticket, 9999) AS days_since_worst_ticket,
+        COALESCE(ra.mean_review_distress, 0)       AS mean_review_distress,
+        COALESCE(ra.max_review_distress, 0)        AS max_review_distress,
+        COALESCE(ra.pct_negative_emotion_reviews, 0) AS pct_negative_emotion_reviews,
         oa.total_spend_usd                         AS ltv_usd,
         rf.rfm_recency_score, rf.rfm_frequency_score, rf.rfm_monetary_score,
         (rf.rfm_recency_score + rf.rfm_frequency_score + rf.rfm_monetary_score)

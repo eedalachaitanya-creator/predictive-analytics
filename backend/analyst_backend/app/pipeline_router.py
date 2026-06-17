@@ -273,7 +273,7 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             )
             _update_stage(job, STAGE_INGEST, "done" if ok else "error", msg[:200])
         else:
-            _update_stage(job, STAGE_INGEST, "skipped", "synthetic ingest disabled")
+            _update_stage(job, STAGE_INGEST, "done", "Skipped — synthetic ingest disabled")
 
         # Stage 4 (STAGE_EMOTION): Classify emotion on unscored signal rows.
         # Non-fatal: a classifier failure marks the stage error but does NOT

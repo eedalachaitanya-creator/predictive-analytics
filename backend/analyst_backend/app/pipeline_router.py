@@ -24,7 +24,6 @@ import os
 import subprocess
 import sys
 import uuid
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -36,6 +35,8 @@ from sqlalchemy import text
 from app.database import engine
 from app.audit_logger import log_audit_event
 from app.auth_router import _find_user_by_token, get_current_user
+from app import job_store
+from app.pipeline_executor import get_executor
 
 log = logging.getLogger("crp_api.pipeline")
 
@@ -48,8 +49,8 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"], dependencies=[D
 BASE_DIR = Path(__file__).parent.parent
 ML_DIR = BASE_DIR / "ml"
 
-# ── In-memory job store (production would use Redis) ──
-_jobs: dict = {}
+# Job state lives in app.job_store (Redis-backed, in-memory fallback) so the API
+# and a separate ML worker process can share it. See app/job_store.py.
 
 # Audit fix (2026-04-29): bumped from 300s → 900s. The 5-minute cap
 # was tight for 700-customer datasets running --model-type all (XGBoost
@@ -154,6 +155,9 @@ def _update_stage(job: dict, stage_idx: int, status: str, message: str = ""):
     done_count = sum(1 for s in job["stages"] if s["status"] == "done")
     job["progress"] = int((done_count / len(job["stages"])) * 100)
 
+    # Persist so /status (possibly a different process/replica) sees the update.
+    job_store.update_job(job["jobId"], job)
+
 
 def _run_python_module(module: str, args: list[str] = None) -> tuple[bool, str]:
     """Run a Python module as a subprocess and return (success, output).
@@ -206,9 +210,10 @@ def _run_python_module(module: str, args: list[str] = None) -> tuple[bool, str]:
 
 
 def _execute_pipeline(job_id: str, client_id: str, mode: str):
-    """Execute the full pipeline in a background thread."""
-    job = _jobs[job_id]
+    """Execute the full pipeline (in-process thread OR an RQ worker process)."""
+    job = job_store.get_job(job_id)
     job["status"] = "running"
+    job_store.update_job(job_id, job)
     start_time = datetime.now()
 
     try:
@@ -440,6 +445,7 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         job["completedAt"] = end_time.isoformat()
         job["durationSeconds"] = round((end_time - start_time).total_seconds(), 1)
         job["progress"] = 100 if job["status"] == "complete" else job["progress"]
+        job_store.update_job(job_id, job)   # flush final state (status/timing)
 
 
 def _build_summary(client_id: str) -> dict:
@@ -548,37 +554,26 @@ def run_pipeline(
     """Start a new pipeline run. Returns immediately with a jobId for polling."""
     job_id = str(uuid.uuid4())[:8]
 
-    job = {
-        "jobId": job_id,
-        "status": "queued",
-        "progress": 0,
-        "stages": [s.model_dump() for s in _make_stages()],
-        "startedAt": datetime.now().isoformat(),
-        "completedAt": None,
-        "durationSeconds": None,
-        "summary": None,
-    }
-    _jobs[job_id] = job
+    job = job_store.create_job(job_id, [s.model_dump() for s in _make_stages()])
 
-    # Audit fix (2026-04-29): cap _jobs growth. Once we exceed the cap,
-    # evict the oldest *completed/failed* job. Running/queued jobs are
-    # never evicted so an active poll never returns 404 for an
-    # in-progress run. Python dicts preserve insertion order (3.7+),
-    # so iterating keys gives oldest-first.
-    if len(_jobs) > _JOBS_MAX_SIZE:
-        for old_id in list(_jobs.keys()):
-            if _jobs[old_id]["status"] in ("complete", "failed"):
-                del _jobs[old_id]
-                if len(_jobs) <= _JOBS_MAX_SIZE:
+    # Cap job growth: evict the oldest *completed/failed* jobs. Running/queued
+    # jobs are never evicted so an active poll never 404s mid-run. (Redis also
+    # TTLs jobs; this bounds the in-memory backend and keeps listings small.)
+    ids = job_store.list_job_ids()
+    if len(ids) > _JOBS_MAX_SIZE:
+        deletable = len(ids) - _JOBS_MAX_SIZE
+        for old_id in ids:
+            j = job_store.get_job(old_id)
+            if j and j.get("status") in ("complete", "failed"):
+                job_store.delete_job(old_id)
+                deletable -= 1
+                if deletable <= 0:
                     break
 
-    # Run in background thread
-    thread = threading.Thread(
-        target=_execute_pipeline,
-        args=(job_id, req.clientId, req.mode),
-        daemon=True,
-    )
-    thread.start()
+    # Execute via the configured strategy: in-process thread (default) or an
+    # RQ enqueue for a separate ML worker (PIPELINE_EXECUTOR=worker). The API
+    # contract (immediate jobId + polling) is identical either way.
+    get_executor(runner=_execute_pipeline).submit(job_id, req.clientId, req.mode)
 
     log.info("Pipeline job %s started (mode=%s, client=%s)", job_id, req.mode, req.clientId)
 
@@ -604,10 +599,9 @@ def run_pipeline(
 @router.get("/status/{job_id}", response_model=PipelineRunResponse)
 def get_pipeline_status(job_id: str):
     """Poll the status of a running pipeline job."""
-    if job_id not in _jobs:
+    job = job_store.get_job(job_id)
+    if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-
-    job = _jobs[job_id]
     return PipelineRunResponse(**job)
 
 
@@ -616,8 +610,8 @@ def get_last_run(clientId: str = Query(default="CLT-001")):
     """Get the most recent completed pipeline run."""
     # Find the most recent completed job
     completed = [
-        j for j in _jobs.values()
-        if j["status"] in ("complete", "failed")
+        j for j in (job_store.get_job(i) for i in job_store.list_job_ids())
+        if j and j["status"] in ("complete", "failed")
     ]
 
     if not completed:

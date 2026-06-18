@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime
 from typing import List, Optional
 
 log = logging.getLogger("app.job_store")
@@ -71,7 +72,7 @@ class JobStore:
             "status": "queued",
             "progress": 0,
             "stages": stages,
-            "startedAt": None,
+            "startedAt": datetime.now().isoformat(),  # response model needs a str
             "completedAt": None,
             "durationSeconds": None,
             "summary": None,

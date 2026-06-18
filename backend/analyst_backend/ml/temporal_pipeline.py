@@ -17,7 +17,7 @@ proven baseline: it can only replace good scores with better ones, or no-op.
 from __future__ import annotations
 
 import logging
-from typing import Tuple
+from typing import Optional, Tuple
 
 from sqlalchemy import create_engine
 
@@ -26,6 +26,7 @@ from ml.temporal_dataset import build_dataset, ensure_snapshots_table
 from ml.train_temporal import run as train_temporal_run
 from ml.score_temporal import score as score_temporal, export_scores_to_disk
 from ml.leakage_gate import LeakageGateError
+from ml.temporal_windows import resolve_windows, ensure_distinct_cadence
 
 logger = logging.getLogger("ml.temporal_pipeline")
 
@@ -40,8 +41,8 @@ def run_or_fallback(
     db_url: str,
     *,
     write: bool = True,
-    label_window_days: int = 90,
-    cadence_days: int = 30,
+    label_window_days: Optional[int] = None,   # None -> resolve from client_config
+    cadence_days: Optional[int] = None,         # None -> resolve from client_config
     min_positives_per_cutoff: int = 30,
     max_cutoffs: int = 15,
     test_frac: float = 0.20,
@@ -53,6 +54,19 @@ def run_or_fallback(
     """
     engine = create_engine(db_url, pool_pre_ping=True)
     try:
+        # Per-tenant windows: label_window <- churn_window_days, cadence <-
+        # login_window_days (from client_config). Explicit args override.
+        if label_window_days is None or cadence_days is None:
+            r_label, r_cadence = resolve_windows(engine, client_id)
+            if label_window_days is None:
+                label_window_days = r_label
+            if cadence_days is None:
+                cadence_days = r_cadence
+        # Guard the assembled pair (covers the half-explicit case where an
+        # explicit label collides with a resolved cadence): generate_cutoffs
+        # rejects cadence == label_window.
+        cadence_days = ensure_distinct_cadence(label_window_days, cadence_days)
+
         ensure_snapshots_table(engine)
 
         dataset = build_dataset(
@@ -127,8 +141,10 @@ def _parse_args(argv=None):
                    help="Postgres URL (falls back to DB_URL / DATABASE_URL env).")
     p.add_argument("--no-write", dest="write", action="store_false",
                    help="Compute but do not overwrite churn_scores.")
-    p.add_argument("--label-window-days", type=int, default=90)
-    p.add_argument("--cadence-days", type=int, default=30)
+    p.add_argument("--label-window-days", type=int, default=None,
+                   help="Forward label window. Default: tenant churn_window_days.")
+    p.add_argument("--cadence-days", type=int, default=None,
+                   help="Snapshot cadence. Default: tenant login_window_days.")
     p.add_argument("--min-positives-per-cutoff", type=int, default=30)
     p.add_argument("--max-cutoffs", type=int, default=15,
                    help="Cap training to the most recent N cutoffs (run cost).")

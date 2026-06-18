@@ -55,10 +55,16 @@ class RedisBackend:
         self._r.delete(_JOB_PREFIX + job_id)
 
     def keys(self) -> List[str]:
-        out = []
-        for k in self._r.keys(_JOB_PREFIX + "*"):
-            k = k.decode() if isinstance(k, bytes) else k
-            out.append(k[len(_JOB_PREFIX):])
+        # SCAN (cursor) rather than KEYS so we never block a Redis shared with
+        # sessions/cache while listing jobs.
+        out, cursor = [], 0
+        while True:
+            cursor, batch = self._r.scan(cursor, match=_JOB_PREFIX + "*", count=100)
+            for k in batch:
+                k = k.decode() if isinstance(k, bytes) else k
+                out.append(k[len(_JOB_PREFIX):])
+            if cursor == 0:
+                break
         return out
 
 

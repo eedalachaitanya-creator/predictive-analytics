@@ -36,7 +36,7 @@ from app.database import engine
 from app.audit_logger import log_audit_event
 from app.auth_router import _find_user_by_token, get_current_user
 from app import job_store
-from app.pipeline_executor import get_executor
+from app.pipeline_executor import get_executor, InProcessExecutor
 
 log = logging.getLogger("crp_api.pipeline")
 
@@ -209,6 +209,17 @@ def _run_python_module(module: str, args: list[str] = None) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _submit_pipeline(job_id: str, client_id: str, mode: str) -> None:
+    """Dispatch a created job to the configured executor. If the executor fails
+    to accept it (e.g. a transient Redis blip during RQ enqueue), fall back to
+    in-process so the API never 500s after the job record already exists."""
+    try:
+        get_executor(runner=_execute_pipeline).submit(job_id, client_id, mode)
+    except Exception as exc:  # noqa: BLE001 — never let dispatch 500 the request
+        log.warning("Executor submit failed (%s); running in-process", exc)
+        InProcessExecutor(_execute_pipeline).submit(job_id, client_id, mode)
+
+
 def _execute_pipeline(job_id: str, client_id: str, mode: str):
     """Execute the full pipeline (in-process thread OR an RQ worker process)."""
     job = job_store.get_job(job_id)
@@ -264,6 +275,7 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         except Exception as e:
             _update_stage(job, 0, "error", f"DB error: {str(e)[:100]}")
             job["status"] = "failed"
+            job_store.update_job(job_id, job)   # make 'failed' visible to pollers now
             return
 
         # Stage 2: Analyze review sentiment (NLP)
@@ -319,10 +331,12 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             else:
                 _update_stage(job, 4, "error", f"View refresh failed: {str(e)[:120]}")
                 job["status"] = "failed"
+                job_store.update_job(job_id, job)
                 return
         except Exception as e:
             _update_stage(job, 4, "error", f"View refresh failed: {str(e)[:120]}")
             job["status"] = "failed"
+            job_store.update_job(job_id, job)
             return
 
         # Stage 6: Compute RFM features
@@ -572,8 +586,9 @@ def run_pipeline(
 
     # Execute via the configured strategy: in-process thread (default) or an
     # RQ enqueue for a separate ML worker (PIPELINE_EXECUTOR=worker). The API
-    # contract (immediate jobId + polling) is identical either way.
-    get_executor(runner=_execute_pipeline).submit(job_id, req.clientId, req.mode)
+    # contract (immediate jobId + polling) is identical either way; dispatch
+    # failures fall back to in-process so /run never 500s.
+    _submit_pipeline(job_id, req.clientId, req.mode)
 
     log.info("Pipeline job %s started (mode=%s, client=%s)", job_id, req.mode, req.clientId)
 

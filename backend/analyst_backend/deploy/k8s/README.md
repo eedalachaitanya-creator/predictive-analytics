@@ -42,9 +42,18 @@ autoscaling (more precise than CPU), add a KEDA `ScaledObject` on the Redis `ml`
 list — left as a follow-up.
 
 ## Notes
+- **Apply `secret.yaml` first** (step 2) — it is deliberately NOT in
+  `kustomization.yaml`, so `kubectl apply -k .` will NOT create it. Both the API
+  and the worker read `DATABASE_URL`/`SECRET_KEY` from it; without it they start
+  against placeholders and every DB call fails.
 - Postgres is assumed external (managed DB). Point `DATABASE_URL` at it. Add a
   Postgres manifest only for throwaway test clusters.
+- The image serves on **port 8017** (the Service maps 80 → 8017). Front it with
+  an Ingress/LoadBalancer as needed.
 - `PIPELINE_EXECUTOR=inprocess` (override in the ConfigMap) reverts the API to
   running pipelines itself — the safety fallback; the worker tier is then idle.
 - Worker concurrency = replicas × 1 job each. Raise throughput by raising
   replicas / HPA `maxReplicas`, not threads (ML is CPU-bound).
+- Job state lives in Redis and the backend is chosen once at process start. After
+  a Redis outage, **restart the API + worker pods** so they re-bind to Redis
+  (otherwise they fall back to per-process in-memory state and can't share jobs).

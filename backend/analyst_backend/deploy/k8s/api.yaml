@@ -13,9 +13,9 @@ spec:
       containers:
         - name: api
           image: crp-analyst:latest          # replace with your registry/tag
-          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          # No command override: the image CMD already runs uvicorn on 8017.
           ports:
-            - containerPort: 8000
+            - containerPort: 8017
           envFrom:
             - configMapRef: { name: crp-config }
             - secretRef: { name: crp-secrets }
@@ -23,7 +23,7 @@ spec:
             requests: { cpu: "250m", memory: "512Mi" }   # web tier stays small
             limits: { cpu: "1", memory: "1Gi" }
           readinessProbe:
-            httpGet: { path: /health, port: 8000 }
+            httpGet: { path: /health, port: 8017 }
             initialDelaySeconds: 10
             periodSeconds: 15
 ---
@@ -35,4 +35,4 @@ spec:
   selector: { app: crp-api }
   ports:
     - port: 80
-      targetPort: 8000
+      targetPort: 8017

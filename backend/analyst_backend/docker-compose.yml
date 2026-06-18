@@ -64,7 +64,7 @@ services:
     container_name: crp_api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8000:8017"        # host 8000 -> container 8017 (the image's uvicorn port)
     environment:
       DATABASE_URL:  postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-walmart_crp}
       REDIS_URL:     redis://redis:6379/0
@@ -81,7 +81,7 @@ services:
     volumes:
       - ./app:/app/app        # hot-reload in dev
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8017/health"]
       interval: 15s
       timeout: 5s
       retries: 3

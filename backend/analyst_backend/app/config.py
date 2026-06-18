@@ -14,7 +14,11 @@ _ENV_FILE = Path(__file__).parent.parent / ".env"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
-    database_url: str = "postgresql://dev-users:yT9Lp5tCtfSc/8kTiDoZxg==@10.0.0.15:5432/predictive_analytics"
+    # SECURITY: never hard-code production credentials here — this file is
+    # tracked in git. The real connection is supplied via the environment
+    # (DATABASE_URL in backend/analyst_backend/.env locally, or the prod
+    # server's env). This default is a non-secret local placeholder only.
+    database_url: str = "postgresql://localhost:5432/predictive_analytics"
 
     @field_validator("database_url", mode="after")
     @classmethod

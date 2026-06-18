@@ -694,6 +694,39 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
         "see more", "view details", "view product", "shop now",
     }
 
+    # def _is_bad_title(title: str) -> bool:
+    #     t = title.lower()
+    #     return (
+    #         "out of 5 stars" in t or
+    #         "ratings" in t or
+    #         "review" in t or
+    #         "stars" in t or
+    #         bool(re.match(r"^\d+(\.\d+)?$", t)) or
+    #         len(t.split()) < 3
+    #     )
+
+    _TITLE_CUTOFF = re.compile(
+        r"\s*(?:Rs\.?\s*\d|₹\s*\d|\$\d|€\d|"
+        r"sizes?:\s*\w+|select\s+size|"   # catches Sizes:UK5, Sizes:28, Select Size
+        r"\d+\s*%\s*off|"
+        r"price\s*$|price\s*₹|price\s*rs|"  # catches trailing "Price" word
+        r"\(\d+\s*(?:off|review|rating)).*$",
+        re.IGNORECASE,
+    )
+
+    def _sanitize_title(title: str) -> str:
+        """Strip price, size selector, and rating suffixes from a product title."""
+        title = _TITLE_CUTOFF.sub("", title).strip().rstrip(".,;-|")
+        # Strip standalone trailing noise words that survive the regex
+        # e.g. "...Women's Shoes Price" → "...Women's Shoes"
+        _TRAILING_NOISE = re.compile(
+            r"\s+(?:price|prices|buy|shop|now|online|offer|sale|new)$",
+            re.IGNORECASE,
+        )
+        title = _TRAILING_NOISE.sub("", title).strip()
+        return title
+
+
     def _is_bad_title(title: str) -> bool:
         t = title.lower()
         return (
@@ -713,9 +746,24 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
         "redirect.viglink", "go.skimresources",
     ]
 
+    # def _add(href: str, title: str) -> bool:
+    #     if not href or len(title.strip()) < 5:
+    #         return False
+    #     # Skip ad/tracking URLs
+    #     if any(p in href for p in _AD_PATTERNS):
+    #         return False
+    #     full_url = urllib.parse.urljoin(search_url, href)
+    #     if full_url in seen_urls:
+    #         return False
+    #     if _is_bad_title(title):
+    #         return False
+    #     seen_urls.add(full_url)
+    #     products.append({"url": full_url, "title": title.strip()})
+    #     return True
     def _add(href: str, title: str) -> bool:
         if not href or len(title.strip()) < 5:
             return False
+        title = _sanitize_title(title)
         # Skip ad/tracking URLs
         if any(p in href for p in _AD_PATTERNS):
             return False
@@ -727,7 +775,7 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
         seen_urls.add(full_url)
         products.append({"url": full_url, "title": title.strip()})
         return True
-
+    
     def _best_title_from_card(card) -> str:
         """
         Extract the best product title from any card element.
@@ -773,6 +821,37 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
             "[class*='productName' i]",
             "[class*='product-title' i]",
         ]
+        # for bs in brand_selectors:
+        #     brand_el = card.select_one(bs)
+        #     if brand_el:
+        #         brand_text = brand_el.get_text(strip=True)
+        #         for ps in product_selectors:
+        #             prod_el = card.select_one(ps)
+        #             if prod_el:
+        #                 prod_text = prod_el.get_text(strip=True)
+        #                 combined = f"{brand_text} {prod_text}".strip()
+        #                 if len(combined.split()) >= 2:
+        #                     return combined
+        #         # If brand found but no product selector, try next heading
+        #         next_heading = brand_el.find_next_sibling(["h1", "h2", "h3", "h4", "h5"])
+        #         if next_heading:
+        #             prod_text = next_heading.get_text(strip=True)
+        #             combined = f"{brand_text} {prod_text}".strip()
+        #             if len(combined.split()) >= 2:
+        #                 return combined
+
+        # # Strategy B: heading tags — try combining multiple headings first
+        # headings = card.find_all(["h1", "h2", "h3", "h4"])
+        # if len(headings) >= 2:
+        #     # Combine first two headings (common pattern: brand + product name)
+        #     combined = " ".join(h.get_text(strip=True) for h in headings[:2])
+        #     if len(combined.split()) >= 2:
+        #         return combined
+        # # Single heading
+        # for el in headings:
+        #     t = el.get_text(separator=" ", strip=True)
+        #     if len(t.split()) >= 2:  # Relaxed from 3 to 2
+        #         return t 
         for bs in brand_selectors:
             brand_el = card.select_one(bs)
             if brand_el:
@@ -781,28 +860,54 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
                     prod_el = card.select_one(ps)
                     if prod_el:
                         prod_text = prod_el.get_text(strip=True)
-                        combined = f"{brand_text} {prod_text}".strip()
+                        # Skip combining if the product text already starts
+                        # with the brand — avoids "Nike NikeAir Force 1"
+                        if prod_text.lower().startswith(brand_text.lower()):
+                            combined = _sanitize_title(prod_text.strip())
+                        else:
+                            combined = _sanitize_title(f"{brand_text} {prod_text}".strip())
                         if len(combined.split()) >= 2:
                             return combined
-                # If brand found but no product selector, try next heading
-                next_heading = brand_el.find_next_sibling(["h1", "h2", "h3", "h4", "h5"])
+                # If brand found but no product selector, try next sibling heading
+                next_heading = brand_el.find_next_sibling(["h1", "h2", "h3", "h4"])
                 if next_heading:
                     prod_text = next_heading.get_text(strip=True)
-                    combined = f"{brand_text} {prod_text}".strip()
+                    if prod_text.lower().startswith(brand_text.lower()):
+                        combined = _sanitize_title(prod_text.strip())
+                    else:
+                        combined = _sanitize_title(f"{brand_text} {prod_text}".strip())
                     if len(combined.split()) >= 2:
                         return combined
 
-        # Strategy B: heading tags — try combining multiple headings first
+
+        # Strategy B: heading tags
         headings = card.find_all(["h1", "h2", "h3", "h4"])
+        _HEADING_NOISE = re.compile(
+            r"(Rs\.?\s*\d|₹\s*\d|\$\s*\d|sizes?:|size\s*:|\d+\s*%\s*off|"
+            r"add to cart|buy now|out of stock|\boff\b)",
+            re.IGNORECASE,
+        )
+        # Only combine two headings when NEITHER contains price/size noise
         if len(headings) >= 2:
-            # Combine first two headings (common pattern: brand + product name)
-            combined = " ".join(h.get_text(strip=True) for h in headings[:2])
-            if len(combined.split()) >= 2:
-                return combined
-        # Single heading
+            h1_text = headings[0].get_text(strip=True)
+            h2_text = headings[1].get_text(strip=True)
+            if (
+                not _HEADING_NOISE.search(h1_text)
+                and not _HEADING_NOISE.search(h2_text)
+                and len(h2_text.split()) <= 10  # second heading shouldn't be a paragraph
+            ):
+                combined = f"{h1_text} {h2_text}".strip()
+                if len(combined.split()) >= 2:
+                    return combined
+        # Single heading fallback — pick first noise-free heading
         for el in headings:
             t = el.get_text(separator=" ", strip=True)
-            if len(t.split()) >= 2:  # Relaxed from 3 to 2
+            if len(t.split()) >= 2 and not _HEADING_NOISE.search(t):
+                return t
+        # Last resort: any heading with ≥2 words even if noisy
+        for el in headings:
+            t = el.get_text(separator=" ", strip=True)
+            if len(t.split()) >= 2:
                 return t
 
         # Strategy C: common title class patterns (works across most e-commerce platforms)
@@ -820,11 +925,30 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
                 if 2 <= len(t.split()) <= 60:  # Relaxed from 3 to 2
                     return t
 
+        # # Strategy D: longest meaningful span (filters noise)
+        # best_span = ""
+        # for span in card.find_all("span"):
+        #     st = span.get_text(strip=True)
+        #     if any(n in st.lower() for n in _NOISE_TEXT):
+        #         continue
+        #     if re.search(r"^\d+\.\d+", st) or re.search(r"^\(\d", st):
+        #         continue
+        #     if 3 <= len(st.split()) <= 60 and len(st) > len(best_span):
+        #         best_span = st
+        # if best_span:
+        #     return best_span
         # Strategy D: longest meaningful span (filters noise)
+        _SPAN_NOISE = re.compile(
+            r"(Rs\.?\s*\d|₹|sizes?:|\d+\s*%\s*off|\boff\b|"
+            r"add to cart|buy now|out of stock|rating|review|\bstar\b)",
+            re.IGNORECASE,
+        )
         best_span = ""
         for span in card.find_all("span"):
             st = span.get_text(strip=True)
             if any(n in st.lower() for n in _NOISE_TEXT):
+                continue
+            if _SPAN_NOISE.search(st):
                 continue
             if re.search(r"^\d+\.\d+", st) or re.search(r"^\(\d", st):
                 continue
@@ -973,9 +1097,12 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
             if title and title.strip().lower() in _UI_BUTTON_LABELS:
                 continue
 
+            # if title and len(title.split()) >= 3 and full_url not in seen_urls:
+            #     seen_urls.add(full_url)
+            #     products.append({"url": full_url, "title": title.strip()})
             if title and len(title.split()) >= 3 and full_url not in seen_urls:
                 seen_urls.add(full_url)
-                products.append({"url": full_url, "title": title.strip()})
+                products.append({"url": full_url, "title": _sanitize_title(title.strip())})
 
             if len(products) >= 30:
                 break
@@ -1090,13 +1217,66 @@ def find_and_validate_product(
     # positions 8-15 are typically the site's "you might also like" fallbacks
     # which have a high rate of false positives. Scanning fewer candidates
     # produces cleaner misses and fewer wrong-brand matches.
+    # for product in products[:7]:
+    #     # Cancellation checkpoint — between OpenAI calls. Check first so
+    #     # we never fire an OpenAI call after the user has cancelled.
+    #     check_cancelled(request_id, "between validation candidates")
+
+    #     title = product["title"]
+    #     title_lower = title.lower()
+    #     matches = sum(1 for w in query_words if w in title_lower)
+
+    # Brand guard: extract the leading brand token(s) from the query.
+    # If a non-generic brand is identified and is completely absent from
+    # a candidate title, reject that candidate immediately without
+    # spending an LLM call. Catches cases where a platform's search
+    # engine returns a product from a different brand that happens to
+    # match the category words in the query.
+    _GENERIC_WORDS = {
+        "women", "men", "girls", "boys", "kids", "fit", "jeans", "top",
+        "shirt", "dress", "shoe", "bag", "watch", "phone", "laptop",
+        "tablet", "case", "cover", "charger", "earbuds", "headphones",
+        "supplement", "capsule", "powder", "cream", "lotion",
+        "serum", "gel", "oil", "face", "hair", "skin", "body", "hand",
+        "organic", "natural", "herbal", "ayurvedic", "vitamin", "mineral",
+    }
+    query_lower = query.lower()
+    query_tokens = query_lower.split()
+
+    # Collect up to 2 leading tokens that look like brand names:
+    # non-generic, non-stopword, at least 3 characters.
+    brand_tokens: list[str] = []
+    for tok in query_tokens[:3]:
+        tok_clean = re.sub(r"[^a-z0-9]", "", tok)
+        if tok_clean and tok_clean not in _GENERIC_WORDS and len(tok_clean) >= 3:
+            brand_tokens.append(tok_clean)
+            if len(brand_tokens) == 2:
+                break
+
+    # Words that are valid brand names in some contexts but are too
+    # ambiguous to use as a hard filter (common English words).
+    _AMBIGUOUS_BRAND_WORDS = {"only", "best", "new", "top", "pure", "real", "true", "ultra"}
+    enforce_brand = bool(brand_tokens) and not all(
+        b in _AMBIGUOUS_BRAND_WORDS for b in brand_tokens
+    )
+
     for product in products[:7]:
-        # Cancellation checkpoint — between OpenAI calls. Check first so
-        # we never fire an OpenAI call after the user has cancelled.
         check_cancelled(request_id, "between validation candidates")
 
         title = product["title"]
         title_lower = title.lower()
+
+        # Skip candidates where the query brand is entirely absent from
+        # the title. This is a zero-cost pre-filter before the LLM call.
+        if enforce_brand:
+            brand_in_title = all(b in title_lower for b in brand_tokens)
+            if not brand_in_title:
+                logger.info(
+                    f"[validate] BRAND GUARD skipped '{title[:60]}' — "
+                    f"brand tokens not found in title"
+                )
+                continue
+
         matches = sum(1 for w in query_words if w in title_lower)
 
         if len(query_words) <= 2:

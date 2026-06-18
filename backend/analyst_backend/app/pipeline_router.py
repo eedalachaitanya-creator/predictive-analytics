@@ -53,10 +53,13 @@ _jobs: dict = {}
 
 # Audit fix (2026-04-29): bumped from 300s → 900s. The 5-minute cap
 # was tight for 700-customer datasets running --model-type all (XGBoost
-# + RandomForest + isotonic calibration with cv=5). Configurable via
-# the ML_STAGE_TIMEOUT_SECS env var so ops can override without a code
-# change.
-_STAGE_TIMEOUT_SECS = int(os.environ.get("ML_STAGE_TIMEOUT_SECS", "900"))
+# + RandomForest + isotonic calibration with cv=5).
+# 2026-06-18: bumped 900s → 1800s. The emotion-classification stage scales
+# with external-signal volume (one LLM call per ticket/review); even with
+# concurrency a very large text dataset can approach the old 900s ceiling,
+# at which point the stage would be killed mid-run. Configurable via the
+# ML_STAGE_TIMEOUT_SECS env var so ops can override without a code change.
+_STAGE_TIMEOUT_SECS = int(os.environ.get("ML_STAGE_TIMEOUT_SECS", "1800"))
 
 # Cap to bound _jobs growth across long uptimes. Old completed/failed
 # jobs are evicted FIFO once we exceed this. 200 keeps a few weeks of
@@ -172,7 +175,7 @@ def _run_python_module(module: str, args: list[str] = None) -> tuple[bool, str]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=_STAGE_TIMEOUT_SECS,  # configurable via env (default 900s)
+            timeout=_STAGE_TIMEOUT_SECS,  # configurable via env (default 1800s)
             cwd=str(BASE_DIR),
             env=env,
         )

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 log = logging.getLogger("app.worker")
 
@@ -32,13 +33,24 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s %(name)s: %(message)s")
     import redis
-    from rq import Queue, Worker
+    from rq import Queue, SimpleWorker, Worker
 
     url = os.environ.get("REDIS_URL") or "redis://localhost:6379/0"
     conn = redis.Redis.from_url(url)
     queue = Queue("ml", connection=conn)
-    log.info("ml-worker: listening on queue 'ml' via %s", url)
-    Worker([queue], connection=conn).work(with_scheduler=False)
+
+    # The default Worker forks a work-horse per job (per-job crash isolation —
+    # the right choice on Linux/k8s). On macOS that fork crashes once numpy/objc
+    # have initialized, so use SimpleWorker (runs the job in-process; pod
+    # restarts provide isolation in k8s). Override explicitly with
+    # RQ_WORKER_CLASS=simple|fork.
+    cls = os.environ.get("RQ_WORKER_CLASS", "").lower()
+    if cls == "simple" or (cls == "" and sys.platform == "darwin"):
+        worker_cls = SimpleWorker
+    else:
+        worker_cls = Worker
+    log.info("ml-worker: %s on queue 'ml' via %s", worker_cls.__name__, url)
+    worker_cls([queue], connection=conn).work(with_scheduler=False)
     return 0
 
 

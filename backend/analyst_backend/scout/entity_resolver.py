@@ -629,9 +629,9 @@ def save_entities(db_instance, entities: list[dict]):
                     SELECT el.entity_id
                     FROM entity_listings el
                     JOIN entities e ON e.id = el.entity_id
-                    WHERE e.query = %s AND el.platform = %s
+                    WHERE e.query = %s AND el.platform = %s AND el.client_id = %s
                     LIMIT 1
-                """, (query, platform))
+                """, (query, platform, listing.get("client_id", "")))
 
                 if existing:
                     entity_id = str(existing["entity_id"])

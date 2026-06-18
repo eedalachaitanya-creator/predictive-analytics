@@ -174,12 +174,13 @@ MASTER_TYPE_TO_TABLE = {
     "customer_reviews": (
         "customer_reviews",
         ["client_id", "review_id", "customer_id", "product_id", "order_id",
-         "rating", "review_text", "review_date", "sentiment"],
+         "rating", "review_text", "review_date", "sentiment", "source"],
     ),
     "support_tickets": (
         "support_tickets",
         ["client_id", "ticket_id", "customer_id", "ticket_type", "priority",
-         "status", "channel", "opened_date", "resolved_date", "resolution_time_hrs"],
+         "status", "channel", "opened_date", "resolved_date", "resolution_time_hrs",
+         "ticket_text", "source"],
     ),
 }
 
@@ -392,6 +393,8 @@ def _sample_value(col: str, i: int) -> str:
         return ("1-10", "11-50", "51-100")[i % 3]
     if c == "category_hint":
         return ("Electronics", "Apparel", "Home")[i % 3]
+    if c == "source":
+        return ("email", "phone", "chat", "portal")[i % 4]
     if c.endswith("_text"):
         return ("Great product!", "Works as expected.", "Would buy again.")[i % 3]
     if c.endswith("description"):

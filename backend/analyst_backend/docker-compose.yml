@@ -71,6 +71,8 @@ services:
       SECRET_KEY:    ${SECRET_KEY:-change-me-in-production}
       ENVIRONMENT:   ${ENVIRONMENT:-development}
       LOG_LEVEL:     ${LOG_LEVEL:-info}
+      # 'worker' = enqueue runs to ml-worker; 'inprocess' runs them in the API.
+      PIPELINE_EXECUTOR: ${PIPELINE_EXECUTOR:-worker}
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +85,27 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+
+  # ── ML worker (the compute tier — scale this independently) ──
+  #   docker compose up --scale ml-worker=3
+  ml-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL:  postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-walmart_crp}
+      REDIS_URL:     redis://redis:6379/0
+      SECRET_KEY:    ${SECRET_KEY:-change-me-in-production}
+      ENVIRONMENT:   ${ENVIRONMENT:-development}
+      LOG_LEVEL:     ${LOG_LEVEL:-info}
+      PIPELINE_EXECUTOR: worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:

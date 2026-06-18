@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crp-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: crp-api }
+  template:
+    metadata:
+      labels: { app: crp-api }
+    spec:
+      containers:
+        - name: api
+          image: crp-analyst:latest          # replace with your registry/tag
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: { name: crp-config }
+            - secretRef: { name: crp-secrets }
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }   # web tier stays small
+            limits: { cpu: "1", memory: "1Gi" }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crp-api
+spec:
+  selector: { app: crp-api }
+  ports:
+    - port: 80
+      targetPort: 8000

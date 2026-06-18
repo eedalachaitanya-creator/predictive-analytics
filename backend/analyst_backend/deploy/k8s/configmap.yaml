@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crp-config
+data:
+  REDIS_URL: "redis://redis:6379/0"
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+  # 'worker' makes the API enqueue runs to the ml-worker pool.
+  PIPELINE_EXECUTOR: "worker"

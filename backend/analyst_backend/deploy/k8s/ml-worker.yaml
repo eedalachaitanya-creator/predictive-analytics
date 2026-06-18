@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crp-ml-worker
+spec:
+  replicas: 1                                  # HPA scales this (see hpa.yaml)
+  selector:
+    matchLabels: { app: crp-ml-worker }
+  template:
+    metadata:
+      labels: { app: crp-ml-worker }
+    spec:
+      containers:
+        - name: ml-worker
+          image: crp-analyst:latest            # same image as the API
+          command: ["python", "-m", "app.worker"]
+          envFrom:
+            - configMapRef: { name: crp-config }
+            - secretRef: { name: crp-secrets }
+          resources:
+            requests: { cpu: "1", memory: "2Gi" }    # ML training/scoring is heavy
+            limits: { cpu: "4", memory: "6Gi" }

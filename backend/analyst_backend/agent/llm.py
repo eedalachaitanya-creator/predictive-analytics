@@ -32,27 +32,44 @@ def _resolve_provider(model: str) -> str:
     return "openai"
 
 
-def build_chat_model(temperature: float = 0.1, max_tokens: int = 4096):
-    """Return a LangChain chat model for the agent; provider chosen from env."""
+def build_chat_model(temperature: float = 0.1, max_tokens: int = 4096,
+                     max_retries: int | None = None, timeout: float | None = None):
+    """Return a LangChain chat model for the agent; provider chosen from env.
+
+    max_retries / timeout are forwarded to the provider client only when given,
+    so existing callers keep the library defaults (max_retries=2, no timeout).
+    Bulk callers (e.g. the emotion classifier) pass a larger retry budget so
+    rate-limited requests back off and succeed instead of being abandoned.
+    """
     model = os.getenv("AGENT_MODEL", "").strip()
     provider = _resolve_provider(model)
 
     if provider == "groq":
         from langchain_groq import ChatGroq
-        return ChatGroq(
+        kwargs = dict(
             model=model or DEFAULT_GROQ_MODEL,
             temperature=temperature,
             groq_api_key=os.getenv("GROQ_API_KEY", ""),
             max_tokens=max_tokens,
         )
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return ChatGroq(**kwargs)
 
     from langchain_openai import ChatOpenAI
-    return ChatOpenAI(
+    kwargs = dict(
         model=model or DEFAULT_OPENAI_MODEL,
         temperature=temperature,
         api_key=os.getenv("OPENAI_API_KEY", ""),
         max_tokens=max_tokens,
     )
+    if max_retries is not None:
+        kwargs["max_retries"] = max_retries
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    return ChatOpenAI(**kwargs)
 
 
 def build_embeddings():

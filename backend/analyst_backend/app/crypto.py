@@ -24,13 +24,27 @@ class EncryptionUnavailable(RuntimeError):
     """Raised when INTEGRATION_ENC_KEY is missing — we refuse to touch secrets."""
 
 
+def _get_key() -> Optional[str]:
+    """The Fernet key. The process env wins (test overrides / explicit export),
+    else the ``.env``-backed Settings — so the key lives in ONE place that both
+    the API process and the pipeline subprocess read."""
+    key = os.getenv(_ENV_KEY)
+    if key:
+        return key
+    try:
+        from app.config import settings
+        return settings.integration_enc_key or None
+    except Exception:  # pragma: no cover — app.config unavailable (standalone use)
+        return None
+
+
 def encryption_available() -> bool:
     """True if a key is configured (lets callers surface a clear setup error)."""
-    return bool(os.getenv(_ENV_KEY))
+    return bool(_get_key())
 
 
 def _fernet() -> Fernet:
-    key = os.getenv(_ENV_KEY)
+    key = _get_key()
     if not key:
         raise EncryptionUnavailable(
             f"{_ENV_KEY} not set — cannot encrypt/decrypt integration secrets. "

@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    # Integration secrets — Fernet key for encrypting tenant API tokens
+    # (tenant_integrations.api_token_enc). Generate ONCE and keep it forever
+    # (rotating it orphans every stored token):
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    integration_enc_key: str = ""
+
     # App
     environment: str = "development"
     log_level: str = "info"

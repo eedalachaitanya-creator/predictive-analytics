@@ -16,8 +16,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from cryptography.fernet import InvalidToken
+
 from app.auth_router import get_current_user, _find_user_by_token
-from app.crypto import encrypt_secret, encryption_available
+from app.crypto import encrypt_secret, encryption_available, EncryptionUnavailable
 from app.database import engine
 
 log = logging.getLogger("integrations")
@@ -110,8 +112,9 @@ def put_jira(cfg: JiraConfigIn, clientId: str = Query(...),
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     if cfg.api_token and not encryption_available():
-        raise HTTPException(status_code=500,
-                            detail="Server cannot store secrets: INTEGRATION_ENC_KEY is not set")
+        raise HTTPException(status_code=503,
+                            detail="Server cannot store secrets: INTEGRATION_ENC_KEY is not set — "
+                                   "set it and restart the API.")
 
     # Only write columns that were supplied; the token column is touched ONLY when
     # a new token is provided (so other edits don't wipe a saved token).
@@ -142,6 +145,29 @@ def put_jira(cfg: JiraConfigIn, clientId: str = Query(...),
         return _status_row(conn, clientId)
 
 
+def _build_connector(client_id: str):
+    """Build the tenant's connector, turning crypto/config failures into CLEAR
+    HTTPExceptions (which keep CORS headers) instead of raw 500s that surface in
+    the browser as an opaque '0 Unknown Error'."""
+    from ml.connectors.jira import JiraConnector
+    try:
+        connector = JiraConnector.from_client(engine, client_id, require_enabled=False)
+    except EncryptionUnavailable:
+        raise HTTPException(status_code=503,
+                            detail="Server is missing INTEGRATION_ENC_KEY — set it and restart the API "
+                                   "before testing or syncing.")
+    except InvalidToken:
+        raise HTTPException(status_code=500,
+                            detail="Stored token could not be decrypted — the encryption key may have changed.")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("build connector failed for %s: %s", client_id, exc)
+        raise HTTPException(status_code=500, detail="Could not build the Jira connector — see server logs.")
+    if connector is None:
+        raise HTTPException(status_code=400,
+                            detail="No Jira credentials saved yet — save base URL, email and token first.")
+    return connector
+
+
 @router.post("/jira/test")
 def test_jira(clientId: str = Query(...),
               authorization: Optional[str] = Header(default=None)):
@@ -149,11 +175,7 @@ def test_jira(clientId: str = Query(...),
     before the integration is enabled, so a tenant can verify before switching on."""
     user = _user_or_401(authorization)
     _require_client_access(user, clientId)
-    from ml.connectors.jira import JiraConnector
-    connector = JiraConnector.from_client(engine, clientId, require_enabled=False)
-    if connector is None:
-        raise HTTPException(status_code=400,
-                            detail="No Jira credentials saved yet — save base URL, email and token first.")
+    connector = _build_connector(clientId)
     try:
         return {"ok": True, "account": connector.verify()}
     except Exception as exc:  # noqa: BLE001 — friendly failure; never echo upstream body
@@ -170,13 +192,9 @@ def sync_jira(clientId: str = Query(...),
     tenant can pull on demand as soon as credentials are saved."""
     user = _user_or_401(authorization)
     _require_client_access(user, clientId)
-    from ml.connectors.jira import JiraConnector
     from ml.connectors.ingest import run_ingest
 
-    connector = JiraConnector.from_client(engine, clientId, require_enabled=False)
-    if connector is None:
-        raise HTTPException(status_code=400,
-                            detail="No Jira credentials saved yet — save them first.")
+    connector = _build_connector(clientId)
     try:
         totals = run_ingest(engine, clientId, connectors=[connector])
         status, detail = "ok", f"{totals.get('tickets', 0)} tickets"

@@ -128,6 +128,33 @@ def _resolve_max_order_date(engine_or_conn: Any, client_id: str) -> Optional[dt.
     return engine_or_conn.execute(sql, {"c": client_id}).scalar()
 
 
+def _resolve_scoring_asof(engine_or_conn: Any, client_id: str):
+    """Scoring T = the latest REAL data MOMENT for the tenant — the newest of the
+    last order, the last support ticket, or the last review, as a full timestamp.
+
+    Anchored to actual data (never wall-clock ``today``) so features stay in the
+    training distribution, but signals that arrive AFTER the last order (e.g. a
+    Jira ticket raised this afternoon) still advance T so they fall inside the
+    ``opened_date <= T`` snapshot. Returning a *timestamp* (not a date → midnight)
+    is what makes a same-day-but-later ticket count. ``CAST(:T AS date)`` downstream
+    keeps ``cutoff_date`` a clean date. ``GREATEST`` ignores NULLs, so missing
+    signal tables degrade to the order date — identical to the old behavior.
+    """
+    from sqlalchemy import text
+
+    sql = text("""
+        SELECT GREATEST(
+            (SELECT MAX(order_date)::timestamptz  FROM orders          WHERE client_id = :c),
+            (SELECT MAX(opened_date)::timestamptz FROM support_tickets WHERE client_id = :c),
+            (SELECT MAX(review_date)::timestamptz FROM customer_reviews WHERE client_id = :c)
+        )
+    """)
+    if hasattr(engine_or_conn, "begin") and not hasattr(engine_or_conn, "execute"):
+        with engine_or_conn.connect() as cx:
+            return cx.execute(sql, {"c": client_id}).scalar()
+    return engine_or_conn.execute(sql, {"c": client_id}).scalar()
+
+
 def build_scoring_frame(
     engine_or_conn: Any,
     client_id: str,
@@ -150,7 +177,7 @@ def build_scoring_frame(
     from ml.temporal_dataset import build_snapshot
 
     if T is None:
-        T = _resolve_max_order_date(engine_or_conn, client_id)
+        T = _resolve_scoring_asof(engine_or_conn, client_id)
         if T is None:
             logger.warning("build_scoring_frame: no orders for client_id=%s", client_id)
             return pd.DataFrame()

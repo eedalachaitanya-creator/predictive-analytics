@@ -32,6 +32,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app.security import hash_password, verify_password, is_hashed, validate_password
+from app.email_service import LOGO_SRC
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 log = logging.getLogger("auth")
@@ -365,9 +366,6 @@ def logout(request: Request, authorization: Optional[str] = Header(default=None)
         user_for_audit = _find_user_by_token(token)
         _revoke_token(token)
 
-    # Clear any UNSAVED (pending) upload batch so it doesn't follow the user into
-    # the next session (same or different browser). Scoped to the user's own
-    # client(s); best-effort — a cleanup failure must never block sign-out.
     if user_for_audit:
         try:
             from app.upload_router import _discard_pending_batch_for_client
@@ -477,9 +475,10 @@ def forgot_password(req: ForgotPasswordRequest):
             subject="Your Temporary Password — Loyaltix",
             html_body=f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
-  <div style="background:#1a56db;padding:24px 32px">
-    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Loyaltix</div>
-    <div style="color:#c7d9ff;margin-top:4px;font-size:13px">Churn Prediction &amp; Retention Platform</div>
+  <div style="background:#ffffff;padding:24px 32px;text-align:center;border-bottom:3px solid;border-image:linear-gradient(90deg,#ef5f24,#f8991e,#219bcb) 1">
+    <img src="http://10.0.0.14/Crp_QA/media/Loyaltix_logo-5HUR76FK.svg" alt="Loyaltix" height="50" width="150"
+     style="display:block;margin:0 auto;height:auto;border:0;max-width:100%;" />
+    <div style="color:#888;margin-top:6px;font-size:12px">Churn Prediction &amp; Retention Platform · v4.0</div>
   </div>
   <div style="padding:32px">
     <h2 style="color:#1a1a1a;margin:0 0 16px;font-size:18px">Password Reset Request</h2>
@@ -554,9 +553,10 @@ def change_password(
             subject="Your Password Has Been Changed — Loyaltix",
             html_body=f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
-  <div style="background:#1a56db;padding:24px 32px">
-    <div style="font-size:20px;font-weight:700;color:#ffffff">&#128202; Loyaltix</div>
-    <div style="color:#c7d9ff;margin-top:4px;font-size:13px">Churn Prediction &amp; Retention Platform</div>
+  <div style="background:#ffffff;padding:24px 32px;text-align:center;border-bottom:3px solid;border-image:linear-gradient(90deg,#ef5f24,#f8991e,#219bcb) 1">
+    <img src="http://10.0.0.14/Crp_QA/media/Loyaltix_logo-5HUR76FK.svg" alt="Loyaltix" height="50" width="150"
+         style="display:block;margin:0 auto;height:auto;border:0;max-width:100%;" />
+    <div style="color:#888;margin-top:6px;font-size:12px">Churn Prediction &amp; Retention Platform · v4.0</div>
   </div>
   <div style="padding:32px">
     <h2 style="color:#1a1a1a;margin:0 0 16px;font-size:18px">Password Changed Successfully</h2>

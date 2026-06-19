@@ -55,6 +55,8 @@ import numpy as np
 import pandas as pd
 import joblib
 from dotenv import load_dotenv
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -1510,7 +1512,7 @@ def print_risk_report(summary: Dict[str, Any]) -> None:
     for level in ['HIGH', 'MEDIUM', 'LOW']:
         info = summary['risk_distribution'].get(level, {'count': 0, 'pct': 0})
         bar = "█" * int(info['pct'] / 2)
-        print(f"    {level:8s}  {info['count']:4d}  ({info['pct']:5.1f}%)  {bar}")
+        print(f"    {level:8s}  {info['count']:4d}  ({info['pct']:5.1f}%)  {bar}".encode('utf-8', errors='replace').decode('utf-8'))
     print()
 
     stats = summary['probability_stats']

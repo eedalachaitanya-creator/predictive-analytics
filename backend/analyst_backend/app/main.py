@@ -40,6 +40,8 @@ from app.messages_router import router as messages_router
 from app.audit_router import router as audit_router
 from scout.router import scout_router
 from scout_agent.routes import router as agent_router
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 # ── Strategist Agent integration ──────────────────────────────────────────────
 # Strategist provides /api/strategist/* endpoints for pricing recommendations.
@@ -105,6 +107,13 @@ app = FastAPI(
     version=settings.app_version,
     description="Churn prediction and retention analytics API for the Walmart CRP platform.",
     lifespan=lifespan,
+)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(BASE_DIR / "static")),
+    name="static
 )
 
 app.add_middleware(

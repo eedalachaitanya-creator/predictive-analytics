@@ -33,15 +33,13 @@ from app.database import engine
 from app.auth_router import _find_user_by_token, get_current_user
 from app.audit_logger import log_audit_event
 from app.security import hash_password, validate_password
+from app.email_service import LOGO_SRC
 
-router = APIRouter(prefix="/api/v1", tags=["clients"])  # audit-2026-04-29: router-level auth
+router = APIRouter(prefix="/api/v1", tags=["clients"])
 log = logging.getLogger("clients")
 
 
 # ── Schema safety net for soft-delete columns ───────────────────────────────
-# Mirrors migration_client_soft_delete.sql. Runs once at import so dev DBs
-# that haven't had the migration applied still get the columns before the
-# delete/list endpoints try to use them.
 def _ensure_soft_delete_columns() -> None:
     try:
         with engine.begin() as conn:
@@ -60,9 +58,6 @@ _ensure_soft_delete_columns()
 
 
 # ── Schema safety net for client onboarding columns ──────────────────────────
-# Mirrors db/migrations/2026_06_08_client_org_details.sql so a dev/live DB that
-# hasn't run the migration still gets the columns before admin-create writes
-# them. Additive + nullable → existing tenants/users are unaffected.
 def _ensure_client_org_columns() -> None:
     try:
         with engine.begin() as conn:
@@ -87,20 +82,14 @@ _ensure_client_org_columns()
 
 # ── Shared validation patterns ───────────────────────────────────────────────
 EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
-# Phone: 10–12 digits (no separators) — covers a local 10-digit number through
-# a 12-digit number with country code.
 PHONE_RE = re.compile(r'^\d{10,12}$')
 
 
 # ── Request / Response models ────────────────────────────────────────────────
 
 class ClientRegisterRequest(BaseModel):
-    """
-    What we need from a new client to register them.
-    Only client_name and client_code are required — everything else has defaults.
-    """
-    client_name: str                          # e.g., "Costco Wholesale"
-    client_code: str                          # e.g., "COSTCO" (short code)
+    client_name: str
+    client_code: str
     currency: str = "USD"
     timezone: str = "America/Chicago"
     churn_window_days: int = 90
@@ -121,19 +110,6 @@ class ClientResponse(BaseModel):
 # ── Helper: generate next client_id ─────────────────────────────────────────
 
 def _generate_next_client_id() -> str:
-    """
-    Look at the highest existing client_id in client_config and return the next one.
-
-    Example:
-        Database has: CLT-001, CLT-002
-        Returns:      CLT-003
-
-    HOW IT WORKS:
-    - Query the database for the MAX client_id
-    - Extract the number part (e.g., "002" from "CLT-002")
-    - Add 1 and format with leading zeros
-    - If no clients exist yet, start with CLT-001
-    """
     try:
         with engine.connect() as conn:
             result = conn.execute(
@@ -142,11 +118,10 @@ def _generate_next_client_id() -> str:
             row = result.fetchone()
 
             if row and row[0]:
-                # Extract number from "CLT-002" → 2, then make "CLT-003"
-                last_id = row[0]                      # e.g., "CLT-002"
-                number_part = last_id.split("-")[-1]   # e.g., "002"
-                next_number = int(number_part) + 1     # e.g., 3
-                return f"CLT-{next_number:03d}"        # e.g., "CLT-003"
+                last_id = row[0]
+                number_part = last_id.split("-")[-1]
+                next_number = int(number_part) + 1
+                return f"CLT-{next_number:03d}"
             else:
                 return "CLT-001"
     except Exception as e:
@@ -156,30 +131,11 @@ def _generate_next_client_id() -> str:
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.post("/clients/register",dependencies=[Depends(get_current_user)])
+@router.post("/clients/register", dependencies=[Depends(get_current_user)])
 def register_client(
     req: ClientRegisterRequest,
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    Register a new client on the platform.
-
-    WHAT HAPPENS:
-    1. Validates that the user is a super_admin or admin
-    2. Checks if a client with same name/code already exists
-    3. Auto-generates the next client_id (CLT-003, CLT-004, etc.)
-    4. Creates a row in client_config with all their settings
-    5. Returns the new client_id
-
-    EXAMPLE:
-        POST /api/v1/clients/register
-        {
-            "client_name": "Costco Wholesale",
-            "client_code": "COSTCO"
-        }
-        → Returns: { "client_id": "CLT-003", "client_name": "Costco Wholesale", ... }
-    """
-    # ── Auth check: only admins can register new clients ──────────────
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
 
@@ -188,14 +144,12 @@ def register_client(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # 'admin' user role was retired — client registration now requires super_admin.
     if user["role"] != "super_admin":
         raise HTTPException(
             status_code=403,
             detail="Only super admins can register new clients",
         )
 
-    # ── Check if client already exists ────────────────────────────────
     try:
         with engine.connect() as conn:
             existing = conn.execute(
@@ -213,10 +167,8 @@ def register_client(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # ── Generate the next client_id ───────────────────────────────────
     new_client_id = _generate_next_client_id()
 
-    # ── Insert into client_config ─────────────────────────────────────
     try:
         with engine.connect() as conn:
             conn.execute(
@@ -265,9 +217,6 @@ def register_client(
         raise HTTPException(status_code=500, detail=f"Could not register client: {e}")
 
 
-# Columns returned by the /clients list — shared by both access branches so the
-# row→dict mapping can't drift. Includes the organization-detail columns the
-# admin Client Management table renders (address / email / phone).
 _CLIENT_COLS = (
     "client_id, client_name, client_code, created_at, is_active, deactivated_at, "
     "address, city, state_province, postal_code, country, contact_email, company_phone"
@@ -292,18 +241,11 @@ def _client_row_to_dict(r) -> dict:
     }
 
 
-@router.get("/clients",dependencies=[Depends(get_current_user)])
+@router.get("/clients", dependencies=[Depends(get_current_user)])
 def list_clients(
     includeInactive: bool = Query(default=False),
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    List registered clients.
-
-    By default returns only active (not soft-deleted) clients. Super admins
-    can pass `?includeInactive=true` to also receive deactivated rows — used
-    by the Admin Clients page to populate Total/Active/Inactive counters.
-    """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
 
@@ -312,8 +254,6 @@ def list_clients(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # Only super_admin may see inactive rows — keep client_users on the
-    # active-only path regardless of the flag they send.
     show_inactive = includeInactive and user["role"] == "super_admin"
     active_clause = "" if show_inactive else "WHERE is_active = TRUE"
 
@@ -329,7 +269,6 @@ def list_clients(
                     )
                 ).fetchall()
             else:
-                # Regular users always see active-only, restricted to their access list.
                 client_list = user.get("clientAccess", [])
                 if not client_list:
                     return []
@@ -351,9 +290,8 @@ def list_clients(
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
-@router.get("/clients/{client_id}",dependencies=[Depends(get_current_user)])
+@router.get("/clients/{client_id}", dependencies=[Depends(get_current_user)])
 def get_client(client_id: str, authorization: Optional[str] = Header(default=None)):
-    """Get a specific client's configuration."""
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
 
@@ -362,7 +300,6 @@ def get_client(client_id: str, authorization: Optional[str] = Header(default=Non
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # Check access
     if user["role"] != "super_admin" and "*" not in user.get("clientAccess", []):
         if client_id not in user.get("clientAccess", []):
             raise HTTPException(status_code=403, detail="You don't have access to this client")
@@ -377,7 +314,6 @@ def get_client(client_id: str, authorization: Optional[str] = Header(default=Non
             if not row:
                 raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
 
-            # Convert row to dict using column names
             columns = conn.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name = 'client_config' ORDER BY ordinal_position")
             ).fetchall()
@@ -394,15 +330,12 @@ def get_client(client_id: str, authorization: Optional[str] = Header(default=Non
 # ── Self-Registration (PUBLIC — no auth needed) ─────────────────────────────
 
 class SelfRegisterRequest(BaseModel):
-    """
-    What a new client fills in on the registration page.
-    This creates BOTH a client_config entry AND a user account.
-    """
-    client_name: str       # "Costco Wholesale"
-    client_code: str       # "COSTCO"
-    contact_name: str      # "John Smith"
-    contact_email: str     # "john@costco.com"
-    password: str          # their chosen password
+    client_name: str
+    client_code: str
+    contact_name: str
+    contact_email: str
+    password: str
+
 
 def _send_welcome_email(
     to_email: str,
@@ -423,8 +356,6 @@ def _send_welcome_email(
     smtp_pass = os.getenv("SMTP_PASSWORD", "")
     smtp_from = os.getenv("SMTP_FROM", smtp_user) or "no-reply@loyaltix.io"
 
-    # BUG FIX: read production URL from env var — never hardcode localhost.
-    # Set APP_URL=https://your-domain.com in your .env file.
     app_url = os.getenv("APP_URL", "https://loyaltix.io").rstrip("/")
 
     if not smtp_user:
@@ -433,6 +364,8 @@ def _send_welcome_email(
 
     subject = "Welcome to Loyaltix — Your Account is Ready"
 
+    # Logo is a base64 data URI — renders in Gmail, Outlook, Apple Mail,
+    # and Yopmail without any CID attachment or external URL.
     html_body = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -448,14 +381,13 @@ def _send_welcome_email(
              style="background:#ffffff;border-radius:12px;overflow:hidden;
                     box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-        <tr><td style="background:linear-gradient(90deg,#0071CE,#FFC220);height:4px;"></td></tr>
+        <tr><td style="background:linear-gradient(90deg,#ef5f24,#f8991e,#219bcb);height:4px;"></td></tr>
 
         <tr>
-          <td style="padding:36px 40px 24px;border-bottom:1px solid #eef0f5;">
-            <div style="font-size:22px;font-weight:700;color:#1a1a2e;">
-              📊 <span style="color:#0071CE;">Loyaltix</span>
-            </div>
-            <div style="font-size:12px;color:#888;margin-top:4px;">
+          <td style="padding:28px 40px 20px;border-bottom:1px solid #eef0f5;text-align:center;">
+            <img src="http://10.0.0.14/Crp_QA/media/Loyaltix_logo-5HUR76FK.svg" alt="Loyaltix" height="50" width="150"
+                 style="display:block;margin:0 auto;height:auto;border:0;max-width:100%;" />
+            <div style="font-size:12px;color:#888;margin-top:6px;">
               Churn Prediction &amp; Retention Platform · v4.0
             </div>
           </td>
@@ -553,6 +485,8 @@ def _send_welcome_email(
     )
 
     try:
+        # Plain "alternative" wrapper — no multipart/related needed because
+        # the logo is now a data URI inside the HTML, not a CID attachment.
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"]    = smtp_from
@@ -577,19 +511,6 @@ def _send_welcome_email(
 
 @router.post("/clients/self-register", dependencies=[])
 def self_register(req: SelfRegisterRequest):
-    """
-    PUBLIC endpoint — new clients register themselves.
-
-    WHAT HAPPENS:
-    1. Validates the company doesn't already exist
-    2. Validates the email isn't already taken
-    3. Auto-generates next client_id (CLT-003, CLT-004, etc.)
-    4. Creates a client_config row in the database
-    5. Creates a user account in memory (linked to the new client_id)
-    6. Returns the new client_id so they know their ID
-
-    The user can then log in immediately with their email + password.
-    """
     # ── Validate inputs ───────────────────────────────────────────────
     if not req.client_name.strip():
         raise HTTPException(status_code=400, detail="Company name is required")
@@ -605,7 +526,6 @@ def self_register(req: SelfRegisterRequest):
     if pw_error:
         raise HTTPException(status_code=400, detail=pw_error)
 
-    # ── Check if email is already taken (in database) ───────────────
     try:
         with engine.connect() as conn:
             existing_user = conn.execute(
@@ -619,7 +539,6 @@ def self_register(req: SelfRegisterRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # ── Check if client already exists ────────────────────────────────
     try:
         with engine.connect() as conn:
             existing = conn.execute(
@@ -637,10 +556,8 @@ def self_register(req: SelfRegisterRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # ── Generate client_id ────────────────────────────────────────────
     new_client_id = _generate_next_client_id()
 
-    # ── Create client_config in database ──────────────────────────────
     try:
         with engine.connect() as conn:
             conn.execute(
@@ -662,7 +579,6 @@ def self_register(req: SelfRegisterRequest):
         log.error("Failed to create client_config: %s", e)
         raise HTTPException(status_code=500, detail=f"Could not register company: {e}")
 
-    # ── Create user account in database ─────────────────────────────
     new_user_id = f"usr-{uuid.uuid4().hex[:6]}"
     try:
         with engine.connect() as conn:
@@ -689,15 +605,16 @@ def self_register(req: SelfRegisterRequest):
         req.client_name, req.client_code, new_client_id,
         req.contact_name, req.contact_email,
     )
-    # ── Send welcome email ────────────────────────────────────────────
+
     _send_welcome_email(
-            to_email=req.contact_email,
-            contact_name=req.contact_name,
-            company_name=req.client_name,
-            client_id=new_client_id,
-            client_code=req.client_code.upper(),
-            password=req.password, 
-        )
+        to_email=req.contact_email,
+        contact_name=req.contact_name,
+        company_name=req.client_name,
+        client_id=new_client_id,
+        client_code=req.client_code.upper(),
+        password=req.password,
+    )
+
     return {
         "client_id": new_client_id,
         "client_name": req.client_name,
@@ -707,42 +624,14 @@ def self_register(req: SelfRegisterRequest):
     }
 
 
-# ── Client Data Overview (for Client Management "View" action) ───────────────
-#
-# When a super admin clicks "View" on a client row, we show TWO tables:
-#
-#   A) Uploaded data — rows the client (or their data team) uploaded via the
-#      Upload wizard. These are the client's raw facts: customers, orders,
-#      line items, reviews, tickets.
-#
-#   B) Generated data — rows our ML pipeline produced from those uploads:
-#      RFM features, purchase cycles, churn scores, retention interventions,
-#      outreach messages.
-#
-# For each table we return:
-#   - row_count           : how many rows exist for this client
-#   - last_updated        : most recent timestamp (helps spot stale data)
-#   - label               : human-readable name for the UI
-#
-# DESIGN CHOICE — counts + timestamps, not full dumps.
-# Returning every row here would blow up the response size for large clients
-# (Walmart has tens of thousands of customers). The UI already has dedicated
-# pages for drilling into customers / orders / churn scores, so the overview
-# just needs to show "what data exists and how fresh is it". A "View detail"
-# button can deep-link to the right page for full rows.
+# ── Client Data Overview ─────────────────────────────────────────────────────
 
-# Catalog of tables to summarize. Each entry is:
-#   (table_name, category, label, timestamp_column_or_None)
-# timestamp_column is used to find the "most recent update" for that table;
-# None means the table has no natural timestamp (we'll skip the freshness cell).
 _DATA_OVERVIEW_TABLES = [
-    # ── Uploaded by the client ─────────────────────────────────────────
     ("customers",          "uploaded",  "Customers",          "account_created_date"),
     ("orders",             "uploaded",  "Orders",             "order_date"),
     ("line_items",         "uploaded",  "Line Items",         None),
     ("customer_reviews",   "uploaded",  "Customer Reviews",   "review_date"),
     ("support_tickets",    "uploaded",  "Support Tickets",    "opened_date"),
-    # ── Generated by the ML pipeline ───────────────────────────────────
     ("customer_rfm_features",     "generated", "RFM Features",            "computed_at"),
     ("customer_purchase_cycles",  "generated", "Purchase Cycles",         "computed_at"),
     ("churn_scores",              "generated", "Churn Scores",            "scored_at"),
@@ -750,10 +639,6 @@ _DATA_OVERVIEW_TABLES = [
     ("outreach_messages",         "generated", "Outreach Messages",       "sent_at"),
 ]
 
-# Map each UPLOADED table to its upload "master type" — the token recorded in the
-# audit_log file_upload events (e.g. "customer · file.csv · 3 rows"). Used to derive
-# a true "Uploaded On" date, distinct from last_updated (the newest record date
-# inside the data). Generated tables are computed, not uploaded, so they're omitted.
 _UPLOAD_MASTER_TYPE = {
     "customers":        "customer",
     "orders":           "order",
@@ -763,26 +648,11 @@ _UPLOAD_MASTER_TYPE = {
 }
 
 
-@router.get("/clients/{client_id}/data-overview",dependencies=[Depends(get_current_user)])
+@router.get("/clients/{client_id}/data-overview", dependencies=[Depends(get_current_user)])
 def get_client_data_overview(
     client_id: str,
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    Return row counts + freshness for every client-scoped table, split into
-    "uploaded" vs "generated" buckets. Used by the Client Management "View"
-    action on the UI.
-
-    Response shape:
-        {
-          "client_id": "CLT-001",
-          "client_name": "Walmart Inc.",
-          "uploaded":  [ { table, label, row_count, last_updated }, ... ],
-          "generated": [ { table, label, row_count, last_updated }, ... ],
-          "totals": { "uploaded_rows": N, "generated_rows": M }
-        }
-    """
-    # ── Auth ──────────────────────────────────────────────────────────
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
@@ -790,12 +660,10 @@ def get_client_data_overview(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # Only super admins or users with access to this client can view it.
     if user["role"] != "super_admin" and "*" not in user.get("clientAccess", []):
         if client_id not in user.get("clientAccess", []):
             raise HTTPException(status_code=403, detail="You don't have access to this client")
 
-    # ── Confirm client exists + fetch display name ───────────────────
     try:
         with engine.connect() as conn:
             row = conn.execute(
@@ -810,9 +678,6 @@ def get_client_data_overview(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # ── Per-table count + last-updated ────────────────────────────────
-    # We query each table independently and swallow per-table errors so a
-    # single missing / renamed table doesn't take down the whole overview.
     uploaded: list[dict] = []
     generated: list[dict] = []
     uploaded_total = 0
@@ -832,9 +697,6 @@ def get_client_data_overview(
                 count = conn.execute(text(count_sql), {"cid": client_id}).scalar() or 0
                 entry["row_count"] = int(count)
 
-                # last_updated: most tables expose a domain timestamp column.
-                # line_items has none of its own — a line item is as recent as the
-                # order it belongs to, so derive its freshness from the parent orders.
                 ts = None
                 if count > 0:
                     if ts_col:
@@ -856,9 +718,6 @@ def get_client_data_overview(
                         ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
                     )
 
-                # uploaded_at: the real "Uploaded On" date — when this table's file
-                # was last uploaded through the app, read from the audit_log. Distinct
-                # from last_updated (the newest record date inside the data).
                 master_type = _UPLOAD_MASTER_TYPE.get(table_name)
                 if master_type:
                     up = conn.execute(
@@ -874,7 +733,6 @@ def get_client_data_overview(
                             up.isoformat() if hasattr(up, "isoformat") else str(up)
                         )
             except Exception as e:
-                # Table missing or column renamed — log and keep going with zero.
                 log.warning("data-overview: %s failed for %s: %s", table_name, client_id, e)
 
             if category == "uploaded":
@@ -897,29 +755,13 @@ def get_client_data_overview(
 
 
 # ── Per-table row viewer ────────────────────────────────────────────────────
-#
-# When the super admin clicks "View" on a specific table row in the data
-# overview (e.g., "View" next to Customers), we hit this endpoint. It returns
-# a page of actual rows from that table, scoped to the client_id.
-#
-# SECURITY — whitelisted tables only.
-# We can't drop {table} straight into SQL: that's a textbook injection vector.
-# Instead we look it up in _TABLE_VIEW_META below. If the table isn't in the
-# whitelist, we return 400. This also means any attempt to query, e.g.,
-# client_config or users via this endpoint is refused.
-#
-# ORDER — newest first where a timestamp exists.
-# Each entry declares an order_by column; we sort DESC so the latest rows
-# show up on page 1. For tables without a natural timestamp (line_items),
-# we fall back to the primary-key column.
+
 _TABLE_VIEW_META: dict[str, dict[str, str]] = {
-    # Uploaded
     "customers":                {"order_by": "account_created_date", "direction": "DESC"},
     "orders":                   {"order_by": "order_date",            "direction": "DESC"},
     "line_items":               {"order_by": "line_item_id",          "direction": "ASC"},
     "customer_reviews":         {"order_by": "review_date",           "direction": "DESC"},
     "support_tickets":          {"order_by": "opened_date",           "direction": "DESC"},
-    # Generated
     "customer_rfm_features":    {"order_by": "computed_at",           "direction": "DESC"},
     "customer_purchase_cycles": {"order_by": "computed_at",           "direction": "DESC"},
     "churn_scores":             {"order_by": "scored_at",             "direction": "DESC"},
@@ -929,21 +771,11 @@ _TABLE_VIEW_META: dict[str, dict[str, str]] = {
 
 
 def _jsonify_cell(v: Any) -> Any:
-    """
-    Make a single DB value safe to JSON-encode.
-
-    - datetime / date → ISO string (FastAPI handles these, but being explicit
-      avoids surprises on older pydantic versions)
-    - Decimal         → float (so the UI gets a real number, not a string)
-    - everything else → passed through unchanged
-    """
     if v is None:
         return None
     if isinstance(v, (datetime, date)):
         return v.isoformat()
     if isinstance(v, Decimal):
-        # float is lossy for very large decimals, but the values here are
-        # prices / probabilities / counts — float is fine for display.
         return float(v)
     return v
 
@@ -952,28 +784,10 @@ def _jsonify_cell(v: Any) -> Any:
 def get_client_table_rows(
     client_id: str,
     table: str,
-    # Default bumped from 50 → 100 per CTO direction: the data-viewer
-    # modal on the Clients page now shows 100 rows per page with
-    # vertical scroll instead of paginating in 50-row chunks.
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    Return a page of rows from `table` for this client.
-
-    Response shape:
-        {
-          "table": "customers",
-          "client_id": "CLT-001",
-          "columns": ["client_id", "customer_id", "customer_email", ...],
-          "rows": [ {col: val, ...}, ... ],
-          "total":  <int>,
-          "limit":  <int>,
-          "offset": <int>
-        }
-    """
-    # ── Auth ──────────────────────────────────────────────────────────
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
@@ -984,7 +798,6 @@ def get_client_table_rows(
         if client_id not in user.get("clientAccess", []):
             raise HTTPException(status_code=403, detail="You don't have access to this client")
 
-    # ── Whitelist check — NEVER trust `table` from URL without this ───
     meta = _TABLE_VIEW_META.get(table)
     if not meta:
         raise HTTPException(
@@ -997,14 +810,11 @@ def get_client_table_rows(
 
     try:
         with engine.connect() as conn:
-            # Total count (for the pagination footer)
             total = conn.execute(
                 text(f"SELECT COUNT(*) FROM {table} WHERE client_id = :cid"),
                 {"cid": client_id},
             ).scalar() or 0
 
-            # Actual page of rows. order_by/direction are from the whitelist,
-            # not user input, so safe to f-string.
             result = conn.execute(
                 text(
                     f"SELECT * FROM {table} "
@@ -1039,41 +849,23 @@ def get_client_table_rows(
 
 
 # ── Admin: create a new client + first user (single call) ───────────────────
-#
-# /clients/register (super-admin only) creates a client_config row and nothing
-# else — the client still needs a separate user row to actually log in.
-# /clients/self-register (public) does both but has no auth.
-#
-# This endpoint is the admin-console equivalent of self-register: it requires
-# super_admin auth AND creates a client_config + first user in one transaction.
-# The super admin on the Clients page uses this when onboarding a new tenant
-# without making them go through the public registration page.
 
 class AdminCreateClientRequest(BaseModel):
-    # ── Organization details ──
     organization_name: str
     address: str
     city: str
     state_province: str
     postal_code: str
     country: str
-    company_contact_email: str          # company-level contact (NOT the admin login)
+    company_contact_email: str
     company_phone: str
-    # ── Administrator account (the first client-user / login) ──
     admin_name: str
     admin_phone: str
-    admin_email: str                    # the address the admin signs in with + receives the invite
+    admin_email: str
     password: str
 
 
 def validate_admin_create_payload(req: "AdminCreateClientRequest") -> list[str]:
-    """Validate the expanded client-onboarding payload.
-
-    Returns a list of human-readable error messages — empty means valid. Pure
-    (no DB, no I/O) so it is unit-testable and reused verbatim by the endpoint.
-    All organization + admin fields are required (mirrors the English-Proficiency
-    onboarding form); company code is intentionally NOT collected.
-    """
     errors: list[str] = []
 
     def _require(value: str, label: str) -> None:
@@ -1088,9 +880,6 @@ def validate_admin_create_payload(req: "AdminCreateClientRequest") -> list[str]:
     _require(req.country, "Country")
     _require(req.admin_name, "Admin name")
 
-    # Length caps — reject anything that would overflow its DB column up front,
-    # so we return a clean 400 instead of a raw varchar-truncation 500 (QA bug
-    # 2026-06-09). Limits mirror the client_config / users column definitions.
     def _max_len(value: str, limit: int, label: str) -> None:
         if len((value or "").strip()) > limit:
             errors.append(f"{label} must be {limit} characters or fewer.")
@@ -1130,23 +919,15 @@ def validate_admin_create_payload(req: "AdminCreateClientRequest") -> list[str]:
 
 
 def _resolve_client_code(client_id: str) -> str:
-    """New clients have no separate company code — client_id is the sole
-    identifier, so client_code = client_id (satisfies the NOT NULL column)."""
     return client_id
 
 
-@router.post("/clients/admin-create",dependencies=[Depends(get_current_user)])
+@router.post("/clients/admin-create", dependencies=[Depends(get_current_user)])
 def admin_create_client(
     req: AdminCreateClientRequest,
     request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    Super-admin-only: create a new client + their first user account in one go.
-    Response matches /clients/self-register so the frontend can reuse the
-    same confirmation UI.
-    """
-    # ── Auth: super_admin only ────────────────────────────────────────
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
@@ -1156,7 +937,6 @@ def admin_create_client(
     if caller["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Only super admins can create clients")
 
-    # ── Validate inputs (pure helper, unit-tested in test_admin_create_validation) ──
     errors = validate_admin_create_payload(req)
     if errors:
         raise HTTPException(status_code=400, detail=" ".join(errors))
@@ -1164,7 +944,6 @@ def admin_create_client(
     org_name    = req.organization_name.strip()
     admin_email = req.admin_email.strip()
 
-    # ── Check for duplicates BEFORE creating anything ─────────────────
     try:
         with engine.connect() as conn:
             dup_email = conn.execute(
@@ -1188,13 +967,10 @@ def admin_create_client(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # ── Create both rows in a single transaction ──────────────────────
-    # engine.begin() wraps everything in a transaction — if the user INSERT
-    # fails after the client_config INSERT, Postgres rolls back both so we
-    # don't leave an orphan client row behind.
     new_client_id   = _generate_next_client_id()
-    new_client_code = _resolve_client_code(new_client_id)   # code = client_id (no separate code)
+    new_client_code = _resolve_client_code(new_client_id)
     new_user_id     = f"usr-{uuid.uuid4().hex[:6]}"
+
     try:
         with engine.begin() as conn:
             conn.execute(
@@ -1236,8 +1012,6 @@ def admin_create_client(
                 },
             )
     except Exception as e:
-        # Log the real cause server-side, but never echo the raw DB error to the
-        # client — it leaks the SQL, bound parameters, and the password hash.
         log.error("admin_create_client failed: %s", e)
         raise HTTPException(
             status_code=500,
@@ -1249,8 +1023,6 @@ def admin_create_client(
         org_name, new_client_id, req.admin_name.strip(), admin_email,
     )
 
-    # Audit: tenant creation — attributed to the CREATED client (not the admin's
-    # own), so client_id in the audit row reflects the new tenant.
     log_audit_event(
         request,
         action_type="client_created",
@@ -1261,7 +1033,6 @@ def admin_create_client(
         outcome="success",
     )
 
-    # Invite/welcome email → the ADMIN LOGIN email (the address they sign in with).
     _send_welcome_email(
         to_email=admin_email,
         contact_name=req.admin_name.strip(),
@@ -1281,25 +1052,13 @@ def admin_create_client(
 
 
 # ── Admin: soft-delete (deactivate) a client ─────────────────────────────────
-#
-# Hard deletion previously cascaded through every client_id-scoped table,
-# leaving no record the client ever existed. We now flip is_active=FALSE and
-# stamp deactivated_at instead — all tenant data stays in the DB for audit
-# and potential reactivation, but the client disappears from the admin list.
 
-
-@router.delete("/clients/{client_id}",dependencies=[Depends(get_current_user)])
+@router.delete("/clients/{client_id}", dependencies=[Depends(get_current_user)])
 def delete_client(
     client_id: str,
     request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    Super-admin-only: soft-delete a client. The client_config row is flagged
-    is_active=FALSE and hidden from the admin UI, but no tenant data is wiped.
-    A follow-up reactivate endpoint can restore the client without data loss.
-    """
-    # ── Auth: super_admin only ────────────────────────────────────────
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
@@ -1309,7 +1068,6 @@ def delete_client(
     if caller["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Only super admins can delete clients")
 
-    # ── Confirm client exists and is currently active ─────────────────
     with engine.connect() as conn:
         row = conn.execute(
             text("SELECT is_active FROM client_config WHERE client_id = :cid"),
@@ -1318,20 +1076,12 @@ def delete_client(
         if not row:
             raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
         if row[0] is False:
-            # Idempotent — already deactivated.
             return {
                 "client_id": client_id,
                 "deleted": {},
                 "message": f"Client {client_id} was already deactivated.",
             }
 
-    # ── Flip the flag (and cascade to single-client users) ────────────
-    # Two UPDATEs in ONE transaction so the client + its users go inactive
-    # together. Without the user cascade, the Users page would still show
-    # the user as "active" while the auth gate blocks their login —
-    # confusing for super admins reviewing the roster. Multi-client users
-    # (super_admin role, or anyone with client_access of length > 1) are
-    # NOT cascaded; they have other tenants and stay active.
     try:
         with engine.begin() as conn:
             conn.execute(
@@ -1384,27 +1134,14 @@ def delete_client(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Reactivate (soft-undelete) a client
-# ─────────────────────────────────────────────────────────────────────────────
-@router.post("/clients/{client_id}/reactivate",dependencies=[Depends(get_current_user)])
+# ── Reactivate (soft-undelete) a client ──────────────────────────────────────
+
+@router.post("/clients/{client_id}/reactivate", dependencies=[Depends(get_current_user)])
 def reactivate_client(
     client_id: str,
     request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
-    """
-    Super-admin-only: reactivate a previously soft-deleted client.
-    Sets is_active=TRUE and clears deactivated_at. All tenant data
-    (customers, orders, line_items, reviews, tickets, churn_scores,
-    mv_customer_features, etc.) was preserved during deactivation
-    because no FK cascades exist on client_config — the data is still
-    queryable by client_id and the client simply re-appears in the
-    admin list, dropdowns, and dashboards.
-
-    Idempotent: reactivating an already-active client returns success.
-    """
-    # ── Auth: super_admin only ────────────────────────────────────────
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "")
@@ -1414,7 +1151,6 @@ def reactivate_client(
     if caller["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Only super admins can reactivate clients")
 
-    # ── Confirm client exists ─────────────────────────────────────────
     with engine.connect() as conn:
         row = conn.execute(
             text("SELECT is_active FROM client_config WHERE client_id = :cid"),
@@ -1423,18 +1159,11 @@ def reactivate_client(
         if not row:
             raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
         if row[0] is True:
-            # Idempotent — already active.
             return {
                 "client_id": client_id,
                 "message": f"Client {client_id} was already active.",
             }
 
-    # ── Flip the flag back (and cascade to single-client users) ──────
-    # Mirror of the cascade in delete_client: when the tenant comes back
-    # online, its single-client users come back online too. This is the
-    # path that brings users back into the Users page roster as "active"
-    # after a client is reactivated. Multi-client users were never
-    # touched by the delete cascade, so they don't need re-flipping.
     try:
         with engine.begin() as conn:
             conn.execute(

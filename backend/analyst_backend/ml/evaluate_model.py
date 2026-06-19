@@ -39,7 +39,8 @@ from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 import joblib
-
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,

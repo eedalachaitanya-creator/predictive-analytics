@@ -74,3 +74,5 @@ beautifulsoup4
 langfuse>=2.40.0,<3.0.0
 langchain-openai==1.1.14
 openai==2.32.0
+# Jira connector (real external-signal ingest)
+requests==2.34.2

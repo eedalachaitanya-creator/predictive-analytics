@@ -61,8 +61,9 @@ def _customer_ids(conn, client_id: str, limit: Optional[int]) -> List[str]:
 
 def run_ingest(engine, client_id: str, connectors=None,
                limit_customers: Optional[int] = None) -> dict:
-    from ml.connectors import CONNECTORS
-    connectors = connectors if connectors is not None else CONNECTORS
+    from ml.connectors import default_connectors
+    if connectors is None:
+        connectors = default_connectors(client_id=client_id, engine=engine)
     totals = {"tickets": 0, "reviews": 0}
     with engine.begin() as conn:
         custs = _customer_ids(conn, client_id, limit_customers)

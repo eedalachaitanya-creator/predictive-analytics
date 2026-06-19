@@ -7,6 +7,7 @@ import { AuthService } from '../services/auth.service';
 import { TierLabelService } from '../services/tier-label.service';
 import { PipelineService } from '../services/pipeline.service';
 import { PipelineRunRequest } from '../models';
+import { JiraIntegrationComponent } from './jira-integration';
 
 // ─────────────────────────────────────────────────────────────────────────
 // System defaults — single source of truth for "Reset to Defaults".
@@ -42,7 +43,7 @@ const DEFAULTS = {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, JiraIntegrationComponent],
   templateUrl: './settings.html',
   styleUrls: ['./settings.scss']
 })

@@ -30,6 +30,7 @@ from app.client_router import router as client_router
 from app.upload_router import router as upload_router
 from app.users_router import router as users_router
 from app.settings_router import router as settings_router
+from app.integrations_router import router as integrations_router
 from app.churn_router import router as churn_router
 from app.downloads_router import router as downloads_router
 from app.validation_router import router as validation_router
@@ -120,6 +121,7 @@ app.include_router(client_router)
 app.include_router(upload_router)
 app.include_router(users_router)
 app.include_router(settings_router)
+app.include_router(integrations_router)
 app.include_router(churn_router)
 app.include_router(pipeline_router)
 app.include_router(customers_router)

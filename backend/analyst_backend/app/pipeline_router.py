@@ -283,9 +283,25 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
         ok, msg = _run_python_module("ml.sentiment", ["--db-url", _DB_URL, "--client-id", client_id, "--update-all"])
         _update_stage(job, 1, "done" if ok else "error", msg[:200])
 
-        # Stage 3 (STAGE_INGEST): Ingest external signals — gated by env flag so
-        # synthetic ingestion never runs against real production tenants.
-        if os.getenv("EXTERNAL_SIGNALS_SYNTHETIC") == "1":
+        # Stage 3 (STAGE_INGEST): Ingest external signals. Runs when EITHER a real
+        # Jira is configured (JIRA_* env) OR synthetic ingestion is explicitly
+        # enabled. The connector SELECTION is env-aware (ml.connectors.default_
+        # connectors): real Jira wins; synthetic only under the flag; else no-op —
+        # so this never ingests synthetic tickets against a real production tenant.
+        _jira_configured = all(os.getenv(k) for k in
+                               ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"))
+        # Multi-tenant: does THIS tenant have an enabled integration in the DB?
+        # (A read error / missing table must never block the pipeline.)
+        _tenant_jira = False
+        try:
+            with engine.connect() as _cx:
+                _tenant_jira = _cx.execute(text(
+                    "SELECT 1 FROM tenant_integrations WHERE client_id=:c "
+                    "AND provider='jira' AND enabled=true"),
+                    {"c": client_id}).first() is not None
+        except Exception:  # noqa: BLE001 — degrade to "no tenant integration"
+            _tenant_jira = False
+        if os.getenv("EXTERNAL_SIGNALS_SYNTHETIC") == "1" or _jira_configured or _tenant_jira:
             _update_stage(job, STAGE_INGEST, "running", "Ingesting external signals…")
             ok, msg = _run_python_module(
                 "ml.connectors.ingest",
@@ -293,7 +309,7 @@ def _execute_pipeline(job_id: str, client_id: str, mode: str):
             )
             _update_stage(job, STAGE_INGEST, "done" if ok else "error", msg[:200])
         else:
-            _update_stage(job, STAGE_INGEST, "done", "Skipped — synthetic ingest disabled")
+            _update_stage(job, STAGE_INGEST, "done", "Skipped — no external-signal source configured")
 
         # Stage 4 (STAGE_EMOTION): Classify emotion on unscored signal rows.
         # Non-fatal: a classifier failure marks the stage error but does NOT

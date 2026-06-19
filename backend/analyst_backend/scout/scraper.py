@@ -1269,11 +1269,19 @@ def find_and_validate_product(
         # Skip candidates where the query brand is entirely absent from
         # the title. This is a zero-cost pre-filter before the LLM call.
         if enforce_brand:
-            brand_in_title = all(b in title_lower for b in brand_tokens)
+            title_lower_nospace = re.sub(r"\s+", "", title_lower)
+            url_lower = (product.get("url") or "").lower()
+            # Check title (with and without spaces) AND the product URL.
+            # Amazon often omits the brand from the title text but always
+            # includes it in the product URL (e.g. /Dyson-Supersonic-).
+            brand_in_title = all(
+                b in title_lower or b in title_lower_nospace or b in url_lower
+                for b in brand_tokens
+            )
             if not brand_in_title:
                 logger.info(
                     f"[validate] BRAND GUARD skipped '{title[:60]}' — "
-                    f"brand tokens not found in title"
+                    f"brand tokens not found in title or URL"
                 )
                 continue
 

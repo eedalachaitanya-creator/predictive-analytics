@@ -48,8 +48,15 @@ def _client_id(user: dict) -> str:
     super_admin has clientAccess=["*"] — for scout we default to "" (all platforms)
     so admins still see everything. Regular client users get their own tenant scope."""
     access = user.get("clientAccess") or []
-    if "*" in access or not access:
+    if "*" in access:          # check access first
         return ""
+    role = user.get("role", "") # role defined only after access check
+    if role == "super_admin":
+        return ""
+
+    if not access:
+        # No clientAccess assigned yet → return sentinel that matches nothing
+        return user.get("user_id", "__unassigned__")
     return access[0]
 
 CACHE_TTL_MINUTES = 120
@@ -208,12 +215,12 @@ async def _search_across_sites(
         "listings": cached_listings + fresh_listings,
     }
 
-    found_platforms  = {l["platform"] for l in final_product["listings"]}
-    cached_platforms = {c["platform"] for c in cached_listings}
+    found_platforms  = {l["platform"].lower() for l in final_product["listings"]}
+    cached_platforms = {c["platform"].lower() for c in cached_listings}
     final_product["platform_status"] = {
         s["name"]: (
-            "found"     if s["name"] in found_platforms
-            else "cache" if s["name"] in cached_platforms
+            "found"     if s["name"].lower() in found_platforms
+            else "cache" if s["name"].lower() in cached_platforms
             else "not_found"
         )
         for s in targets
@@ -502,12 +509,12 @@ def cancel_add_website(request_id: str):
 
 @scout_router.post("/search/products")
 async def search_single(payload: SearchRequest, user: dict = Depends(get_current_user)):
+    cid       = _client_id(user)
     name      = payload.name.strip()
     platforms = payload.platforms or []
     if not name:
         raise HTTPException(400, "Product name is required.")
     if not platforms:
-        cid = _client_id(user)
         platforms = [s["name"] for s in db.get_active_websites(cid)]
 
     # Register this search in the cancellation registry. If the client passed
@@ -524,6 +531,7 @@ async def search_single(payload: SearchRequest, user: dict = Depends(get_current
             platforms,
             force_refresh=payload.force_refresh,
             request_id=request_id,
+            client_id=cid,
         )
         return {"status": "success", "products": [row]}
     except SearchCancelledException:
@@ -643,6 +651,7 @@ def get_alerts(
     unacknowledged_only: bool = False,
     limit:               int  = 50,
     offset:              int  = 0,
+    user: dict = Depends(get_current_user),
     ):
     """
     List price alerts, newest first.

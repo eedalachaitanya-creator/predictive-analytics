@@ -13,7 +13,7 @@
     white-space: nowrap;
   }  // Platform name
   th:nth-child(3), td:nth-child(3) { width: auto; }   // URL column — fills remaining space
-  th:nth-child(4), td:nth-child(4) { width: 120px; }  // Actions — widened from 90px to fit both buttons
+  th:nth-child(4), td:nth-child(4) { width: 120px; }  // Actions — enough for edit + delete buttons
 }
 
 .url-code {
@@ -42,7 +42,7 @@
   }
 }
 
-// Edit + Delete buttons sit side by side, vertically centered in the cell
+// Edit + Delete buttons sit side by side, vertically centered
 .action-btns {
   display: flex;
   align-items: center;

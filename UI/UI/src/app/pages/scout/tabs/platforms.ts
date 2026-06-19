@@ -138,6 +138,14 @@ export class ScoutPlatformsTab implements OnInit, OnDestroy {
       this.flashError('Search URL cannot be empty.');
       return;
     }
+    if (!/^https?:\/\//i.test(url)) {
+      this.flashError('Search URL must start with http:// or https://');
+      return;
+    }
+    if (!url.includes('{query}')) {
+      this.flashError('Search URL must contain the {query} placeholder (e.g. ?q={query})');
+      return;
+    }
     this.svc.updateWebsite({ name: site.name, search_url: url }).subscribe({
       next: () => {
         this.editingIdx.set(null);

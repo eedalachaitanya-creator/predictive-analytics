@@ -121,9 +121,7 @@
         <div class="rh-left">
           <span class="rh-name">{{ product.name }}</span>
           <span class="badge blue">{{ product.listings.length }} listing{{ product.listings.length !== 1 ? 's' : '' }}</span>
-          @if (bestPrice(product.listings); as best) {
-            <span class="badge green">Best: {{ fmt(best.price) }}</span>
-          }
+          
         </div>
         <div class="rh-right">
           @if (product.platform_status) {
@@ -145,7 +143,7 @@
                   <td><span class="badge gray">{{ l.platform }}</span></td>
                   <td class="td-title" [title]="l.title">{{ l.title.length > 65 ? l.title.slice(0,65) + '…' : l.title }}</td>
                   <td>
-                    <span class="price-val" [class.text-green]="isBest(l, product.listings)">{{ fmt(l.price) }}</span>
+                    <span class="price-val">{{ fmt(l.price) }}</span>
                   </td>
                   <td>
                     <span class="badge" [ngClass]="l.availability === 'in_stock' ? 'green' : l.availability === 'out_of_stock' ? 'red' : 'gray'">

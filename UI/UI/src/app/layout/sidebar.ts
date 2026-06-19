@@ -55,7 +55,6 @@ export class SidebarComponent {
     children: [
       { path: '/app/scout/monitor',   label: 'Price Monitor', icon: '📈' },
       { path: '/app/scout/search',    label: 'Search',        icon: '🔍' },
-      { path: '/app/scout/compare',   label: 'Compare',       icon: '⚖️' },
       { path: '/app/scout/platforms', label: 'Platforms',     icon: '🌐' },
       { path: '/app/scout/chat',      label: 'Chat',          icon: '💬' },
     ],

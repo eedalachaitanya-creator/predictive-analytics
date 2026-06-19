@@ -139,6 +139,19 @@ export class RetentionRunTab {
     this.discountEdits.update(d => ({ ...d, [customerId]: v }));
   }
 
+  // Returns offer_type with the pct updated to match the user's edited discount.
+  // e.g. "winback_discount_5pct" → "winback_discount_10pct" when user edits to 10%.
+  getOfferType(item: Intervention): string {
+    const edited = this.discountEdits()[item.customer_id];
+    if (edited === undefined || edited === item.discount_pct) {
+      return item.offer_type;
+    }
+    return item.offer_type.replace(
+      /_\d+pct$/,
+      `_${Math.round(edited)}pct`
+    );
+  }
+
   // Returns the offer message with the discount % replaced by the user's
   // edited value so the preview stays in sync with the discount input.
   getOfferMessage(item: Intervention): string {

@@ -172,7 +172,7 @@
             <div class="offer-stats">
               <span>Lifetime value: {{ fmtLtv(item.customer_ltv_usd) }}</span>
               <span>Max discount allowed: {{ fmtPct(item.max_allowed_discount) }}</span>
-              <span>Offer type: {{ item.offer_type.replace(/_/g, ' ') }}</span>
+              <span>Offer type: {{ getOfferType(item).replace(/_/g, ' ') }}</span>
             </div>
           </div>
         }

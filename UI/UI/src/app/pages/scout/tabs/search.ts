@@ -277,6 +277,6 @@ export class ScoutSearchTab implements OnInit {
     return (symbols[p.currency] || p.currency + ' ') + p.value.toLocaleString();
   }
 
-  statusIcon(s?: string): string { return s === 'found' ? '✅' : s === 'not_found' ? '❌' : '⏳'; }
+  statusIcon(s?: string): string { return (s === 'found' || s === 'cache') ? '✅' : s === 'not_found' ? '❌' : '⏳'; }
   specKeys(specs: Record<string, string>): string[] { return specs ? Object.keys(specs).slice(0, 12) : []; }
 }

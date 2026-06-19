@@ -6,14 +6,13 @@ import { filter, map, startWith } from 'rxjs/operators';
 import { ScoutChatTab } from './tabs/chat';
 import { ScoutMonitorTab } from './tabs/monitor';
 import { ScoutSearchTab } from './tabs/search';
-import { ScoutCompareTab } from './tabs/compare';
 import { ScoutPlatformsTab } from './tabs/platforms';
 
 // The set of valid tab keys. Used as the TypeScript type AND to validate
 // URL segments — if the URL has some garbage like /app/scout/wrong, we
 // fall back to 'chat' instead of showing a blank page.
-type ScoutTab = 'chat' | 'monitor' | 'search' | 'compare' | 'platforms';
-const VALID_TABS: readonly ScoutTab[] = ['chat', 'monitor', 'search', 'compare', 'platforms'] as const;
+type ScoutTab = 'chat' | 'monitor' | 'search' | 'platforms';
+const VALID_TABS: readonly ScoutTab[] = ['chat', 'monitor', 'search', 'platforms'] as const;
 
 interface TabDef {
   id: ScoutTab;
@@ -30,7 +29,7 @@ interface TabDef {
     CommonModule,
     RouterLink,           // So pill tabs can use [routerLink]
     RouterLinkActive,     // Optional — marks active pill via routerLinkActive
-    ScoutChatTab, ScoutMonitorTab, ScoutSearchTab, ScoutCompareTab, ScoutPlatformsTab,
+    ScoutChatTab, ScoutMonitorTab, ScoutSearchTab, ScoutPlatformsTab,
   ],
   templateUrl: './scout.html',
   styleUrls: ['./scout.scss']
@@ -41,7 +40,6 @@ export class ScoutComponent {
   tabs: TabDef[] = [
     { id: 'monitor',   label: 'Price Monitor', icon: '📈', path: '/app/scout/monitor' },
     { id: 'search',    label: 'Search',        icon: '🔍', path: '/app/scout/search' },
-    { id: 'compare',   label: 'Compare',       icon: '⚖️', path: '/app/scout/compare' },
     { id: 'platforms', label: 'Platforms',     icon: '🌐', path: '/app/scout/platforms' },
     { id: 'chat',      label: 'Chat',          icon: '💬', path: '/app/scout/chat' },
 

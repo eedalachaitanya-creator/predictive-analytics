@@ -204,6 +204,22 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.saved.set(false);
     this.error.set('');
 
+    // Validate custom threshold values — must be non-negative numbers
+    if (this.tierMethod() === 'custom') {
+      const thresholds = [
+        { label: 'Platinum', value: this.platMin() },
+        { label: 'Gold',     value: this.goldMin() },
+        { label: 'Silver',   value: this.silverMin() },
+        { label: 'Bronze',   value: this.bronzeMin() },
+      ];
+      for (const t of thresholds) {
+        if (t.value < 0) {
+          this.error.set(`${t.label} min spend cannot be negative.`);
+          return;
+        }
+      }
+    }
+
     const body = {
       churn_window_days: this.churnWindow(),
       login_window_days: this.loginWindow(),

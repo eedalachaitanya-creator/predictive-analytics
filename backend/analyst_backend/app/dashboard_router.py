@@ -246,20 +246,12 @@ def get_dashboard(
             ORDER BY count DESC
         """), {"cid": clientId})
 
-        # Add emoji prefixes to match the frontend format
-        tier_emojis = {
-            "Platinum": "\U0001f48e",
-            "Gold": "\U0001f947",
-            "Silver": "\U0001f948",
-            "Bronze": "\U0001f949",
-        }
-
+        # Send bare canonical name ('Platinum', 'Gold', etc.) so the
+        # frontend TierLabelService can apply the client's custom label.
         tiers = []
         for row in tier_rows:
-            tier_name = row[0]
-            emoji = tier_emojis.get(tier_name, "")
             tiers.append({
-                "label": f"{emoji} {tier_name}" if emoji else tier_name,
+                "label": row[0],
                 "count": row[1],
                 "pct": float(row[2]) if row[2] else 0.0,
                 "color": "",

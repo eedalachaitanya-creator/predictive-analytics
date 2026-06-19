@@ -65,10 +65,10 @@
     <div class="card-header"><div class="card-title">💎 Value-Tier Labels — display names for each tier</div></div>
     <div style="padding:20px">
       <div class="grid-4">
-        <div class="form-group mb-0"><label class="form-label">Top 25%</label><input class="form-input" [ngModel]="tierLabelPlatinum()" (ngModelChange)="tierLabelPlatinum.set($event)"></div>
-        <div class="form-group mb-0"><label class="form-label">25–50%</label><input class="form-input" [ngModel]="tierLabelGold()"     (ngModelChange)="tierLabelGold.set($event)"></div>
-        <div class="form-group mb-0"><label class="form-label">50–75%</label><input class="form-input" [ngModel]="tierLabelSilver()"   (ngModelChange)="tierLabelSilver.set($event)"></div>
-        <div class="form-group mb-0"><label class="form-label">Bottom 25%</label><input class="form-input" [ngModel]="tierLabelBronze()" (ngModelChange)="tierLabelBronze.set($event)"></div>
+        <div class="form-group mb-0"><label class="form-label">Top 25%</label><input class="form-input" [ngModel]="tierLabelPlatinum()" disabled></div>
+        <div class="form-group mb-0"><label class="form-label">25–50%</label><input class="form-input" [ngModel]="tierLabelGold()"     disabled></div>
+        <div class="form-group mb-0"><label class="form-label">50–75%</label><input class="form-input" [ngModel]="tierLabelSilver()"   disabled></div>
+        <div class="form-group mb-0"><label class="form-label">Bottom 25%</label><input class="form-input" [ngModel]="tierLabelBronze()" disabled></div>
       </div>
     </div>
   </div>

@@ -13,7 +13,7 @@
     white-space: nowrap;
   }  // Platform name
   th:nth-child(3), td:nth-child(3) { width: auto; }   // URL column — fills remaining space
-  th:nth-child(4), td:nth-child(4) { width: 90px; }   // Actions
+  th:nth-child(4), td:nth-child(4) { width: 120px; }  // Actions — widened from 90px to fit both buttons
 }
 
 .url-code {
@@ -40,6 +40,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+
+// Edit + Delete buttons sit side by side, vertically centered in the cell
+.action-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 // ── Delete confirmation modal ──────────────────────────────────────

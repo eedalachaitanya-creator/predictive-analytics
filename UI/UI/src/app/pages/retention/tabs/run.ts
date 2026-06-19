@@ -139,6 +139,22 @@ export class RetentionRunTab {
     this.discountEdits.update(d => ({ ...d, [customerId]: v }));
   }
 
+  // Returns the offer message with the discount % replaced by the user's
+  // edited value so the preview stays in sync with the discount input.
+  getOfferMessage(item: Intervention): string {
+    const edited = this.discountEdits()[item.customer_id];
+    if (edited === undefined || edited === item.discount_pct) {
+      return item.offer_message;
+    }
+    const original = item.discount_pct;
+    // Replace e.g. "5% discount" / "5%" / "5.0%" with the new value
+    return item.offer_message
+      .replace(
+        new RegExp(`${original}\.?0*\s*%`, 'g'),
+        `${edited}%`
+      );
+  }
+
   toggleExpand(i: number) {
     this.expanded.set(this.expanded() === i ? null : i);
   }

@@ -425,8 +425,9 @@ async def products(
 
 @router.get("/scout-products", summary="Search Scout entity names for Pricing Engine autocomplete")
 async def scout_products(
-    q:     str = Query(default="", description="Search filter"),
-    limit: int = Query(default=20, le=100),
+    q:         str = Query(default="", description="Search filter"),
+    limit:     int = Query(default=20, le=100),
+    client_id: str = Query(default="", description="Tenant scope"),
 ) -> dict:
     """Search entity names from Scout DB for the Pricing Engine autocomplete."""
     try:
@@ -439,12 +440,14 @@ async def scout_products(
                 FROM entities e
                 JOIN entity_listings el ON el.entity_id = e.id
                 WHERE el.price > 0
+                  AND el.client_id = $3
+                  AND e.client_id  = $3
                   AND ($1 = '' OR LOWER(e.canonical_name) LIKE '%' || LOWER($1) || '%'
                                OR LOWER(e.query)          LIKE '%' || LOWER($1) || '%')
                 ORDER BY e.canonical_name
                 LIMIT $2
                 """,
-                q.strip(), limit,
+                q.strip(), limit, client_id,
             )
         return {
             "count":    len(rows),

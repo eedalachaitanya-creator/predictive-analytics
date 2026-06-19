@@ -165,7 +165,7 @@ export class StrategistService {
   }
 
   searchProducts(clientId: string, q: string): Observable<{ count: number; products: { name: string; sku: string; saved_cost: number }[] }> {
-    const qPart = q ? `?q=${encodeURIComponent(q)}&limit=10` : `?limit=20`;
+    const qPart = q ? `?q=${encodeURIComponent(q)}&limit=10&client_id=${encodeURIComponent(clientId)}` : `?limit=20&client_id=${encodeURIComponent(clientId)}`;
     return this.http.get<any>(`${BASE}/api/db/scout-products${qPart}`, { headers: headers() })
       .pipe(catchError(() => of({ count: 0, products: [] })));
   }

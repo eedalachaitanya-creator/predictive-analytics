@@ -111,9 +111,9 @@ async def run_retention(
             raise HTTPException(
                 status_code=404,
                 detail=(
-                    f"No HIGH/MEDIUM churn scores found in Analyst DB for client '{client_id}'. "
-                    "Either pass churn_batch in the request body, or ensure Analyst DB is populated "
-                    "by the Analyst Agent."
+                    f"No at-risk customers found. Please run the pipeline first "
+                    "(Configure & Run → Process Data) to generate churn scores, "
+                    "then try again."
                 ),
             )
 

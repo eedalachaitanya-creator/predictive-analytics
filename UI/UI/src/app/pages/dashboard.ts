@@ -69,7 +69,7 @@ export class DashboardComponent implements OnInit {
 
   tiers = computed(() =>
     (this.svc.data()?.tiers ?? []).map(t => ({
-      ...t, color: TIER_COLORS[Object.keys(TIER_COLORS).find(k => t.label.includes(k)) ?? ''] ?? 'linear-gradient(90deg,#64748B,#475569)'
+      ...t, color: TIER_COLORS[t.label]?? 'linear-gradient(90deg,#64748B,#475569)'
     }))
   );
 

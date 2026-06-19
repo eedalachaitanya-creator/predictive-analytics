@@ -440,26 +440,18 @@ class RetentionAgent:
         escalated = sum(1 for i in interventions if i.escalated_to_human)
         discounted= sum(1 for i in interventions if i.discount_pct > 0)
 
-        # Discount exposure = revenue given up on ONE order per customer
-        total_discount_exposure = sum(
-            i.avg_order_value_usd * i.discount_pct / 100
-            for i in interventions
-            if i.discount_pct > 0
-        )
-
         # Channel breakdown for CRM routing
         by_channel: dict[str, int] = {}
         for i in interventions:
             by_channel[i.channel] = by_channel.get(i.channel, 0) + 1
 
         return {
-            "total_interventions":   total,
-            "high_risk":             high,
-            "medium_risk":           medium,
-            "escalated_to_human":    escalated,
-            "with_discount":         discounted,
-            "discount_exposure_usd": round(total_discount_exposure, 2),
-            "by_channel":            by_channel,
+            "total_interventions": total,
+            "high_risk":           high,
+            "medium_risk":         medium,
+            "escalated_to_human":  escalated,
+            "with_discount":       discounted,
+            "by_channel":          by_channel,
         }
 
     # ------------------------------------------------------------------

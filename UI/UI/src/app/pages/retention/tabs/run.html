@@ -168,7 +168,7 @@
 
         @if (expanded() === i) {
           <div class="offer-detail">
-            <div class="offer-message">{{ item.offer_message }}</div>
+            <div class="offer-message">{{ getOfferMessage(item) }}</div>
             <div class="offer-stats">
               <span>Lifetime value: {{ fmtLtv(item.customer_ltv_usd) }}</span>
               <span>Max discount allowed: {{ fmtPct(item.max_allowed_discount) }}</span>

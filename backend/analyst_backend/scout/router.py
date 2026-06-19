@@ -15,10 +15,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from .scout_db import db
+from app.auth_router import get_current_user
 from .entity_resolver import (
     get_entities_for_query,
     resolve_entities,
@@ -40,6 +41,16 @@ from . import langfuse_config                       # stays at top-level, NOT in
 logger = logging.getLogger(__name__)
 
 scout_router = APIRouter(tags=["scout"])
+
+
+def _client_id(user: dict) -> str:
+    """Extract the single client_id from the authenticated user's clientAccess list.
+    super_admin has clientAccess=["*"] — for scout we default to "" (all platforms)
+    so admins still see everything. Regular client users get their own tenant scope."""
+    access = user.get("clientAccess") or []
+    if "*" in access or not access:
+        return ""
+    return access[0]
 
 CACHE_TTL_MINUTES = 120
 BULK_CONCURRENCY  = 5  
@@ -104,8 +115,9 @@ async def _search_across_sites(
     platform_names: list[str],
     force_refresh:  bool = False,
     request_id:     Optional[str] = None,
+    client_id: str = "",
 ) -> dict:
-    sites   = db.get_active_websites()
+    sites   = db.get_active_websites(client_id)
     targets = [s for s in sites if s["name"] in platform_names]
 
     if not targets:
@@ -304,14 +316,16 @@ def langfuse_status():
 
 
 @scout_router.get("/websites")
-def get_platforms():
-    sites = db.get_active_websites()
+def get_platforms(user: dict = Depends(get_current_user)):
+    cid = _client_id(user)
+    sites = db.get_active_websites(cid)
     return {"platforms": [s["name"] for s in sites]}
 
 
 @scout_router.get("/websites/all")
-def get_all_websites():
-    sites = db.get_all_websites()
+def get_all_websites(user: dict = Depends(get_current_user)):
+    cid = _client_id(user)
+    sites = db.get_all_websites(cid)
     return {"data": [_shape_site(s) for s in sites]}
 
 
@@ -350,7 +364,7 @@ def _canonical_platform_name(raw: str) -> str:
 
 
 @scout_router.post("/websites")
-async def add_website(payload: AddWebsiteRequest):
+async def add_website(payload: AddWebsiteRequest, user: dict = Depends(get_current_user)):
     name = payload.name.strip()
     if not name:
         raise HTTPException(400, "Website name is required.")
@@ -362,7 +376,8 @@ async def add_website(payload: AddWebsiteRequest):
         raise HTTPException(400, "Could not derive a platform name from the input.")
 
     # Case-insensitive, TLD-insensitive duplicate check across all sites.
-    existing_sites = db.get_all_websites()
+    cid = _client_id(user)
+    existing_sites = db.get_all_websites(cid)
     for site in existing_sites:
         if _canonical_platform_name(site["name"]) == canonical:
             raise HTTPException(
@@ -408,6 +423,7 @@ async def add_website(payload: AddWebsiteRequest):
             name=name, base_url=resolved["base_url"],
             search_url=resolved["search_url"],
             encoding=resolved.get("encoding", "plus"),
+            client_id=cid,
         )
         return {"data": _shape_site(site)}
     except SearchCancelledException:
@@ -422,24 +438,27 @@ async def add_website(payload: AddWebsiteRequest):
 
 
 @scout_router.put("/websites")
-def update_website(payload: UpdateWebsiteRequest):
-    if not db.get_website_by_name(payload.name):
+def update_website(payload: UpdateWebsiteRequest, user: dict = Depends(get_current_user)):
+    cid = _client_id(user)
+    if not db.get_website_by_name(payload.name, cid):
         raise HTTPException(404, f"'{payload.name}' not found.")
     updated = db.update_website(
         name=payload.name, active=payload.active,
         search_url=payload.search_url, base_url=payload.base_url,
+        client_id=cid,
     )
     return {"data": _shape_site(updated)}
 
 
 @scout_router.delete("/websites/{name}")
-def delete_website(name: str):
+def delete_website(name: str, user: dict = Depends(get_current_user)):
     """
     Permanently delete a website and all its associated data.
     This is NOT reversible. Use PUT /websites with active=false for soft-delete.
     """
+    cid = _client_id(user)
     try:
-        counts = db.delete_website(name)
+        counts = db.delete_website(name, cid)
     except ValueError:
         raise HTTPException(404, f"'{name}' not found.")
     return {
@@ -450,10 +469,11 @@ def delete_website(name: str):
 
 
 @scout_router.post("/websites/{name}/reactivate")
-def reactivate_website(name: str):
-    if not db.get_website_by_name(name):
+def reactivate_website(name: str, user: dict = Depends(get_current_user)):
+    cid = _client_id(user)
+    if not db.get_website_by_name(name, cid):
         raise HTTPException(404, f"'{name}' not found.")
-    updated = db.update_website(name=name, active=True)
+    updated = db.update_website(name=name, active=True, client_id=cid)
     return {"data": _shape_site(updated)}
 
 
@@ -481,13 +501,14 @@ def cancel_add_website(request_id: str):
 
 
 @scout_router.post("/search/products")
-async def search_single(payload: SearchRequest):
+async def search_single(payload: SearchRequest, user: dict = Depends(get_current_user)):
     name      = payload.name.strip()
     platforms = payload.platforms or []
     if not name:
         raise HTTPException(400, "Product name is required.")
     if not platforms:
-        platforms = [s["name"] for s in db.get_active_websites()]
+        cid = _client_id(user)
+        platforms = [s["name"] for s in db.get_active_websites(cid)]
 
     # Register this search in the cancellation registry. If the client passed
     # a request_id (UUID generated by the frontend), we use it; otherwise we
@@ -534,7 +555,7 @@ def cancel_search_endpoint(request_id: str):
 
 
 @scout_router.get("/products")
-def get_all_products(limit: int = 0, offset: int = 0):
+def get_all_products(limit: int = 0, offset: int = 0, user: dict = Depends(get_current_user)):
     """
     List tracked products.
 
@@ -542,7 +563,8 @@ def get_all_products(limit: int = 0, offset: int = 0):
     - limit>0: paginate; also returns `total` so UI can render
       "Showing X-Y of N" and manage prev/next state.
     """
-    rows, platforms, total = db.get_all_products(limit=limit, offset=offset)
+    cid = _client_id(user)
+    rows, platforms, total = db.get_all_products(limit=limit, offset=offset, client_id=cid)
     return {"data": rows, "platforms": platforms, "total": total}
 
 
@@ -583,7 +605,7 @@ async def upload_file(
     platforms_list = (
         [p.strip() for p in platforms.split(",") if p.strip()]
         if platforms
-        else [s["name"] for s in db.get_active_websites()]
+        else [s["name"] for s in db.get_active_websites(_client_id(user))]
     )
     logger.info(f"[upload] {len(product_names)} products × {len(platforms_list)} platforms")
 
@@ -603,8 +625,9 @@ async def upload_file(
 
 
 @scout_router.get("/price-history/{product_name}")
-def get_price_history(product_name: str, platform: Optional[str] = None, limit: int = 90):
-    history = db.get_price_history(product_name, platform, limit)
+def get_price_history(product_name: str, platform: Optional[str] = None, limit: int = 90, user: dict = Depends(get_current_user)):
+    cid = _client_id(user)
+    history = db.get_price_history(product_name, platform, limit, client_id=cid)
     grouped: dict[str, list] = {}
     for row in history:
         p = row["platform"]
@@ -627,8 +650,9 @@ def get_alerts(
     `unread_count` is separate — it always counts across the full table,
     not just the current page.
     """
-    alerts, total = db.get_alerts(unacknowledged_only, limit, offset)
-    unread_count  = db.get_unacknowledged_count()
+    cid = _client_id(user)
+    alerts, total = db.get_alerts(unacknowledged_only, limit, offset, client_id=cid)
+    unread_count  = db.get_unacknowledged_count(cid)
     return {
         "unread_count": unread_count,
         "total":        total,
@@ -664,20 +688,21 @@ def acknowledge_alert(alert_id: int):
 
 
 @scout_router.post("/price-monitor/run")
-async def run_price_monitor():
+async def run_price_monitor(user: dict = Depends(get_current_user)):
+    cid = _client_id(user)
     # get_all_products() now returns (rows, platforms, total). We only need rows here.
-    rows, _, _ = db.get_all_products()
+    rows, _, _ = db.get_all_products(client_id=cid)
     if not rows:
         return {"status": "nothing_to_monitor", "products_checked": 0}
-    platforms = [s["name"] for s in db.get_active_websites()]
+    platforms = [s["name"] for s in db.get_active_websites(cid)]
     checked = 0
     for row in rows:
         product_name = row.get("name", "")
         if not product_name: continue
-        await _search_across_sites(product_name, platforms, force_refresh=True)
+        await _search_across_sites(product_name, platforms, force_refresh=True, client_id=cid)
         checked += 1
     # get_alerts() now returns (alerts, total). We only need alerts here.
-    alerts, _ = db.get_alerts(limit=checked * 10)
+    alerts, _ = db.get_alerts(limit=checked * 10, client_id=cid)
     return {"status": "completed", "products_checked": checked,
             "alerts_generated": len(alerts), "alerts": alerts}
 

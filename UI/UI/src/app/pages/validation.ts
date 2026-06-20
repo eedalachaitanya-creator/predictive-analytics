@@ -2,7 +2,6 @@ import { Component, OnInit, computed, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
-import { paginate } from './paginate';
 
 interface ValidationFile {
   n: number;
@@ -27,22 +26,17 @@ interface ValidationSummary {
   errors: number;
 }
 
-interface ColumnDetail {
-  col: string;
-  type: string;
-  nonNull: string;
-  unique: number;
-  sample: string;
-  req: boolean;
-  nullCount: number;
-  status: string;
-}
-
-interface ValidationDetailResponse {
+/** The View popup's payload — the master table's ACTUAL rows (generic
+ *  columns/rows table shape, server-paginated, like the clients data-viewer). */
+interface TableRows {
   masterType: string;
   label: string;
-  totalRows: number;
-  columns: ColumnDetail[];
+  table: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 /**
@@ -83,25 +77,22 @@ export class ValidationComponent implements OnInit {
   summary     = signal<ValidationSummary | null>(null);
   files       = signal<ValidationFile[]>([]);
 
-  // ── Column-detail modal state ───────────────────────────────────
-  // detailFile != null ⇒ the popup is open for that table. The column rows
-  // are paginated client-side (paginate()) so the modal matches the paging
-  // UX used elsewhere in the app, rather than rendering inline below the
-  // table.
-  detailFile       = signal<ValidationFile | null>(null);
-  detailLoading    = signal(false);
-  detailLabel      = signal('');
-  detailTotalRows  = signal(0);
-  cols             = signal<ColumnDetail[]>([]);
+  // ── Data-viewer modal state ─────────────────────────────────────
+  // detailFile != null ⇒ the popup is open. It shows the table's ACTUAL rows,
+  // server-paginated (100/page) like the clients / dashboard data-viewers.
+  detailFile    = signal<ValidationFile | null>(null);
+  detailLoading = signal(false);
+  detailLabel   = signal('');
+  viewData      = signal<TableRows | null>(null);
+  viewError     = signal('');
+  viewOffset    = signal(0);
+  readonly viewLimit = 100;
 
-  detailPage           = signal(1);
-  readonly detailPageSize = 10;
-
-  // The current page of column rows + the resolved page/total-page count.
-  pagedCols = computed(() => paginate(this.cols(), this.detailPage(), this.detailPageSize));
-
-  detailHasPrev = computed(() => this.pagedCols().page > 1);
-  detailHasNext = computed(() => this.pagedCols().page < this.pagedCols().totalPages);
+  viewHasPrev = computed(() => this.viewOffset() > 0);
+  viewHasNext = computed(() => {
+    const d = this.viewData();
+    return !!d && (this.viewOffset() + this.viewLimit) < d.total;
+  });
 
   // ── Warnings list (computed from files with issues) ─────────────
   warnings = signal<string[]>([]);
@@ -172,52 +163,77 @@ export class ValidationComponent implements OnInit {
     });
   }
 
-  /** Open the column-detail popup for a table and load its columns. */
+  /** Open the popup for a table and load its ACTUAL rows (page 1). */
   openDetail(file: ValidationFile) {
     this.detailFile.set(file);
     this.detailLabel.set(file.name);
-    this.detailTotalRows.set(file.rows);
-    this.detailPage.set(1);
-    this.detailLoading.set(true);
-    this.cols.set([]);
+    this.viewOffset.set(0);
+    this.viewData.set(null);
+    this.viewError.set('');
+    this.fetchRows();
+  }
 
-    this.api.get<ValidationDetailResponse>(
-      `/validation/${file.masterType}?clientId=${this.clientId}`
+  private fetchRows() {
+    const f = this.detailFile();
+    if (!f) return;
+    this.detailLoading.set(true);
+    this.viewError.set('');
+    this.api.get<TableRows>(
+      `/validation/${f.masterType}/rows?clientId=${this.clientId}&limit=${this.viewLimit}&offset=${this.viewOffset()}`
     ).subscribe({
-      next: (res) => {
-        this.detailLabel.set(res.label);
-        this.detailTotalRows.set(res.totalRows);
-        this.cols.set(res.columns);
+      next: (d) => { this.viewData.set(d); this.detailLoading.set(false); },
+      error: (err) => {
         this.detailLoading.set(false);
-      },
-      error: () => {
-        this.detailLoading.set(false);
+        this.viewError.set(err?.error?.detail ?? err?.message ?? 'Could not load data.');
       },
     });
   }
 
   closeDetail() {
     this.detailFile.set(null);
-    this.cols.set([]);
-    this.detailPage.set(1);
+    this.viewData.set(null);
+    this.viewError.set('');
+    this.viewOffset.set(0);
     this.detailLoading.set(false);
   }
 
-  detailNextPage() {
-    if (this.detailHasNext()) this.detailPage.set(this.pagedCols().page + 1);
+  nextPage() {
+    if (!this.viewHasNext()) return;
+    this.viewOffset.set(this.viewOffset() + this.viewLimit);
+    this.fetchRows();
   }
 
-  detailPrevPage() {
-    if (this.detailHasPrev()) this.detailPage.set(this.pagedCols().page - 1);
+  prevPage() {
+    if (!this.viewHasPrev()) return;
+    this.viewOffset.set(Math.max(0, this.viewOffset() - this.viewLimit));
+    this.fetchRows();
   }
 
-  /** "start–end of total-columns" label for the modal footer. */
-  detailPaginationLabel(): string {
-    const total = this.cols().length;
-    if (total === 0) return 'No columns';
-    const p = this.pagedCols();
-    const start = (p.page - 1) * this.detailPageSize + 1;
-    const end = Math.min(start + p.slice.length - 1, total);
-    return `${start}–${end} of ${total} columns`;
+  /** "start–end of total" label for the modal footer. */
+  paginationLabel(): string {
+    const d = this.viewData();
+    if (!d || d.total === 0) return 'No rows';
+    const start = d.offset + 1;
+    const end = Math.min(d.offset + d.rows.length, d.total);
+    return `${start}–${end} of ${d.total.toLocaleString('en-US')}`;
+  }
+
+  /** Display one cell value: dates → readable, ints → grouped, null → —. */
+  renderCell(value: unknown): string {
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'boolean') return value ? '✓' : '—';
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? value.toLocaleString('en-US') : String(Number(value.toFixed(4)));
+    }
+    if (typeof value === 'string') {
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+        const dt = new Date(value);
+        return isNaN(dt.getTime()) ? value
+          : dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      }
+      return value;
+    }
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
   }
 }

@@ -497,3 +497,48 @@ def get_validation_detail(
         "totalRows": total_rows,
         "columns": columns,
     }
+
+
+@router.get("/validation/{master_type}/rows")
+def get_validation_table_rows(
+    master_type: str,
+    clientId: str = Query(...),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    """Actual rows of a master table — the View modal's DATA tab.
+
+    Returns the generic ``{columns, rows, total, offset, limit}`` shape the other
+    data-viewer popups use, tenant-scoped + server-paginated. ``table`` and the
+    ORDER BY come from VALIDATION_CONFIG (a trusted whitelist), never user input,
+    so the f-string interpolation is injection-safe.
+    """
+    _require_client_access(user, clientId)
+    if master_type not in VALIDATION_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Unknown master type: {master_type}")
+    cfg = VALIDATION_CONFIG[master_type]
+    table = cfg["table"]
+    order_by = cfg["pk"]
+    with engine.connect() as conn:
+        total = conn.execute(
+            text(f"SELECT COUNT(*) FROM {table} WHERE client_id = :cid"),
+            {"cid": clientId},
+        ).scalar() or 0
+        result = conn.execute(
+            text(f"SELECT * FROM {table} WHERE client_id = :cid "
+                 f"ORDER BY {order_by} LIMIT :limit OFFSET :offset"),
+            {"cid": clientId, "limit": limit, "offset": offset},
+        )
+        columns = list(result.keys())
+        rows = [dict(zip(columns, r)) for r in result.fetchall()]
+    return {
+        "masterType": master_type,
+        "label": cfg["label"],
+        "table": table,
+        "columns": columns,
+        "rows": rows,
+        "total": int(total),
+        "offset": offset,
+        "limit": limit,
+    }

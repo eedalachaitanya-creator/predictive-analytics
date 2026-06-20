@@ -140,55 +140,54 @@
       </div>
     }
 
-    <!-- Column-detail popup — opened by a row's View button, paginated -->
+    <!-- Data-viewer popup — opened by a row's View button. Shows the master
+         table's ACTUAL rows, server-paginated (100/page). -->
     @if (detailFile(); as f) {
       <div class="modal-backdrop" (click)="closeDetail()">
         <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
           <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
             <h3 class="modal-title" style="margin:0">{{ detailLabel() }}
-              <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:6px">({{ detailTotalRows() | number }} rows · {{ f.cols }} columns)</span>
+              <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:6px">({{ (viewData()?.total ?? 0) | number }} rows · {{ viewData()?.columns?.length ?? f.cols }} columns)</span>
             </h3>
             <button class="btn outline sm" (click)="closeDetail()">✕ Close</button>
           </div>
 
           @if (detailLoading()) {
-            <div style="padding:28px;text-align:center;color:var(--text-muted)">⏳ Loading column details…</div>
-          } @else if (cols().length === 0) {
-            <div style="padding:28px;text-align:center;color:var(--text-muted)">No column data available</div>
-          } @else {
-            <div class="data-viewer-scroll">
-              <table class="data-table column-table">
-                <thead>
-                  <tr>
-                    <th>Column</th><th>Non-Null</th><th>Unique</th>
-                    <th>Required</th><th>Nulls</th><th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of pagedCols().slice; track c.col) {
+            <div style="padding:28px;text-align:center;color:var(--text-muted)">⏳ Loading data…</div>
+          } @else if (viewError()) {
+            <div style="padding:28px;text-align:center;color:var(--danger,#c0392b)">{{ viewError() }}</div>
+          } @else if (viewData(); as d) {
+            @if (d.rows.length === 0) {
+              <div style="padding:28px;text-align:center;color:var(--text-muted)">No rows in this table yet.</div>
+            } @else {
+              <div class="data-viewer-scroll">
+                <table class="data-table">
+                  <thead>
                     <tr>
-                      <td>{{ formatColumnName(c.col) }}</td>
-                      <td>{{ c.nonNull }}</td>
-                      <td>{{ c.unique }}</td>
-                      <td>{{ c.req ? '✅' : '—' }}</td>
-                      <td>{{ c.nullCount }}</td>
-                      <td>
-                        @if (c.status === 'ok')   { <span class="badge green">✅</span> }
-                        @if (c.status === 'warn') { <span class="badge yellow">⚠️</span> }
-                      </td>
+                      @for (col of d.columns; track col) {
+                        <th>{{ formatColumnName(col) }}</th>
+                      }
                     </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-            <div class="flex-row" style="justify-content:space-between; margin-top:14px">
-              <div style="font-size:12px; color:var(--text-muted)">{{ detailPaginationLabel() }}</div>
-              <div class="flex-row" style="gap:8px">
-                <button class="btn outline sm" [disabled]="!detailHasPrev()" (click)="detailPrevPage()">← Prev</button>
-                <span class="page-label" style="font-size:12px;align-self:center">Page {{ pagedCols().page }} of {{ pagedCols().totalPages }}</span>
-                <button class="btn outline sm" [disabled]="!detailHasNext()" (click)="detailNextPage()">Next →</button>
+                  </thead>
+                  <tbody>
+                    @for (row of d.rows; track $index) {
+                      <tr>
+                        @for (col of d.columns; track col) {
+                          <td [title]="renderCell(row[col])">{{ renderCell(row[col]) }}</td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
               </div>
-            </div>
+              <div class="flex-row" style="justify-content:space-between; margin-top:14px">
+                <div style="font-size:12px; color:var(--text-muted)">{{ paginationLabel() }}</div>
+                <div class="flex-row" style="gap:8px">
+                  <button class="btn outline sm" [disabled]="!viewHasPrev()" (click)="prevPage()">← Prev</button>
+                  <button class="btn outline sm" [disabled]="!viewHasNext()" (click)="nextPage()">Next →</button>
+                </div>
+              </div>
+            }
           }
         </div>
       </div>

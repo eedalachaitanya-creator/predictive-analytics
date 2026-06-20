@@ -266,12 +266,20 @@ class JiraConnector(ExternalSignalConnector):
 
     def _customer_from_labels(self, f: dict,
                               known: Optional[Set[str]]) -> Optional[str]:
-        """Fallback customer link: a Jira label naming a CRP customer. Prefers an
-        exact match against the known customer set; else any CUST-* label."""
-        for lbl in (f.get("labels") or []):
-            if known is not None and lbl in known:
-                return lbl
-            if known is None and _CUST_LABEL_RE.match(str(lbl)):
+        """Fallback customer link: a Jira label naming a CRP customer. When a known
+        customer set is given, match labels case-INSENSITIVELY and return the
+        CANONICAL stored id (so a 'cust-002' label resolves to 'CUST-002' — labels
+        are hand-typed, customer ids are not). Otherwise accept any CUST-* label."""
+        labels = f.get("labels") or []
+        if known is not None:
+            canon = {c.lower(): c for c in known}      # lower-cased -> stored id
+            for lbl in labels:
+                hit = canon.get(str(lbl).strip().lower())
+                if hit is not None:
+                    return hit
+            return None
+        for lbl in labels:
+            if _CUST_LABEL_RE.match(str(lbl)):
                 return lbl
         return None
 

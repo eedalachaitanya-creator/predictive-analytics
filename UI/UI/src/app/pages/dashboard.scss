@@ -44,3 +44,56 @@
   th { white-space: nowrap; }
   td { white-space: nowrap; }
 }
+
+/* ── Clickable summary cards ─────────────────────────────────────────────── */
+/* The KPI tiles open a paginated drill-down modal. Make that affordance
+   obvious (cursor + hover lift) without disturbing the existing layout. */
+.stat-card.clickable {
+  position: relative;
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .10);
+    border-color: var(--accent-cyan, #0891b2);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent-cyan, #0891b2);
+    outline-offset: 2px;
+  }
+  /* "View →" hint, top-right, revealed on hover/focus */
+  .stat-view {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-cyan, #0891b2);
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  &:hover .stat-view,
+  &:focus-visible .stat-view { opacity: 1; }
+}
+
+/* Crisp caption under each Purchase-Recency band label (e.g. "No order in
+   40+ days"). Sits as a muted second line; the label column widens to fit. */
+.seg-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── Drill-down modal (mirrors the clients data-viewer) ──────────────────── */
+.modal-card.data-viewer-card { width: min(1100px, 95vw); }
+.data-viewer-scroll {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}

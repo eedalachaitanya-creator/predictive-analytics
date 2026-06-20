@@ -42,7 +42,11 @@
     <!-- A. KPI Cards -->
     <div class="section-heading">A. Summary Cards</div>
     <div class="grid-container">
-      <div class="stat-card">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('total_customers', 'Total Customers')"
+           (keydown.enter)="openCardView('total_customers', 'Total Customers')"
+           (keydown.space)="$event.preventDefault(); openCardView('total_customers', 'Total Customers')">
+        <span class="stat-view">View →</span>
         <div class="stat-value">{{ kpis()?.totalCustomers | number }}</div>
         <div class="stat-label">Total Customers</div>
         @if ((kpis()?.unscoredCustomers ?? 0) > 0) {
@@ -57,17 +61,29 @@
           <div class="stat-sub">All registered</div>
         }
       </div>
-      <div class="stat-card">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('total_orders', 'Total Orders')"
+           (keydown.enter)="openCardView('total_orders', 'Total Orders')"
+           (keydown.space)="$event.preventDefault(); openCardView('total_orders', 'Total Orders')">
+        <span class="stat-view">View →</span>
         <div class="stat-value">{{ kpis()?.totalOrders | number }}</div>
         <div class="stat-label">Total Orders</div>
         <div class="stat-sub">All statuses</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('repeat_customers', 'Repeat Customers')"
+           (keydown.enter)="openCardView('repeat_customers', 'Repeat Customers')"
+           (keydown.space)="$event.preventDefault(); openCardView('repeat_customers', 'Repeat Customers')">
+        <span class="stat-view">View →</span>
         <div class="stat-value">{{ kpis()?.repeatCustomers | number }}</div>
         <div class="stat-label">Repeat Customers</div>
         <div class="stat-sub">{{ kpis()?.minRepeatOrders ?? 2 }}+ completed orders</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('high_value', 'High Value (Platinum)')"
+           (keydown.enter)="openCardView('high_value', 'High Value (Platinum)')"
+           (keydown.space)="$event.preventDefault(); openCardView('high_value', 'High Value (Platinum)')">
+        <span class="stat-view">View →</span>
         <div class="stat-value">{{ kpis()?.highValue | number }}</div>
         <div class="stat-label">High Value</div>
         <!-- 2026-04-25: subtitle changed from "Top X% by spend" to a static
@@ -76,8 +92,12 @@
              configurable high_value_percentile cutoff was retired. -->
         <div class="stat-sub">Platinum tier customers</div>
       </div>
-      <div class="stat-card"
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('lapsed_customers', 'Lapsed Customers')"
+           (keydown.enter)="openCardView('lapsed_customers', 'Lapsed Customers')"
+           (keydown.space)="$event.preventDefault(); openCardView('lapsed_customers', 'Lapsed Customers')"
            [title]="'Customers with no non-cancelled order in the past ' + (kpis()?.churnWindowDays ?? 90) + ' days (from the Settings page). Based on order recency only — the ML-predicted churn risk lives on the Churn Scores page and may not match this number.'">
+        <span class="stat-view">View →</span>
         <div class="stat-value text-red">{{ kpis()?.churned | number }}</div>
         <div class="stat-label">Lapsed Customers</div>
         <div class="stat-sub">{{ kpis()?.churnRate | number:'1.1-1' }}% · inactive ≥ {{ kpis()?.churnWindowDays ?? 90 }} days</div>
@@ -87,8 +107,7 @@
     <!-- B. Charts -->
     <div class="section-heading">B. Visual Summaries</div>
     <div class="mb-24">
-      <div class="card"
-           [title]="'Based on last order date — NOT the ML model. Lapsed = no order in the last ' + (kpis()?.churnWindowDays ?? 90) + ' days; Recently Purchased = ordered within that window; Slowing Down = still ordering but recency is dropping. Covers ALL customers, so totals differ from the Churn Scores page, which counts only ML-scored customers.'">
+      <div class="card">
         <div class="card-header">
           <div class="card-title">🛒 Purchase Recency (last {{ kpis()?.churnWindowDays ?? 90 }} days)</div>
           <div class="card-subtitle">By last order date · not the churn-risk model · {{ activityTotal() }} customers</div>
@@ -96,7 +115,10 @@
         <div style="padding:18px">
           @for (c of churnBreakdown(); track c.label) {
             <div class="seg-bar-row">
-              <span class="seg-label">{{ c.label }}</span>
+              <span class="seg-label">
+                {{ c.label }}
+                <small class="seg-desc">{{ c.desc }}</small>
+              </span>
               <div class="seg-track">
                 <div class="seg-fill" [style.width]="c.pct + '%'" [style.background]="c.color">{{ c.count }}</div>
               </div>
@@ -156,5 +178,58 @@
       </div>
     </div>
 
+  }
+
+  <!-- Summary-card drill-down modal — paginated list behind a clicked KPI tile -->
+  @if (viewCard()) {
+    <div class="modal-backdrop" (click)="closeCardView()">
+      <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
+        <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
+          <h3 class="modal-title" style="margin:0">📋 {{ viewLabel() }}</h3>
+          <button class="btn outline sm" (click)="closeCardView()">✕ Close</button>
+        </div>
+        <p class="modal-sub">
+          {{ auth.getClientName() }} · {{ (viewData()?.total ?? 0) | number }} records
+        </p>
+
+        @if (viewLoading()) {
+          <div class="loading-state"><div class="spinner">⏳</div><div>Loading rows…</div></div>
+        }
+        @if (viewError()) {
+          <div class="notice warning">⚠️ {{ viewError() }}</div>
+        }
+
+        @if (viewData(); as d) {
+          <div class="data-viewer-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  @for (col of d.columns; track col) { <th>{{ formatColumnName(col) }}</th> }
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of d.rows; track $index) {
+                  <tr>
+                    @for (col of d.columns; track col) { <td>{{ renderCell(row[col]) }}</td> }
+                  </tr>
+                }
+                @if (d.rows.length === 0) {
+                  <tr>
+                    <td [attr.colspan]="d.columns.length" style="text-align:center; color:var(--text-muted); padding:24px">No rows on this page.</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="flex-row" style="justify-content:space-between; margin-top:14px">
+            <div style="font-size:12px; color:var(--text-muted)">{{ cardPaginationLabel() }}</div>
+            <div class="flex-row" style="gap:8px">
+              <button class="btn outline sm" [disabled]="!viewHasPrev() || viewLoading()" (click)="cardPrevPage()">← Prev</button>
+              <button class="btn outline sm" [disabled]="!viewHasNext() || viewLoading()" (click)="cardNextPage()">Next →</button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
   }
 </div>

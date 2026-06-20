@@ -124,22 +124,31 @@ def get_dashboard(
         # datetime sidesteps the parser collision entirely.
         from datetime import timedelta
         cutoff = ref_date - timedelta(days=churn_window_days) if ref_date else None
-        if cutoff is not None:
-            churned = conn.execute(text("""
-                SELECT COUNT(*)
-                FROM (
-                    SELECT customer_id, MAX(order_date) AS last_order
-                    FROM orders
-                    WHERE client_id = :cid
-                      AND order_status NOT IN ('Cancelled')
-                    GROUP BY customer_id
-                ) x
-                WHERE x.last_order < :cutoff
-            """), {"cid": clientId, "cutoff": cutoff}).scalar() or 0
-        else:
-            churned = 0
+        # Mid-window mark: a non-lapsed customer past the halfway point is
+        # "slowing down". Drives the Purchase-Recency band split below.
+        recent_cutoff = ref_date - timedelta(days=churn_window_days / 2) if ref_date else None
 
-        churn_rate = round(churned * 100.0 / scored_customers, 1) if scored_customers else 0.0
+        # Lapsed count + rate, computed LIVE over customers WITH a purchase
+        # history (>=1 non-Cancelled order). The rate divides by that SAME
+        # population — and uses the SAME SQL ROUND formula as the Purchase-
+        # Recency 'Lapsed' bar below — so the card % and the bar % are equal by
+        # construction, not just close. A NULL cutoff (no config) → churned 0,
+        # rate 0 (last_order < NULL is NULL, so the FILTER counts nothing).
+        rate_row = conn.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE last_order < :cutoff)             AS churned,
+                ROUND(COUNT(*) FILTER (WHERE last_order < :cutoff) * 100.0
+                      / NULLIF(COUNT(*), 0), 1)                          AS churn_rate
+            FROM (
+                SELECT customer_id, MAX(order_date) AS last_order
+                FROM orders
+                WHERE client_id = :cid
+                  AND order_status NOT IN ('Cancelled')
+                GROUP BY customer_id
+            ) x
+        """), {"cid": clientId, "cutoff": cutoff}).fetchone()
+        churned    = (rate_row[0] if rate_row else 0) or 0
+        churn_rate = float(rate_row[1]) if rate_row and rate_row[1] is not None else 0.0
 
         total_orders = conn.execute(text(
             "SELECT COUNT(*) FROM orders WHERE client_id = :cid"
@@ -201,24 +210,39 @@ def get_dashboard(
             })
 
         # ═══════════════════════════════════════════════════════════════
-        # 3. Churn Breakdown (Churned vs At-Risk vs Active)
+        # 3. Purchase-Recency Breakdown (Lapsed vs Slowing-Down vs Active)
         # ═══════════════════════════════════════════════════════════════
-        # At-Risk = not yet churned but low RFM recency (score 1-2).
+        # Computed LIVE from order recency — NOT the MV's frozen churn_label —
+        # using the SAME (last non-Cancelled order < :cutoff) predicate as the
+        # Lapsed CARD above. This guarantees the "Lapsed" bar equals the
+        # kpis.churned count exactly (they used to disagree: 220 vs 207).
+        #   'Churned'  → Lapsed:            last order older than the churn window
+        #   'At-Risk'  → Slowing Down:      in-window but past the half-way mark
+        #   'Active'   → Recently Purchased: ordered within the recent half-window
+        # A NULL cutoff (no client_config) makes every CASE branch NULL → 'Active',
+        # which matches churned=0 in that same edge case.
         churn_rows = conn.execute(text("""
-            SELECT
-                CASE
-                    WHEN churn_label = 1 THEN 'Churned'
-                    WHEN rfm_recency_score <= 2 AND churn_label = 0
-                        THEN 'At-Risk'
+            WITH last_order AS (
+                SELECT customer_id, MAX(order_date) AS last_order
+                FROM orders
+                WHERE client_id = :cid AND order_status NOT IN ('Cancelled')
+                GROUP BY customer_id
+            ),
+            banded AS (
+                SELECT CASE
+                    WHEN last_order < :cutoff        THEN 'Churned'
+                    WHEN last_order < :recent_cutoff THEN 'At-Risk'
                     ELSE 'Active'
-                END AS label,
-                COUNT(*) AS count,
-                ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 1) AS pct
-            FROM mv_customer_features
-            WHERE client_id = :cid
-            GROUP BY 1
+                END AS label
+                FROM last_order
+            )
+            SELECT label,
+                   COUNT(*) AS count,
+                   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 1) AS pct
+            FROM banded
+            GROUP BY label
             ORDER BY count DESC
-        """), {"cid": clientId})
+        """), {"cid": clientId, "cutoff": cutoff, "recent_cutoff": recent_cutoff})
 
         churn_breakdown = []
         for row in churn_rows:
@@ -382,6 +406,197 @@ def get_segment_customers(
     }
 
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Summary-card drill-downs — the clickable KPI tiles on the Dashboard.
+# Each card opens a paginated list of the underlying records in a modal. The
+# `total` returned here is computed with the SAME predicate as the matching KPI
+# in get_dashboard() above, so the popup count can NEVER disagree with the card
+# (pinned by tests_temporal/test_dashboard_kpi_drilldown.py).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Generic customer column set reused by the customer-shaped cards.
+_CUST_COLS = ["customer_id", "customer_name", "customer_tier", "total_orders",
+              "total_spend_usd", "days_since_last_order", "risk_tier"]
+
+VALID_KPI_CARDS = {
+    "total_customers", "total_orders", "repeat_customers",
+    "high_value", "lapsed_customers",
+}
+
+
+def _kpi_config(conn, clientId: str):
+    """Live settings that drive the KPI counts (mirrors get_dashboard §1) plus
+    the derived lapsed cutoff. Kept identical so drill-down totals match cards."""
+    from datetime import timedelta
+
+    row = conn.execute(text("""
+        SELECT
+            COALESCE(churn_window_days, 90) AS churn_window_days,
+            COALESCE(min_repeat_orders, 2)  AS min_repeat_orders,
+            CASE WHEN reference_date_mode = 'fixed' AND reference_date IS NOT NULL
+                 THEN reference_date::TIMESTAMPTZ ELSE NOW() END AS ref_date
+        FROM client_config WHERE client_id = :cid
+    """), {"cid": clientId}).fetchone()
+
+    churn_window_days = int(row[0]) if row else 90
+    min_repeat_orders = int(row[1]) if row else 2
+    ref_date          = row[2]     if row else None
+    cutoff = ref_date - timedelta(days=churn_window_days) if ref_date else None
+    return churn_window_days, min_repeat_orders, ref_date, cutoff
+
+
+@router.get("/dashboard/kpi-drilldown")
+def get_kpi_drilldown(
+    clientId: str = Query(default="CLT-001"),
+    card: str = Query(..., description="One of: total_customers, total_orders, "
+                                       "repeat_customers, high_value, lapsed_customers"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """Paginated drill-down behind a Dashboard summary card.
+
+    Returns the generic ``{card, label, columns, rows, total, offset, limit}``
+    table shape the existing clients data-viewer modal renders. Four cards are
+    customer lists; ``total_orders`` is an order list (its own columns).
+    """
+    from fastapi import HTTPException
+
+    if card not in VALID_KPI_CARDS:
+        raise HTTPException(400, f"Unknown card '{card}'. Valid: {sorted(VALID_KPI_CARDS)}")
+
+    with engine.connect() as conn:
+        _, min_repeat, ref_date, cutoff = _kpi_config(conn, clientId)
+        p = {"cid": clientId, "limit": limit, "offset": offset}
+
+        if card == "total_customers":
+            label = "Total Customers"
+            columns = _CUST_COLS
+            total = conn.execute(text(
+                "SELECT COUNT(*) FROM customers WHERE client_id = :cid"
+            ), {"cid": clientId}).scalar() or 0
+            rows_sql = """
+                SELECT c.customer_id, c.customer_name, mv.customer_tier,
+                       mv.total_orders, mv.total_spend_usd,
+                       mv.days_since_last_order, cs.risk_tier
+                FROM customers c
+                LEFT JOIN mv_customer_features mv
+                       ON mv.client_id = c.client_id AND mv.customer_id = c.customer_id
+                LEFT JOIN churn_scores cs
+                       ON cs.client_id = c.client_id AND cs.customer_id = c.customer_id
+                WHERE c.client_id = :cid
+                ORDER BY mv.total_spend_usd DESC NULLS LAST, c.customer_id
+                LIMIT :limit OFFSET :offset
+            """
+
+        elif card == "repeat_customers":
+            label = "Repeat Customers"
+            columns = ["customer_id", "customer_name", "customer_tier", "total_orders",
+                       "total_spend_usd", "avg_order_value_usd", "risk_tier"]
+            p["min_repeat"] = min_repeat
+            total = conn.execute(text(
+                "SELECT COUNT(*) FROM mv_customer_features "
+                "WHERE client_id = :cid AND total_orders >= :min_repeat"
+            ), {"cid": clientId, "min_repeat": min_repeat}).scalar() or 0
+            rows_sql = """
+                SELECT mv.customer_id, c.customer_name, mv.customer_tier,
+                       mv.total_orders, mv.total_spend_usd, mv.avg_order_value_usd,
+                       cs.risk_tier
+                FROM mv_customer_features mv
+                JOIN customers c
+                  ON mv.client_id = c.client_id AND mv.customer_id = c.customer_id
+                LEFT JOIN churn_scores cs
+                  ON cs.client_id = mv.client_id AND cs.customer_id = mv.customer_id
+                WHERE mv.client_id = :cid AND mv.total_orders >= :min_repeat
+                ORDER BY mv.total_orders DESC, mv.total_spend_usd DESC
+                LIMIT :limit OFFSET :offset
+            """
+
+        elif card == "high_value":
+            label = "High Value (Platinum)"
+            columns = _CUST_COLS
+            total = conn.execute(text(
+                "SELECT COUNT(*) FROM mv_customer_features "
+                "WHERE client_id = :cid AND customer_tier = 'Platinum'"
+            ), {"cid": clientId}).scalar() or 0
+            rows_sql = """
+                SELECT mv.customer_id, c.customer_name, mv.customer_tier,
+                       mv.total_orders, mv.total_spend_usd,
+                       mv.days_since_last_order, cs.risk_tier
+                FROM mv_customer_features mv
+                JOIN customers c
+                  ON mv.client_id = c.client_id AND mv.customer_id = c.customer_id
+                LEFT JOIN churn_scores cs
+                  ON cs.client_id = mv.client_id AND cs.customer_id = mv.customer_id
+                WHERE mv.client_id = :cid AND mv.customer_tier = 'Platinum'
+                ORDER BY mv.total_spend_usd DESC, mv.customer_id
+                LIMIT :limit OFFSET :offset
+            """
+
+        elif card == "total_orders":
+            label = "Total Orders"
+            columns = ["order_id", "customer_id", "order_date",
+                       "order_value_usd", "order_status"]
+            total = conn.execute(text(
+                "SELECT COUNT(*) FROM orders WHERE client_id = :cid"
+            ), {"cid": clientId}).scalar() or 0
+            rows_sql = """
+                SELECT order_id, customer_id, order_date, order_value_usd, order_status
+                FROM orders
+                WHERE client_id = :cid
+                ORDER BY order_date DESC, order_id DESC
+                LIMIT :limit OFFSET :offset
+            """
+
+        else:  # lapsed_customers — same predicate as the get_dashboard churned KPI
+            label = "Lapsed Customers"
+            columns = ["customer_id", "customer_name", "last_order_date",
+                       "days_since_last_order", "total_orders", "total_spend_usd"]
+            if cutoff is None:
+                return {"card": card, "label": label, "columns": columns,
+                        "rows": [], "total": 0, "offset": offset, "limit": limit}
+            p["cutoff"] = cutoff
+            p["ref_date"] = ref_date
+            total = conn.execute(text("""
+                SELECT COUNT(*) FROM (
+                    SELECT customer_id, MAX(order_date) AS last_order
+                    FROM orders
+                    WHERE client_id = :cid AND order_status NOT IN ('Cancelled')
+                    GROUP BY customer_id
+                ) x WHERE x.last_order < :cutoff
+            """), {"cid": clientId, "cutoff": cutoff}).scalar() or 0
+            rows_sql = """
+                WITH last_ord AS (
+                    SELECT customer_id, MAX(order_date) AS last_order
+                    FROM orders
+                    WHERE client_id = :cid AND order_status NOT IN ('Cancelled')
+                    GROUP BY customer_id
+                )
+                SELECT l.customer_id, c.customer_name,
+                       l.last_order AS last_order_date,
+                       (CAST(:ref_date AS date) - l.last_order::date) AS days_since_last_order,
+                       mv.total_orders, mv.total_spend_usd
+                FROM last_ord l
+                JOIN customers c
+                  ON c.client_id = :cid AND c.customer_id = l.customer_id
+                LEFT JOIN mv_customer_features mv
+                  ON mv.client_id = :cid AND mv.customer_id = l.customer_id
+                WHERE l.last_order < :cutoff
+                ORDER BY l.last_order ASC, l.customer_id
+                LIMIT :limit OFFSET :offset
+            """
+
+        rows = [dict(r._mapping) for r in conn.execute(text(rows_sql), p)]
+
+    return {
+        "card": card,
+        "label": label,
+        "columns": columns,
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 # /dashboard/orders endpoint removed 2026-04-29 — the Dashboard's

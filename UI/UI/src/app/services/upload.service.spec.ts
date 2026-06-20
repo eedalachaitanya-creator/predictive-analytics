@@ -35,7 +35,7 @@ describe('UploadService.sampleUrl — per-tile sample CSV template link', () => 
     const keys: MasterType[] = [
       'customer', 'order', 'line_items', 'product', 'price', 'vendor_map',
       'category', 'sub_category', 'sub_sub_category', 'brand', 'vendor',
-      'customer_reviews', 'support_tickets',
+      'customer_reviews', 'support_tickets', 'login_event',
     ];
     for (const k of keys) {
       expect(svc.sampleUrl(k)).toBe(`${environment.apiUrl}/uploads/sample/${k}`);

@@ -292,7 +292,8 @@ export type MasterType =
   | 'brand'
   | 'vendor'
   | 'customer_reviews'
-  | 'support_tickets';
+  | 'support_tickets'
+  | 'login_event';
 
 export type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 

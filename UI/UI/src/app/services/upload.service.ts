@@ -24,7 +24,8 @@ export class UploadService {
     product: null, price: null, vendor_map: null,
     category: null, sub_category: null, sub_sub_category: null,
     brand: null, vendor: null,
-    customer_reviews: null, support_tickets: null
+    customer_reviews: null, support_tickets: null,
+    login_event: null
   });
 
   /** The currently pending batch for the active client (null if none). */
@@ -207,6 +208,7 @@ export class UploadService {
       category: null, sub_category: null, sub_sub_category: null,
       brand: null, vendor: null,
       customer_reviews: null, support_tickets: null,
+      login_event: null,
     };
   }
 

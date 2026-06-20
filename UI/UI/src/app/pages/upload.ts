@@ -64,6 +64,12 @@ export class UploadComponent implements OnInit {
         { key:'customer_reviews',  label:'Customer Reviews',  icon:'⭐', formats:['.xlsx','.csv'], columns:'review_id · customer_id · product_id · rating · review_text · sentiment', required:false, accept:'.xlsx,.xls,.csv' },
         { key:'support_tickets',   label:'Support Tickets',   icon:'🎫', formats:['.xlsx','.csv'], columns:'ticket_id · customer_id · ticket_type · priority · status · channel', required:false, accept:'.xlsx,.xls,.csv' },
       ]
+    },
+    {
+      group: 'Engagement', desc: 'Login history — one row per login, used for recent-login churn signals', icon: '🔑',
+      items: [
+        { key:'login_event', label:'Login Events', icon:'🔑', formats:['.xlsx','.csv'], columns:'login_id · customer_id · login_at · login_channel', required:false, accept:'.xlsx,.xls,.csv' },
+      ]
     }
   ];
 

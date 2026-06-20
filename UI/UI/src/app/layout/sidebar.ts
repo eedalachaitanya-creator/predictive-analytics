@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { SidebarService } from '../services/sidebar.service';
+import { PipelineService } from '../services/pipeline.service';
 
 interface NavItem { path: string; label: string; icon: string; }
 interface NavGroup { label: string; icon: string; pathPrefixes: string[]; children: NavItem[]; }
@@ -16,12 +17,12 @@ interface NavGroup { label: string; icon: string; pathPrefixes: string[]; childr
   styleUrls: ['./sidebar.scss']
 })
 export class SidebarComponent {
-  auth   = inject(AuthService);
-  router = inject(Router);
+  auth          = inject(AuthService);
+  router        = inject(Router);
   sidebarService = inject(SidebarService);
+  pipeline      = inject(PipelineService);
 
   isSidebarOpen = false;
-
 
   ngOnInit() {
     this.sidebarService.sidebarOpen$.subscribe(state => {
@@ -35,19 +36,13 @@ export class SidebarComponent {
     pathPrefixes: [
       '/app/upload', '/app/validation', '/app/settings',
       '/app/dashboard', '/app/churn-scores',
-      // Agent Chat + Cost Tracking hidden from the Analyst Agent nav (commented
-      // out per request — routes still exist; un-comment to re-enable).
-      // '/app/chat', '/app/cost-tracking',
-   ],
+    ],
     children: [
       { path: '/app/dashboard',     label: 'Dashboard',       icon: '📊' },
       { path: '/app/upload',        label: 'Upload Data',     icon: '📤' },
       { path: '/app/validation',    label: 'Validation',      icon: '✅' },
       { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' },
       { path: '/app/churn-scores',  label: 'Churn Scores',    icon: '📈' },
-      // Hidden per request (un-comment to restore):
-      // { path: '/app/chat',          label: 'Agent Chat',      icon: '🤖' },
-      // { path: '/app/cost-tracking', label: 'Cost Tracking',   icon: '💰' },
     ],
   };
 
@@ -76,9 +71,7 @@ export class SidebarComponent {
   retentionGroup: NavGroup = {
     label: 'Retention Agent',
     icon:  '🎯',
-    pathPrefixes: [
-      '/app/run-pipeline', '/app/retention-summary',
-    ],
+    pathPrefixes: ['/app/run-pipeline', '/app/retention-summary'],
     children: [
       { path: '/app/run-pipeline',      label: 'Generate Offers', icon: '🚀' },
       { path: '/app/retention-summary', label: 'Summary',         icon: '📊' },
@@ -173,16 +166,17 @@ export class SidebarComponent {
 
   // ── Admin nav ──────────────────────────────────────────────────────
   adminNav: NavItem[] = [
-    { path: '/app/clients',   label: 'Clients',         icon: '👥' },
-    { path: '/app/users',     label: 'Users',            icon: '👤' },
-    { path: '/app/monitor',   label: 'Cost Monitoring',  icon: '💰' },
-    { path: '/app/analytics', label: 'Analytics',        icon: '📈' },
-    { path: '/app/audit',     label: 'Audit',            icon: '🔒' },
+    { path: '/app/clients',   label: 'Clients',        icon: '👥' },
+    { path: '/app/users',     label: 'Users',           icon: '👤' },
+    { path: '/app/monitor',   label: 'Cost Monitoring', icon: '💰' },
+    { path: '/app/analytics', label: 'Analytics',       icon: '📈' },
+    { path: '/app/audit',     label: 'Audit',           icon: '🔒' },
   ];
 
-  // ── User menu (bottom of sidebar) ─────────────────────────────────
+  // ── User menu ──────────────────────────────────────────────────────
   userMenuOpen      = signal(false);
   logoutConfirmOpen = signal(false);
+  logoutBlockedOpen = signal(false);  // ← NEW
 
   toggleUserMenu() {
     const next = !this.userMenuOpen();
@@ -191,12 +185,22 @@ export class SidebarComponent {
   }
 
   confirmLogout() {
+    // ← UPDATED: block logout if pipeline is running
+    if (this.pipeline.isRunning()) {
+      this.logoutBlockedOpen.set(true);
+      this.userMenuOpen.set(false);
+      return;
+    }
     this.logoutConfirmOpen.set(true);
     this.userMenuOpen.set(false);
   }
 
   cancelLogout() {
     this.logoutConfirmOpen.set(false);
+  }
+
+  closeLogoutBlocked() {
+    this.logoutBlockedOpen.set(false);  // ← NEW
   }
 
   logout() {
@@ -265,11 +269,12 @@ export class SidebarComponent {
       }
     });
   }
+
   toggleSidebar() {
-    this.isSidebarOpen  = !this.isSidebarOpen ;
-  } 
+    this.isSidebarOpen = !this.isSidebarOpen;
+  }
 
   closeSidebar() {
-    this.isSidebarOpen  = false ;
+    this.isSidebarOpen = false;
   }
 }

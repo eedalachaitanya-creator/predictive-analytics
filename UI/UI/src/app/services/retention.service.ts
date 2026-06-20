@@ -7,7 +7,6 @@ import { environment } from '../../environments/environment';
 const BASE = environment.apiUrl.replace('/api/v1', '');
 
 function headers(): HttpHeaders {
-  // sessionStorage so the session dies with the browser tab — see auth.service.ts
   const token = sessionStorage.getItem('wap_token');
   return new HttpHeaders({
     'Content-Type': 'application/json',
@@ -40,7 +39,7 @@ export interface Intervention {
   guardrail_passed:   boolean;
   escalated_to_human: boolean;
   offer_status:       string;
-  outcome_recorded_at:string | null;
+  outcome_recorded_at: string | null;
   revenue_recovered:  number | null;
   langfuse_trace_id:  string | null;
   agent_cost_usd:     number | null;
@@ -56,7 +55,7 @@ export interface RetentionSummary {
   declined_count:         number;
   no_response_count:      number;
   conversion_rate_pct:    number;
-  total_revenue_recovered:number;
+  total_revenue_recovered: number;
   avg_discount_pct:       number;
 }
 
@@ -101,6 +100,16 @@ export class RetentionService {
 
   getInterventions(clientId: string): Observable<any> {
     return this.http.get<any>(`${BASE}/api/db/interventions?client_id=${clientId}&limit=200`, { headers: headers() })
+      .pipe(catchError(e => throwError(() => e)));
+  }
+
+  // ── NEW: filtered interventions for summary card drill-down ────────
+  getInterventionsFiltered(clientId: string, filter: 'all' | 'high' | 'medium' | 'escalated'): Observable<any> {
+    let url = `${BASE}/api/db/interventions?client_id=${clientId}&limit=500`;
+    if (filter === 'high')      url += '&risk_tier=HIGH';
+    if (filter === 'medium')    url += '&risk_tier=MEDIUM';
+    if (filter === 'escalated') url += '&escalated=true';
+    return this.http.get<any>(url, { headers: headers() })
       .pipe(catchError(e => throwError(() => e)));
   }
 }

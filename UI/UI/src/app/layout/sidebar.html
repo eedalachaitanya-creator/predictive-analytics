@@ -1,19 +1,14 @@
-
 <!-- OVERLAY (mobile only) -->
-<div class="sidebar-overlay" *ngIf="isSidebarOpen"  (click)="closeSidebar()">
+<div class="sidebar-overlay" *ngIf="isSidebarOpen" (click)="closeSidebar()">
 </div>
- 
+
 <aside class="sidebar" [class.open]="isSidebarOpen">
   <div class="logo-section">
-  <div class="sb-logo">
-    <!-- <div class="sb-logo-title">📊 <span>Predictive</span> Analytics</div> -->
-    <!-- <div class="sb-logo-sub">{{ auth.getClientName() }} · {{ auth.getClientId() }}</div> -->
-  </div>
+    <div class="sb-logo"></div>
   </div>
 
   @if (!auth.isSuperAdmin()) {
     <div class="sb-section">
-      <!-- <div class="sb-section-label">Client Portal</div> -->
 
       <button type="button"
               class="nav-item nav-group-toggle"
@@ -122,7 +117,6 @@
 
   @if (auth.isSuperAdmin()) {
     <div class="sb-section">
-      <!-- <div class="sb-section-label">Admin Console</div> -->
       @for (item of adminNav; track item.path) {
         <a class="nav-item"
            [routerLink]="item.path"
@@ -165,12 +159,12 @@
         </button>
       </div>
     }
-
   </div>
 </aside>
 
+<!-- Sign out confirmation modal -->
 @if (logoutConfirmOpen()) {
-  <div class="modal-backdrop"  >
+  <div class="modal-backdrop">
     <div class="modal-card" (click)="$event.stopPropagation()">
       <h3 class="modal-title">🚪 Sign Out</h3>
       <p class="modal-sub">Are you sure you want to sign out?</p>
@@ -182,8 +176,22 @@
   </div>
 }
 
+<!-- Pipeline running — block logout modal -->
+@if (logoutBlockedOpen()) {
+  <div class="modal-backdrop">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <h3 class="modal-title">⚠️ Pipeline Running</h3>
+      <p class="modal-sub">A pipeline is currently running. Please wait for it to complete before signing out.</p>
+      <div class="modal-actions">
+        <button class="btn outline" (click)="closeLogoutBlocked()">OK</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Change password modal -->
 @if (changePassOpen()) {
-  <div class="sb-modal-backdrop" >
+  <div class="sb-modal-backdrop">
     <div class="sb-modal-card" (click)="$event.stopPropagation()">
       <h3 class="modal-title">🔑 Change Password</h3>
       <p class="modal-sub">Enter your current (or temporary) password, then set a new one.</p>

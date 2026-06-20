@@ -92,8 +92,20 @@ pre { background: rgba(0, 0, 0, 0.06); padding: 10px 12px !important; border-rad
  hr { border: 0; border-top: 1px solid rgba(0, 0, 0, 0.1); margin: 6px 0 !important; }
 blockquote { border-left: 3px solid rgba(99, 102, 241, 0.4); margin: 4px 0 !important; padding: 0 10px !important; color: var(--muted, #4b5563); font-style: italic; }
 
+ // Long, unbreakable values (e.g. full URLs) wrap inside cells instead
+ // of forcing the column — and the whole table/chat bubble — to expand
+ // horizontally. table-layout:fixed makes column widths predictable
+ // (based on the table's own width) so wrapping kicks in instead of
+ // the cell growing to fit its content.
  table { border-collapse: collapse; margin: 6px 0 !important; font-size: 13px; width: 100%;
-  th, td { border: 1px solid rgba(0, 0, 0, 0.08); padding: 6px 10px !important; text-align: left; }
+  table-layout: fixed;
+  th, td {
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    padding: 6px 10px !important;
+    text-align: left;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
   th { background: rgba(0, 0, 0, 0.04); font-weight: 600; }
 } 
   > *:first-child { margin-top: 0 !important; }

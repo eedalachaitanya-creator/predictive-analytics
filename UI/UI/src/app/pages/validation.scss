@@ -10,3 +10,17 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
+
+/* The per-row View button column stays compact and right-aligned. */
+.detail-cell { white-space: nowrap; }
+
+/* Column-detail popup (mirrors the clients data-viewer modal). The
+   .data-viewer-* classes are component-scoped there, so redeclare here. */
+.modal-card.data-viewer-card { width: min(820px, 95vw); }
+.data-viewer-scroll {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}

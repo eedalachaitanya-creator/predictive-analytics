@@ -81,23 +81,20 @@
               @default        { Data Validation Summary }
             }
             — {{ visibleFiles().length }} {{ visibleFiles().length === 1 ? 'Table' : 'Tables' }}
-            <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(Click a row for column details)</span>
+            <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(Click View for column details)</span>
           </div>
         </div>
         <table class="data-table validation-table">
           <thead>
             <tr>
               <th>#</th><th>Table / Master</th><th>Group</th><th>Rows</th><th>Cols</th>
-              <th>Missing</th><th>Dup IDs</th><th>Date Err</th><th>Status</th>
+              <th>Missing</th><th>Dup IDs</th><th>Date Err</th><th>Status</th><th>Detail</th>
             </tr>
           </thead>
           <tbody>
             @for (f of visibleFiles(); track f.n) {
               <tr [class.warn-row]="f.status==='warn'"
-                  [class.error-row]="f.status==='error'"
-                  [style.cursor]="'pointer'"
-                  [style.background]="selectedFile()?.masterType === f.masterType ? 'var(--bg-hover, rgba(99,102,241,0.08))' : ''"
-                  (click)="selectFile(f)">
+                  [class.error-row]="f.status==='error'">
                 <td>{{ f.n }}</td>
                 <td>{{ f.name }}</td>
                 <td>{{ f.group }}</td>
@@ -112,11 +109,14 @@
                   @else if (f.status === 'warn')           { <span class="badge yellow">⚠️ Warn</span> }
                   @else if (f.status === 'error')          { <span class="badge red">❌ Error</span> }
                 </td>
+                <td class="detail-cell">
+                  <button class="btn outline sm" (click)="openDetail(f)">🔍 View</button>
+                </td>
               </tr>
             }
             @if (visibleFiles().length === 0) {
               <tr>
-                <td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">
+                <td colspan="10" style="text-align:center;padding:24px;color:var(--text-muted)">
                   @switch (statusFilter()) {
                     @case ('ok')    { No tables passed cleanly. }
                     @case ('warn')  { No tables with warnings — nothing to investigate. }
@@ -131,57 +131,66 @@
       </div>
     }
 
-    <!-- Column detail -->
-    @if (selectedFile()) {
-      <div class="card mb-20">
-        <div class="card-header">
-          <div class="card-title">🔍 Column Detail — {{ detailLabel() }}
-            <span style="font-size:11px;font-weight:400;color:var(--text-muted)">({{ detailTotalRows() | number }} rows)</span>
-          </div>
-        </div>
-        @if (detailLoading()) {
-          <div style="padding:28px;text-align:center;color:var(--text-muted)">⏳ Loading column details…</div>
-        } @else if (cols().length === 0) {
-          <div style="padding:28px;text-align:center;color:var(--text-muted)">No column data available</div>
-        } @else {
-          <table class="data-table column-table" >
-            <thead>
-              <tr>
-                <!-- "Type" column removed 2026-04-24: clients don't need to
-                     see internal column type info on the validation view.
-                     The c.type field is still on each row object so the
-                     API / dev console can surface it if anyone ever needs
-                     it. -->
-                <th>Column</th><th>Non-Null</th><th>Unique</th>
-                <th>Required</th><th>Nulls</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (c of cols(); track c.col) {
-                <tr>
-                  <td>{{ formatColumnName(c.col) }}</td>
-                  <td>{{ c.nonNull }}</td>
-                  <td>{{ c.unique }}</td>
-                  <td>{{ c.req ? '✅' : '—' }}</td>
-                  <td>{{ c.nullCount }}</td>
-                  <td>
-                    @if (c.status === 'ok')   { <span class="badge green">✅</span> }
-                    @if (c.status === 'warn') { <span class="badge yellow">⚠️</span> }
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        }
-      </div>
-    }
-
     <!-- Warnings list -->
     @if (warnings().length > 0) {
       <div class="notice warning">
         @for (w of warnings(); track w) {
           <div>⚠️ {{ w }}</div>
         }
+      </div>
+    }
+
+    <!-- Column-detail popup — opened by a row's View button, paginated -->
+    @if (detailFile(); as f) {
+      <div class="modal-backdrop" (click)="closeDetail()">
+        <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
+          <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
+            <h3 class="modal-title" style="margin:0">{{ detailLabel() }}
+              <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:6px">({{ detailTotalRows() | number }} rows · {{ f.cols }} columns)</span>
+            </h3>
+            <button class="btn outline sm" (click)="closeDetail()">✕ Close</button>
+          </div>
+
+          @if (detailLoading()) {
+            <div style="padding:28px;text-align:center;color:var(--text-muted)">⏳ Loading column details…</div>
+          } @else if (cols().length === 0) {
+            <div style="padding:28px;text-align:center;color:var(--text-muted)">No column data available</div>
+          } @else {
+            <div class="data-viewer-scroll">
+              <table class="data-table column-table">
+                <thead>
+                  <tr>
+                    <th>Column</th><th>Non-Null</th><th>Unique</th>
+                    <th>Required</th><th>Nulls</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of pagedCols().slice; track c.col) {
+                    <tr>
+                      <td>{{ formatColumnName(c.col) }}</td>
+                      <td>{{ c.nonNull }}</td>
+                      <td>{{ c.unique }}</td>
+                      <td>{{ c.req ? '✅' : '—' }}</td>
+                      <td>{{ c.nullCount }}</td>
+                      <td>
+                        @if (c.status === 'ok')   { <span class="badge green">✅</span> }
+                        @if (c.status === 'warn') { <span class="badge yellow">⚠️</span> }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <div class="flex-row" style="justify-content:space-between; margin-top:14px">
+              <div style="font-size:12px; color:var(--text-muted)">{{ detailPaginationLabel() }}</div>
+              <div class="flex-row" style="gap:8px">
+                <button class="btn outline sm" [disabled]="!detailHasPrev()" (click)="detailPrevPage()">← Prev</button>
+                <span class="page-label" style="font-size:12px;align-self:center">Page {{ pagedCols().page }} of {{ pagedCols().totalPages }}</span>
+                <button class="btn outline sm" [disabled]="!detailHasNext()" (click)="detailNextPage()">Next →</button>
+              </div>
+            </div>
+          }
+        </div>
       </div>
     }
   }

@@ -2,6 +2,7 @@ import { Component, OnInit, computed, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
+import { paginate } from './paginate';
 
 interface ValidationFile {
   n: number;
@@ -82,12 +83,25 @@ export class ValidationComponent implements OnInit {
   summary     = signal<ValidationSummary | null>(null);
   files       = signal<ValidationFile[]>([]);
 
-  // ── Column detail state ─────────────────────────────────────────
-  selectedFile     = signal<ValidationFile | null>(null);
+  // ── Column-detail modal state ───────────────────────────────────
+  // detailFile != null ⇒ the popup is open for that table. The column rows
+  // are paginated client-side (paginate()) so the modal matches the paging
+  // UX used elsewhere in the app, rather than rendering inline below the
+  // table.
+  detailFile       = signal<ValidationFile | null>(null);
   detailLoading    = signal(false);
   detailLabel      = signal('');
   detailTotalRows  = signal(0);
   cols             = signal<ColumnDetail[]>([]);
+
+  detailPage           = signal(1);
+  readonly detailPageSize = 10;
+
+  // The current page of column rows + the resolved page/total-page count.
+  pagedCols = computed(() => paginate(this.cols(), this.detailPage(), this.detailPageSize));
+
+  detailHasPrev = computed(() => this.pagedCols().page > 1);
+  detailHasNext = computed(() => this.pagedCols().page < this.pagedCols().totalPages);
 
   // ── Warnings list (computed from files with issues) ─────────────
   warnings = signal<string[]>([]);
@@ -109,15 +123,6 @@ export class ValidationComponent implements OnInit {
 
   setStatusFilter(f: 'all' | 'ok' | 'warn' | 'error') {
     this.statusFilter.set(f);
-    // Keep the column-detail panel in sync with the filter: if the
-    // currently-selected file is no longer visible, slide to the first
-    // file in the new view (or clear if the view is empty).
-    const sel = this.selectedFile();
-    const visible = this.visibleFiles();
-    if (sel && !visible.some(v => v.masterType === sel.masterType)) {
-      if (visible.length > 0) this.selectFile(visible[0]);
-      else this.selectedFile.set(null);
-    }
   }
 
   ngOnInit() {
@@ -127,8 +132,7 @@ export class ValidationComponent implements OnInit {
   runValidation() {
     this.loading.set(true);
     this.error.set(null);
-    this.selectedFile.set(null);
-    this.cols.set([]);
+    this.closeDetail();
 
     this.api.get<{ summary: ValidationSummary; files: ValidationFile[] }>(
       `/validation?clientId=${this.clientId}`
@@ -160,11 +164,6 @@ export class ValidationComponent implements OnInit {
           }
         }
         this.warnings.set(warns);
-
-        // Auto-select first file for column detail
-        if (res.files.length > 0) {
-          this.selectFile(res.files[0]);
-        }
       },
       error: (e) => {
         this.error.set(e.message || 'Failed to load validation data');
@@ -173,8 +172,12 @@ export class ValidationComponent implements OnInit {
     });
   }
 
-  selectFile(file: ValidationFile) {
-    this.selectedFile.set(file);
+  /** Open the column-detail popup for a table and load its columns. */
+  openDetail(file: ValidationFile) {
+    this.detailFile.set(file);
+    this.detailLabel.set(file.name);
+    this.detailTotalRows.set(file.rows);
+    this.detailPage.set(1);
     this.detailLoading.set(true);
     this.cols.set([]);
 
@@ -191,5 +194,30 @@ export class ValidationComponent implements OnInit {
         this.detailLoading.set(false);
       },
     });
+  }
+
+  closeDetail() {
+    this.detailFile.set(null);
+    this.cols.set([]);
+    this.detailPage.set(1);
+    this.detailLoading.set(false);
+  }
+
+  detailNextPage() {
+    if (this.detailHasNext()) this.detailPage.set(this.pagedCols().page + 1);
+  }
+
+  detailPrevPage() {
+    if (this.detailHasPrev()) this.detailPage.set(this.pagedCols().page - 1);
+  }
+
+  /** "start–end of total-columns" label for the modal footer. */
+  detailPaginationLabel(): string {
+    const total = this.cols().length;
+    if (total === 0) return 'No columns';
+    const p = this.pagedCols();
+    const start = (p.page - 1) * this.detailPageSize + 1;
+    const end = Math.min(start + p.slice.length - 1, total);
+    return `${start}–${end} of ${total} columns`;
   }
 }

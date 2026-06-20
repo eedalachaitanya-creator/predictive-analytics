@@ -86,44 +86,29 @@ def _make_token(user_id: str) -> str:
     return token
 
 
-# In-memory token cache — avoids 2 DB queries on every request.
-# Cache TTL is 60 seconds; after that the token is re-validated from DB.
-# This keeps the connection pool free for actual business queries.
-_token_cache: dict[str, tuple[dict, float]] = {}
-_TOKEN_CACHE_TTL = 60  # seconds
-
-
 def _find_user_by_token(token: str) -> Optional[dict]:
-    import time
-    # Fast path: return cached user if still fresh
-    if token in _token_cache:
-        user, cached_at = _token_cache[token]
-        if time.time() - cached_at < _TOKEN_CACHE_TTL:
-            return user
-        else:
-            del _token_cache[token]
+    """Resolve a token to its user, enforcing expiry on EVERY call.
 
-    # Slow path: hit DB and cache the result
+    No in-memory cache: a prior 60s cache let an expired/revoked token through
+    for up to a minute (a real auth weakness). Both lookups here are indexed
+    point queries, so always validating costs ~nothing and is the secure default.
+    """
     try:
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT user_id FROM active_tokens WHERE token = :token AND expires_at > NOW()"),
+                text("SELECT user_id FROM active_tokens "
+                     "WHERE token = :token AND expires_at > NOW()"),
                 {"token": token},
             ).fetchone()
             if not row:
                 return None
-            user = _get_user_by_id(row[0])
-            if user:
-                _token_cache[token] = (user, time.time())
-            return user
+            return _get_user_by_id(row[0])
     except Exception as e:
         log.error("Error looking up token: %s", e)
         return None
 
 
 def _revoke_token(token: str):
-    # Remove from cache immediately so the token is invalid on next request
-    _token_cache.pop(token, None)
     try:
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM active_tokens WHERE token = :token"), {"token": token})

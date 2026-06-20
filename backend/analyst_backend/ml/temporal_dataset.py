@@ -42,17 +42,19 @@ def compute_forward_label(
     orders: Iterable[Mapping],
     T: dt.date,
     label_window_days: int,
+    logins: Optional[Iterable[Mapping]] = None,
 ) -> int:
-    """Forward-looking churn label (design §5).
+    """Forward-looking churn label using BOTH purchases and logins (design §5).
 
-        churned = 1  IFF the customer has NO qualifying order in the half-open
-                     interval (T, T + label_window_days]
-        churned = 0  otherwise
+        churned = 1  IFF the customer has NO qualifying order AND NO login in the
+                     half-open interval (T, T + label_window_days]
+        churned = 0  otherwise (a forward order OR a forward login => active)
 
-    The interval is half-open at T: an order placed exactly at T is a *feature*,
-    never a forward-label event. An order exactly at the window end
-    (T + label_window_days) IS inside the window. Cancelled/Returned orders in
-    the window do not count as activity (canonical predicate).
+    The interval is half-open at T: activity exactly at T is a *feature*, never a
+    forward-label event; activity exactly at the window end IS inside the window.
+    Cancelled/Returned orders do not count (canonical predicate). ``logins`` is
+    optional — omit it (or pass None) for the order-only label, which is what
+    tenants with no login history get.
     """
     window_end = T + dt.timedelta(days=label_window_days)
     for o in orders:
@@ -61,7 +63,13 @@ def compute_forward_label(
             od = od.date()
         if T < od <= window_end and is_qualifying_status(o.get("order_status")):
             return 0  # active — at least one revenue-qualifying forward order
-    return 1  # churned — no qualifying order in the forward window
+    for l in (logins or []):
+        ld = l["login_at"]
+        if isinstance(ld, dt.datetime):
+            ld = ld.date()
+        if T < ld <= window_end:
+            return 0  # active — logged in within the forward window
+    return 1  # churned — no qualifying order AND no login in the forward window
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -395,12 +403,25 @@ def _snapshot_sql() -> str:
           AND o.order_date <  (CAST(:T AS date) + 1 + :label_window_days)     -- through day T+window inclusive
           AND {qual}
     ),
+    -- Forward-window logins (same half-open (T, T+window], day-granular). A login
+    -- here means the customer is still engaged → NOT churned, even with no order.
+    -- Empty for tenants with no login_events → label degrades to order-only.
+    forward_login AS (
+        SELECT DISTINCT l.client_id, l.customer_id
+        FROM login_events l
+        WHERE l.client_id = :client_id
+          AND l.login_at >= (CAST(:T AS date) + 1)
+          AND l.login_at <  (CAST(:T AS date) + 1 + :label_window_days)
+    ),
     label AS (
         SELECT e.client_id, e.customer_id,
-            CASE WHEN fa.customer_id IS NULL THEN 1 ELSE 0 END AS churned
+            CASE WHEN fa.customer_id IS NULL AND fl.customer_id IS NULL
+                 THEN 1 ELSE 0 END AS churned
         FROM eligible e
         LEFT JOIN forward_active fa
           ON e.client_id = fa.client_id AND e.customer_id = fa.customer_id
+        LEFT JOIN forward_login fl
+          ON e.client_id = fl.client_id AND e.customer_id = fl.customer_id
     )
     SELECT
         e.client_id, e.customer_id, CAST(:T AS date) AS cutoff_date, l.churned,

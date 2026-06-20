@@ -41,7 +41,7 @@ export class ScoutComponent {
     { id: 'monitor',   label: 'Price Monitor', icon: '📈', path: '/app/scout/monitor' },
     { id: 'search',    label: 'Search',        icon: '🔍', path: '/app/scout/search' },
     { id: 'platforms', label: 'Platforms',     icon: '🌐', path: '/app/scout/platforms' },
-    { id: 'chat',      label: 'Chat',          icon: '💬', path: '/app/scout/chat' },
+    // { id: 'chat',      label: 'Chat',          icon: '💬', path: '/app/scout/chat' },
 
   ];
 
@@ -80,6 +80,6 @@ export class ScoutComponent {
     const after = url.split('/app/scout/')[1];
     if (!after) return 'chat';                       // /app/scout or not-scout
     const segment = after.split('?')[0].split('/')[0] as ScoutTab;
-    return VALID_TABS.includes(segment) ? segment : 'chat';
+    return VALID_TABS.includes(segment) ? segment : 'monitor';
   }
 }

@@ -33,7 +33,7 @@
        the component on every tab change — in-progress searches, chat
        history, and monitor runs all got wiped when switching tabs. -->
   <div class="tab-content">
-    <div [hidden]="activeTab() !== 'chat'">      <scout-chat /></div>
+    <!-- <div [hidden]="activeTab() !== 'chat'">      <scout-chat /></div> -->
     <div [hidden]="activeTab() !== 'monitor'">   <scout-monitor /></div>
     <div [hidden]="activeTab() !== 'search'">    <scout-search /></div>
     <div [hidden]="activeTab() !== 'platforms'"> <scout-platforms /></div>

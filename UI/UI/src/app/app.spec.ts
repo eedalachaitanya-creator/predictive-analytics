@@ -14,10 +14,7 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render title', async () => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, walmart-analytics');
-  });
+  // The default `ng new` "should render title" test (asserting a
+  // 'Hello, walmart-analytics' welcome <h1>) was removed: App is the CRP router
+  // shell and never had that template, so the scaffold assertion always failed.
 });

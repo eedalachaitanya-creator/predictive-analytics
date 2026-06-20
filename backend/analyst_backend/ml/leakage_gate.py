@@ -39,22 +39,21 @@ PSI_FLAG = 0.25
 
 # §6.4 UNCONDITIONALLY-excluded families — any of these names in X is a hard fail
 # regardless of statistics, because they are NOT point-in-time reconstructable:
-#   * login family       — `customers.last_login_date` is a single mutable
+#   * raw last-login    — `customers.last_login_date` is a single mutable
 #                          "last login ever" column with no event log; its as-of-T
 #                          value is unrecoverable (§6.4 / red-team H5).
 #   * subscription/refill — sourced from the whole-history `vw_subscription_products`
 #                          view; dropped this iteration (§6.4 / red-team H6).
 #   * old MV label inputs — replaced by the forward label; never features.
 #
-# NOTE (deliberately NOT here): the ticket-resolution metrics
-# (`avg_resolution_time_hrs`, `pct_tickets_resolved`, `open_tickets`,
-# `critical_tickets`, …). Per spec §6.4 these are RECONSTRUCTABLE once the builder
-# gates `resolved_date <= T` and recomputes the open-duration as-of-T — which the
-# point-in-time builder does. They are therefore admitted as features and judged
-# by the per-feature stump/AUC tests below like any other feature, NOT hard-failed
-# by name. (A genuine post-T resolution leak would still be caught by the stump.)
+# NOTE (deliberately NOT here): the LOGIN-RECENCY features
+# (`days_since_last_login`, `recent_logins`, `total_logins`). Once login history
+# arrives via the `login_events` log, these are RECONSTRUCTABLE as-of-T
+# (login_at <= T) — same status as the ticket-resolution metrics — so they are
+# admitted as features and judged by the per-feature stump/AUC tests below, NOT
+# hard-failed by name. (A genuine post-T login leak would still trip the stump.)
 EXCLUDED_FEATURE_NAMES = frozenset({
-    "last_login_date", "days_since_last_login",
+    "last_login_date",
     "avg_refill_cycle_days", "subscription_product_count",
     "missed_refill_count", "days_overdue_for_refill",
     "churn_label", "churn_window_days", "login_window_days",

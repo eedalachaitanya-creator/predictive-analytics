@@ -175,12 +175,17 @@ def build_scoring_frame(
     latest T (no observed future) and is ignored by ``score_frame``.
     """
     from ml.temporal_dataset import build_snapshot
+    from ml.temporal_windows import resolve_login_window
 
     if T is None:
         T = _resolve_scoring_asof(engine_or_conn, client_id)
         if T is None:
             logger.warning("build_scoring_frame: no orders for client_id=%s", client_id)
             return pd.DataFrame()
+
+    # Use the tenant's configured recent-login window so the login features are
+    # computed the SAME way at score time as they were at train time.
+    login_window = resolve_login_window(engine_or_conn, client_id)
 
     return build_snapshot(
         engine_or_conn, client_id, T,
@@ -189,6 +194,7 @@ def build_scoring_frame(
         min_orders=min_orders,
         active_window_days=active_window_days,
         active_only=False,
+        login_window_days=login_window,
     )
 
 

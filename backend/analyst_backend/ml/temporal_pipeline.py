@@ -26,7 +26,7 @@ from ml.temporal_dataset import build_dataset, ensure_snapshots_table
 from ml.train_temporal import run as train_temporal_run
 from ml.score_temporal import score as score_temporal, export_scores_to_disk
 from ml.leakage_gate import LeakageGateError
-from ml.temporal_windows import resolve_windows, ensure_distinct_cadence
+from ml.temporal_windows import resolve_windows, resolve_login_window, ensure_distinct_cadence
 
 logger = logging.getLogger("ml.temporal_pipeline")
 
@@ -55,7 +55,7 @@ def run_or_fallback(
     engine = create_engine(db_url, pool_pre_ping=True)
     try:
         # Per-tenant windows: label_window <- churn_window_days, cadence <-
-        # login_window_days (from client_config). Explicit args override.
+        # snapshot_cadence_days (from client_config). Explicit args override.
         if label_window_days is None or cadence_days is None:
             r_label, r_cadence = resolve_windows(engine, client_id)
             if label_window_days is None:
@@ -66,6 +66,8 @@ def run_or_fallback(
         # explicit label collides with a resolved cadence): generate_cutoffs
         # rejects cadence == label_window.
         cadence_days = ensure_distinct_cadence(label_window_days, cadence_days)
+        # Recent-login feature window (separate from cadence) — login_window_days.
+        login_window_days = resolve_login_window(engine, client_id)
 
         ensure_snapshots_table(engine)
 
@@ -75,6 +77,7 @@ def run_or_fallback(
             cadence_days=cadence_days,
             min_positives_per_cutoff=min_positives_per_cutoff,
             max_cutoffs=max_cutoffs,
+            login_window_days=login_window_days,
             write=True,
         )
         if dataset is None or dataset.empty:

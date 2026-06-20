@@ -74,16 +74,18 @@ def resolve_windows(engine, client_id: str, *,
     return label, cadence
 
 
-def resolve_login_window(engine, client_id: str, *, default: int = 30) -> int:
-    """Recent-login feature window (days) from login_window_days. Never raises —
+def resolve_login_window(engine_or_conn, client_id: str, *, default: int = 30) -> int:
+    """Recent-login feature window (days) from login_window_days. Accepts an
+    Engine OR an already-open Connection (mirrors build_snapshot). Never raises —
     a missing row / bad value / read error yields the default so the temporal
     stage always proceeds."""
+    sql = text("SELECT login_window_days FROM client_config WHERE client_id = :c")
     try:
-        with engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT login_window_days FROM client_config WHERE client_id = :c"),
-                {"c": client_id},
-            ).first()
+        if hasattr(engine_or_conn, "connect"):   # an Engine
+            with engine_or_conn.connect() as conn:
+                row = conn.execute(sql, {"c": client_id}).first()
+        else:                                     # an open Connection — reuse it
+            row = engine_or_conn.execute(sql, {"c": client_id}).first()
         v = _coerce_positive_int(row[0]) if row is not None else None
         return v if v is not None else default
     except Exception as exc:  # noqa: BLE001

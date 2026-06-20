@@ -15,39 +15,32 @@
 
   @if (!loading() && data()) {
 
-    <!-- KPI Row — each card is clickable -->
+    <!-- KPI Row -->
     <div class="kpi-row">
-      <div class="kpi-card clickable" role="button" tabindex="0"
-           (click)="openCardView('all', 'Total Offers')"
-           (keydown.enter)="openCardView('all', 'Total Offers')">
-        <span class="stat-view">View →</span>
+      <div class="kpi-card" style="cursor:pointer" (click)="showDrillDown('all')">
         <div class="kpi-val">{{ data()!.total_interventions }}</div>
         <div class="kpi-label">Total Offers</div>
+        <div class="kpi-view">View →</div>
       </div>
-      <div class="kpi-card red clickable" role="button" tabindex="0"
-           (click)="openCardView('high', 'High Risk Customers')"
-           (keydown.enter)="openCardView('high', 'High Risk Customers')">
-        <span class="stat-view">View →</span>
+      <div class="kpi-card red" style="cursor:pointer" (click)="showDrillDown('HIGH')">
         <div class="kpi-val">{{ data()!.high_risk_count }}</div>
         <div class="kpi-label">HIGH Risk</div>
+        <div class="kpi-view">View →</div>
       </div>
-      <div class="kpi-card yellow clickable" role="button" tabindex="0"
-           (click)="openCardView('medium', 'Medium Risk Customers')"
-           (keydown.enter)="openCardView('medium', 'Medium Risk Customers')">
-        <span class="stat-view">View →</span>
+      <div class="kpi-card yellow" style="cursor:pointer" (click)="showDrillDown('MEDIUM')">
         <div class="kpi-val">{{ data()!.medium_risk_count }}</div>
         <div class="kpi-label">MEDIUM Risk</div>
+        <div class="kpi-view">View →</div>
       </div>
-      <div class="kpi-card orange clickable" role="button" tabindex="0"
-           (click)="openCardView('escalated', 'Escalated Interventions')"
-           (keydown.enter)="openCardView('escalated', 'Escalated Interventions')">
-        <span class="stat-view">View →</span>
+      <!-- Escalated KPI card hidden
+      <div class="kpi-card orange">
         <div class="kpi-val">{{ data()!.escalated_count }}</div>
         <div class="kpi-label">Escalated</div>
       </div>
+      -->
     </div>
 
-    <!-- Avg Discount + Escalated -->
+    <!-- Avg Discount + Escalated — hidden
     <div class="stat-row">
       <div class="stat-card">
         <div class="stat-icon">🏷️</div>
@@ -64,92 +57,60 @@
         </div>
       </div>
     </div>
+    -->
+
+    <!-- Drill-down table with pagination -->
+    @if (activeFilter()) {
+      <div class="drill-section" style="margin-top:24px">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <strong style="font-size:15px">
+            {{ activeFilter() === 'all' ? 'All Offers' : activeFilter() + ' Risk Customers' }}
+            ({{ drillTotal() }})
+          </strong>
+          <button class="btn sm outline" (click)="activeFilter.set(null)">✕ Close</button>
+        </div>
+
+        @if (drillLoading()) {
+          <div style="padding:24px;text-align:center;color:var(--text-muted)">Loading...</div>
+        } @else {
+          <!-- Scrollable table -->
+          <div style="max-height:420px;overflow-y:auto;border:1px solid var(--border,#e2e8f0);border-radius:8px">
+            <table class="data-table" style="width:100%">
+              <thead>
+                <tr>
+                  <th>Customer ID</th>
+                  <th>Risk Tier</th>
+                  <th>Channel</th>
+                  <th>Offer Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (item of filteredInterventions(); track item.customer_id) {
+                  <tr>
+                    <td><strong>{{ item.customer_id }}</strong></td>
+                    <td><span [class]="riskClass(item.risk_tier)">{{ item.risk_tier }}</span></td>
+                    <td>{{ item.channel }}</td>
+                    <td style="max-width:400px;white-space:normal">{{ item.offer_message }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination -->
+          <div class="pagination-bar" style="margin-top:12px">
+            <span class="pagination-info">{{ drillRange() }}</span>
+            <div class="pagination-controls">
+              <button class="btn sm outline" (click)="prevDrillPage()" [disabled]="drillPage() <= 1">← Prev</button>
+              <span class="page-indicator">Page {{ drillPage() }}</span>
+              <button class="btn sm outline" (click)="nextDrillPage()" [disabled]="!drillHasNext()">Next →</button>
+            </div>
+          </div>
+        }
+      </div>
+    }
 
   }
 </div>
-
-<!-- Drill-down modal -->
-@if (viewCard()) {
-  <div class="modal-backdrop" (click)="closeCardView()">
-    <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
-
-      <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
-        <h3 class="modal-title" style="margin:0">📋 {{ viewLabel() }}</h3>
-        <button class="btn outline sm" (click)="closeCardView()">✕ Close</button>
-      </div>
-      <p class="modal-sub">{{ viewRows().length }} interventions</p>
-
-      @if (viewLoading()) {
-        <div class="loading-state"><div class="spinner">⏳</div><div>Loading...</div></div>
-      }
-      @if (viewError()) {
-        <div class="error-bar">⚠️ {{ viewError() }}</div>
-      }
-
-      @if (!viewLoading() && viewRows().length > 0) {
-        <div class="data-viewer-scroll">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Customer</th>
-                <th>Risk</th>
-                <th>Channel</th>
-                <th>Discount</th>
-                <th>Churn Prob</th>
-                <th>Escalated</th>
-                <th>Status</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              <!-- ✅ pagedRows() instead of viewRows() -->
-              @for (row of pagedRows(); track row.intervention_id) {
-                <tr>
-                  <td class="font-medium">{{ row.customer_id }}</td>
-                  <td><span class="badge sm" [class]="riskColor(row.risk_tier)">{{ row.risk_tier }}</span></td>
-                  <td>{{ channelIcon(row.channel) }} {{ row.channel }}</td>
-                  <td>{{ fmtPct(row.discount_pct) }}</td>
-                  <td>{{ fmtProb(row.churn_probability) }}</td>
-                  <td>{{ row.escalated_to_human ? '🔔 Yes' : '—' }}</td>
-                  <td>
-                    <span class="badge sm"
-                      [ngClass]="row.offer_status === 'accepted' ? 'green' :
-                                 row.offer_status === 'declined' ? 'red' : 'gray'">
-                      {{ row.offer_status }}
-                    </span>
-                  </td>
-                  <td class="muted-sm">{{ fmtDate(row.created_at) }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-
-        <!-- ✅ Pagination controls -->
-        <div class="pagination-bar">
-          <button class="btn outline sm"
-                  [disabled]="!hasPrev()"
-                  (click)="prevPage()">
-            ← Prev
-          </button>
-
-          <span class="pagination-label">{{ paginationLabel() }}</span>
-
-          <button class="btn outline sm"
-                  [disabled]="!hasNext()"
-                  (click)="nextPage()">
-            Next →
-          </button>
-        </div>
-      }
-
-      @if (!viewLoading() && viewRows().length === 0 && !viewError()) {
-        <div class="empty-state">
-          <div class="empty-icon">📋</div>
-          <div>No records found</div>
-        </div>
-      }
-
-    </div>
-  </div>
-}

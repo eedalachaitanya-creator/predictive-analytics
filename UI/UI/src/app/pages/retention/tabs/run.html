@@ -127,9 +127,11 @@
 
           <div class="offer-header-content" (click)="toggleExpand(i)">
             <div class="offer-left">
+              <!-- escalation badge hidden
               @if (item.escalated_to_human) {
                 <span class="esc-badge">🔔 Needs personal outreach</span>
               }
+              -->
               <span class="customer-id">{{ item.customer_id }}</span>
               <span class="badge" [class]="riskColor(item.risk_tier)">{{ item.risk_tier }} risk</span>
               <span class="channel-pill">{{ channelIcon(item.channel) }} {{ item.channel }}</span>

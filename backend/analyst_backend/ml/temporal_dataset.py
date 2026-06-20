@@ -126,8 +126,11 @@ IDENTIFIER_COLS = [
 ]
 
 # Excluded leak families (design §6.4) — asserted absent from every snapshot.
+# `days_since_last_login` is NO LONGER excluded: with the login_events log it is
+# point-in-time reconstructable (login_at <= T), so it's emitted as a feature.
+# The raw mutable `last_login_date` column stays barred (not reconstructable).
 EXCLUDED_FEATURE_COLS = frozenset({
-    "last_login_date", "days_since_last_login",
+    "last_login_date",
     "avg_refill_cycle_days", "subscription_product_count",
     "missed_refill_count", "days_overdue_for_refill",
     "churn_label", "churn_window_days", "login_window_days",
@@ -309,6 +312,23 @@ def _snapshot_sql() -> str:
           AND t.opened_date <= CAST(:T AS timestamptz)
         GROUP BY t.client_id, t.customer_id
     ),
+    -- Logins with login_at <= T only (point-in-time). recent = within the
+    -- configured login window of T; days_since uses the latest <=T login.
+    -- Reconstructable from the login_events log → leakage-safe (a future login
+    -- can never enter this aggregate).
+    login_agg AS (
+        SELECT l.client_id, l.customer_id,
+            COUNT(*)                                              AS total_logins,
+            COUNT(CASE WHEN l.login_at > CAST(:T AS timestamptz)
+                                         - (:login_window_days * INTERVAL '1 day')
+                       THEN 1 END)                                AS recent_logins,
+            EXTRACT(DAY FROM (CAST(:T AS timestamptz) - MAX(l.login_at)))::INT
+                                                                  AS days_since_last_login
+        FROM login_events l
+        WHERE l.client_id = :client_id
+          AND l.login_at <= CAST(:T AS timestamptz)
+        GROUP BY l.client_id, l.customer_id
+    ),
     -- Customers with >=1 qualifying order in (T − active_window, T], set-based
     -- (NOT a per-row correlated EXISTS) so the active-at-T restriction (§4.4) is
     -- a cheap semi-join against the materialized qorders spine.
@@ -425,6 +445,9 @@ def _snapshot_sql() -> str:
         COALESCE(ta.negative_tickets_30d, 0)       AS negative_tickets_30d,
         COALESCE(ta.had_disappointed_ticket_30d, 0) AS had_disappointed_ticket_30d,
         COALESCE(ta.days_since_worst_ticket, 9999) AS days_since_worst_ticket,
+        COALESCE(lg.total_logins, 0)               AS total_logins,
+        COALESCE(lg.recent_logins, 0)              AS recent_logins,
+        COALESCE(lg.days_since_last_login, 9999)   AS days_since_last_login,
         COALESCE(ra.mean_review_distress, 0)       AS mean_review_distress,
         COALESCE(ra.max_review_distress, 0)        AS max_review_distress,
         COALESCE(ra.pct_negative_emotion_reviews, 0) AS pct_negative_emotion_reviews,
@@ -448,6 +471,7 @@ def _snapshot_sql() -> str:
     LEFT JOIN cat_agg     ca ON e.client_id = ca.client_id AND e.customer_id = ca.customer_id
     LEFT JOIN review_agg  ra ON e.client_id = ra.client_id AND e.customer_id = ra.customer_id
     LEFT JOIN ticket_agg  ta ON e.client_id = ta.client_id AND e.customer_id = ta.customer_id
+    LEFT JOIN login_agg   lg ON e.client_id = lg.client_id AND e.customer_id = lg.customer_id
     """
 
 
@@ -461,6 +485,7 @@ def build_snapshot(
     min_orders: int,
     active_window_days: int,
     active_only: bool,
+    login_window_days: int = 30,
 ) -> pd.DataFrame:
     """Build the point-in-time (<=T) snapshot for one (client_id, T) cohort.
 
@@ -478,6 +503,7 @@ def build_snapshot(
         "active_window_days": int(active_window_days),
         "label_window_days": int(label_window_days),
         "active_only": 1 if active_only else 0,
+        "login_window_days": int(login_window_days),
     }
     sql = text(_snapshot_sql())
 
@@ -684,6 +710,7 @@ def build_dataset(
     observability_buffer_days: int = 0,
     earliest: Optional[dt.date] = None,
     max_cutoffs: Optional[int] = None,
+    login_window_days: int = 30,
     write: bool = True,
 ) -> pd.DataFrame:
     """Assemble the multi-cutoff temporal dataset for one tenant.
@@ -747,6 +774,7 @@ def build_dataset(
                 min_orders=min_orders,
                 active_window_days=active_window_days,
                 active_only=active_only,
+                login_window_days=login_window_days,
             )
             n_rows = len(snap)
             n_pos = int(snap["churned"].sum()) if n_rows else 0

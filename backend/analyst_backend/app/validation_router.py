@@ -178,6 +178,15 @@ VALIDATION_CONFIG = {
         "required_cols": ["ticket_id", "customer_id", "ticket_type"],
         "date_cols": ["opened_date"],
     },
+    "login_event": {
+        "table": "login_events",
+        "label": "🔑 Login Events",
+        "group": "Engagement",
+        "pk": "login_id",
+        "has_client_id": True,
+        "required_cols": ["login_id", "customer_id", "login_at"],
+        "date_cols": ["login_at"],
+    },
 }
 
 

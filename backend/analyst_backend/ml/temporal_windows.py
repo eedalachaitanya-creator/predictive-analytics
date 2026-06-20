@@ -1,8 +1,9 @@
 """Resolve per-tenant temporal windows from client_config.
 
-label_window_days  <- churn_window_days     (the tenant's "no purchase in N days" rule)
-cadence_days       <- snapshot_cadence_days  (its own knob; sampling cadence only)
-login_window_days  -> resolve_login_window() (recent-login feature window, separate)
+label_window_days  <- churn_window_days     (per-tenant "no purchase in N days" rule)
+cadence_days       =  a COMMON value for ALL tenants (default_cadence; TBD later).
+                      The per-tenant snapshot_cadence_days column is reserved, unread.
+login_window_days  -> resolve_login_window() (recent-login feature window, per-tenant)
 
 NEVER raises: a missing row, bad value, or read error yields safe defaults so the
 temporal stage can always proceed (and fall back later if the data is insufficient).
@@ -51,26 +52,29 @@ def _resolve(cw, cad, default_label: int = DEFAULT_LABEL_WINDOW_DAYS,
 def resolve_windows(engine, client_id: str, *,
                     default_label: int = DEFAULT_LABEL_WINDOW_DAYS,
                     default_cadence: int = DEFAULT_CADENCE_DAYS) -> Tuple[int, int]:
-    """Read churn_window_days / snapshot_cadence_days for `client_id` and resolve.
+    """Resolve (label_window, cadence) for `client_id`.
 
-    label_window <- churn_window_days ; cadence <- snapshot_cadence_days (its OWN
-    column — no longer login_window_days, which now drives a login feature)."""
-    cw = cad = None
+    label_window <- churn_window_days (PER-TENANT). cadence = a single COMMON
+    value for ALL tenants (``default_cadence``) — one global snapshot cadence
+    we'll tune later; only nudged ±1 per tenant to stay != the label window.
+    (The per-tenant ``snapshot_cadence_days`` column is reserved but NOT read
+    yet — cadence is intentionally common for now.)"""
+    cw = None
     try:
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT churn_window_days, snapshot_cadence_days "
-                     "FROM client_config WHERE client_id = :c"),
+                text("SELECT churn_window_days FROM client_config WHERE client_id = :c"),
                 {"c": client_id},
             ).first()
         if row is not None:
-            cw, cad = row[0], row[1]
+            cw = row[0]
     except Exception as exc:  # noqa: BLE001 — never let a config read break the stage
         logger.warning("resolve_windows[%s]: config read failed (%s); using defaults",
                        client_id, exc)
-    label, cadence = _resolve(cw, cad, default_label, default_cadence)
+    # cad=None → _resolve falls back to the common default_cadence for every tenant.
+    label, cadence = _resolve(cw, None, default_label, default_cadence)
     logger.info("resolve_windows[%s]: label_window=%dd cadence=%dd "
-                "(churn_window=%s snapshot_cadence=%s)", client_id, label, cadence, cw, cad)
+                "(churn_window=%s, common cadence)", client_id, label, cadence, cw)
     return label, cadence
 
 

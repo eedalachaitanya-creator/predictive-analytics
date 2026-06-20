@@ -54,8 +54,8 @@ def run_or_fallback(
     """
     engine = create_engine(db_url, pool_pre_ping=True)
     try:
-        # Per-tenant windows: label_window <- churn_window_days, cadence <-
-        # snapshot_cadence_days (from client_config). Explicit args override.
+        # Windows: label_window <- churn_window_days (per-tenant); cadence = a
+        # COMMON value for all tenants (TBD). Explicit args override.
         if label_window_days is None or cadence_days is None:
             r_label, r_cadence = resolve_windows(engine, client_id)
             if label_window_days is None:

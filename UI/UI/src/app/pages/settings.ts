@@ -62,6 +62,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   // Has effect only once Login Events are uploaded (login_events log). NOT the
   // snapshot cadence (that's its own snapshot_cadence_days knob now).
   loginWindow = signal(30);
+  // True once the tenant has uploaded Login Events — gates the Recent Login
+  // Window input (the setting only affects the model when login data exists).
+  hasLoginData = signal(false);
   repeatThreshold = signal(2);
   // highValuePct signal removed 2026-04-25 (see DEFAULTS comment).
   recentGapWindow = signal(3);
@@ -139,6 +142,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       next: (cfg) => {
         this.churnWindow.set(cfg.churn_window_days ?? 90);
         this.loginWindow.set(cfg.login_window_days ?? 30);
+        this.hasLoginData.set(!!cfg.has_login_data);
         this.repeatThreshold.set(cfg.min_repeat_orders ?? 2);
         // high_value_percentile no longer returned by /settings (column dropped).
         this.recentGapWindow.set(cfg.recent_order_gap_window ?? 3);

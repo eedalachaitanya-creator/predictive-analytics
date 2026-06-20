@@ -91,6 +91,14 @@ def get_settings(
                 {"cid": clientId},
             ).fetchone()
 
+            # Whether the tenant has any uploaded login history — the UI uses
+            # this to enable/disable the Recent Login Window setting (it only
+            # affects the model once Login Events exist).
+            has_login = bool(conn.execute(
+                text("SELECT EXISTS(SELECT 1 FROM login_events WHERE client_id = :cid)"),
+                {"cid": clientId},
+            ).scalar())
+
         if not row:
             raise HTTPException(status_code=404, detail=f"No config found for {clientId}")
 
@@ -122,6 +130,7 @@ def get_settings(
             "tier_label_silver":   row[22] or '🥈 Silver',
             "tier_label_bronze":   row[23] or '🥉 Bronze',
             "login_window_days":   row[24] if row[24] is not None else 30,
+            "has_login_data":      has_login,
         }
 
     except HTTPException:

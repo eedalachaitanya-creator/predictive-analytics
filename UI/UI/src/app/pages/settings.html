@@ -8,9 +8,16 @@
         <div><div class="param-label">CHURN WINDOW</div><div class="param-desc">If a customer goes this many days without placing an order, we treat them as churned (lost).</div></div>
         <div class="num-pair"><input type="number" [ngModel]="churnWindow()" (ngModelChange)="churnWindow.set($event)"><span class="unit">days</span></div>
       </div>
-      <div class="param-row">
-        <div><div class="param-label">RECENT LOGIN WINDOW</div><div class="param-desc">How many days of recent logins count as active engagement. The model treats fewer recent logins as an early churn-warning signal — separate from order activity. (Needs uploaded Login Events to have effect.)</div></div>
-        <div class="num-pair"><input type="number" [ngModel]="loginWindow()" (ngModelChange)="loginWindow.set($event)"><span class="unit">days</span></div>
+      <div class="param-row" [class.param-disabled]="!hasLoginData()">
+        <div>
+          <div class="param-label">RECENT LOGIN WINDOW</div>
+          <div class="param-desc">How many days of recent logins count as active engagement. The model treats fewer recent logins as an early churn-warning signal — separate from order activity.
+            @if (!hasLoginData()) {
+              <span class="login-locked-hint">🔒 Upload <strong>Login Events</strong> on the Upload page to enable this.</span>
+            }
+          </div>
+        </div>
+        <div class="num-pair"><input type="number" [disabled]="!hasLoginData()" [ngModel]="loginWindow()" (ngModelChange)="loginWindow.set($event)"><span class="unit">days</span></div>
       </div>
       <div class="param-row">
         <div><div class="param-label">REPEAT CUSTOMER THRESHOLD</div><div class="param-desc">How many completed orders a customer needs before we count them as a repeat customer.</div></div>

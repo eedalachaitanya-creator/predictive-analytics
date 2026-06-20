@@ -56,9 +56,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   // Pipeline rules (loaded from database)
   churnWindow = signal(90);
-  // Login-aware churn (added 2026-04-24): customer must ALSO have no login
-  // in this many days to be flagged churned. Works alongside churnWindow —
-  // both thresholds must be exceeded.
+  // Recent-login window (days): drives the point-in-time recent_logins feature
+  // in the temporal model (logins within this window of each cutoff T). A
+  // SEPARATE engagement signal from orders — the churn LABEL stays order-based.
+  // Has effect only once Login Events are uploaded (login_events log). NOT the
+  // snapshot cadence (that's its own snapshot_cadence_days knob now).
   loginWindow = signal(30);
   repeatThreshold = signal(2);
   // highValuePct signal removed 2026-04-25 (see DEFAULTS comment).
@@ -155,9 +157,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
         this.vendorCfg.set([
           { param: 'client_name',       val: cfg.client_name,                    type: 'string',  desc: 'Full legal name of the retail client' },
           { param: 'client_id',         val: cfg.client_id,                      type: 'string',  desc: 'Unique client identifier' },
-          { param: 'churn_window_days', val: String(cfg.churn_window_days),      type: 'integer', desc: 'Days since last order before flagging as churned' },
-          { param: 'login_window_days', val: String(cfg.login_window_days ?? 30), type: 'integer', desc: 'Days since last login required (alongside churn window) before flagging as churned' },
-          { param: 'min_repeat_orders', val: String(cfg.min_repeat_orders),      type: 'integer', desc: 'Min completed orders to qualify as repeat customer' },
+          { param: 'churn_window_days', val: String(cfg.churn_window_days),      type: 'integer', desc: 'Days without an order before a customer is treated as churned' },
+          { param: 'login_window_days', val: String(cfg.login_window_days ?? 30), type: 'integer', desc: 'Recent-login window (days) — used as a churn-predictor feature from Login Events' },
+          { param: 'min_repeat_orders', val: String(cfg.min_repeat_orders),      type: 'integer', desc: 'Completed orders needed to count as a repeat customer' },
           { param: 'currency',          val: cfg.currency,                       type: 'string',  desc: 'Transaction currency for all monetary columns' },
           { param: 'timezone',          val: cfg.timezone,                       type: 'string',  desc: 'Client timezone for date calculations' },
         ]);

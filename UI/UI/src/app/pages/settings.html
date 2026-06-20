@@ -5,15 +5,15 @@
     <div class="card-header"><div class="card-title">📐 Pipeline Rules</div></div>
     <div style="padding:4px 20px 8px">
       <div class="param-row">
-        <div><div class="param-label">CHURN WINDOW</div><div class="param-desc">Customers with no completed order in this many days are flagged as churned</div></div>
+        <div><div class="param-label">CHURN WINDOW</div><div class="param-desc">If a customer goes this many days without placing an order, we treat them as churned (lost).</div></div>
         <div class="num-pair"><input type="number" [ngModel]="churnWindow()" (ngModelChange)="churnWindow.set($event)"><span class="unit">days</span></div>
       </div>
       <div class="param-row">
-        <div><div class="param-label">LOGIN INACTIVITY WINDOW</div><div class="param-desc">Customers must ALSO have no login in this many days to be flagged as churned (works alongside Churn Window — both thresholds must be exceeded)</div></div>
+        <div><div class="param-label">RECENT LOGIN WINDOW</div><div class="param-desc">How many days of recent logins count as active engagement. The model treats fewer recent logins as an early churn-warning signal — separate from order activity. (Needs uploaded Login Events to have effect.)</div></div>
         <div class="num-pair"><input type="number" [ngModel]="loginWindow()" (ngModelChange)="loginWindow.set($event)"><span class="unit">days</span></div>
       </div>
       <div class="param-row">
-        <div><div class="param-label">REPEAT CUSTOMER THRESHOLD</div><div class="param-desc">Minimum completed orders needed to be classified as a repeat customer</div></div>
+        <div><div class="param-label">REPEAT CUSTOMER THRESHOLD</div><div class="param-desc">How many completed orders a customer needs before we count them as a repeat customer.</div></div>
         <div class="num-pair"><input type="number" [ngModel]="repeatThreshold()" (ngModelChange)="repeatThreshold.set($event)"><span class="unit">or more orders</span></div>
       </div>
       <!--
@@ -23,7 +23,7 @@
         below is now the single knob for value bucketing.
       -->
       <div class="param-row">
-        <div><div class="param-label">RECENT ORDER GAP WINDOW</div><div class="param-desc">Number of most recent orders used for personal rhythm breach detection</div></div>
+        <div><div class="param-label">RECENT ORDER GAP WINDOW</div><div class="param-desc">How many of a customer's most recent orders we look at to learn their normal buying pace — so we can spot when someone suddenly starts ordering less often.</div></div>
         <div class="num-pair"><input type="number" [ngModel]="recentGapWindow()" (ngModelChange)="recentGapWindow.set($event)"><span class="unit">last orders</span></div>
       </div>
     </div>

@@ -72,3 +72,15 @@
 .empty-hero { text-align: center; padding: 60px 20px; }
 .eh-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.35; }
 .eh-text { font-size: 14px; color: var(--text-muted); }
+.not-found-msg {
+  padding: 8px 16px;
+  margin: 8px 16px;
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  background: var(--surface-2, #f8fafc);
+  border-radius: 6px;
+  border-left: 3px solid #e74c3c;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

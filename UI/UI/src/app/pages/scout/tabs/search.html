@@ -186,6 +186,18 @@
           }
         </div>
       }
+
+      <!-- Not found messages -->
+      @if (product.platform_status) {
+        @for (entry of product.platform_status | keyvalue; track entry.key) {
+          @if (entry.value === 'not_found') {
+            <div class="not-found-msg">
+              ❌ <strong>{{ entry.key }}</strong> — Product not found on this platform
+            </div>
+          }
+        }
+      }
+
     </div>
   }
 }

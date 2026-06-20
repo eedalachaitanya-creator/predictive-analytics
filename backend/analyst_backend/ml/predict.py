@@ -55,8 +55,16 @@ import numpy as np
 import pandas as pd
 import joblib
 from dotenv import load_dotenv
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
+
+def _force_utf8_stdout() -> None:
+    """Reconfigure stdout to UTF-8 so the █ risk-bar chars print on a Windows
+    console. Called ONLY when this module runs as a script — never at import,
+    which would clobber the caller's (and pytest's) stdout."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # py3.7+
+    except Exception:  # noqa: BLE001 — best-effort; redirected/odd stdout is fine
+        pass
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -1992,4 +2000,5 @@ def main():
 
 
 if __name__ == '__main__':
+    _force_utf8_stdout()
     main()

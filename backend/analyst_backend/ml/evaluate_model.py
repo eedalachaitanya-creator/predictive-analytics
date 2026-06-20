@@ -39,8 +39,16 @@ from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 import joblib
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
+
+def _force_utf8_stdout() -> None:
+    """UTF-8 stdout for script runs only — never at import (would clobber the
+    caller's / pytest's stdout)."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # py3.7+
+    except Exception:  # noqa: BLE001
+        pass
+
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -675,4 +683,5 @@ def main():
 
 
 if __name__ == '__main__':
+    _force_utf8_stdout()
     main()

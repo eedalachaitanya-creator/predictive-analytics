@@ -147,20 +147,87 @@ async def price_contexts(
 # GET /interventions — view retention interventions
 # ---------------------------------------------------------------------------
 
+# @router.get(
+#     "/interventions",
+#     summary="View retention interventions from Analyst DB",
+# )
+# async def interventions(
+#     client_id: str = Query(default="CLT-001"),
+#     status:    str = Query(default="ALL", description="pending | accepted | declined | ALL"),
+#     limit:     int = Query(default=20, le=200),
+#     x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+# ) -> dict:
+#     cid = x_client_id or client_id
+
+#     # Build status filter
+#     status_filter = "" if status.upper() == "ALL" else f"AND offer_status = '{status.lower()}'"
+
+#     try:
+#         pool = await get_analyst_pool()
+#         async with pool.acquire() as conn:
+#             rows = await conn.fetch(
+#                 f"""
+#                 SELECT intervention_id, customer_id, churn_probability,
+#                        risk_tier, offer_type, discount_pct, channel,
+#                        offer_status, escalated_to_human, customer_ltv_usd,
+#                        revenue_recovered, created_at
+#                 FROM retention_interventions
+#                 WHERE client_id = $1
+#                 {status_filter}
+#                 ORDER BY created_at DESC
+#                 LIMIT $2
+#                 """,
+#                 cid,
+#                 limit,
+#             )
+#         return {
+#             "client_id": cid,
+#             "count":     len(rows),
+#             "interventions": [dict(r) for r in rows],
+#         }
+#     except Exception as exc:
+#         msg = str(exc)
+#         # "Table doesn't exist yet" means nothing has run — treat as empty, not error.
+#         # The pipeline hasn't run in save-mode; the UI should show "no data" not "failed".
+#         if "does not exist" in msg.lower() or "relation" in msg.lower():
+#             return {
+#                 "client_id": cid,
+#                 "count": 0,
+#                 "interventions": [],
+#                 "message": "No retention interventions yet. Run the pipeline to generate.",
+#             }
+#         raise HTTPException(status_code=503, detail=f"DB error: {exc}")
 @router.get(
     "/interventions",
     summary="View retention interventions from Analyst DB",
 )
 async def interventions(
-    client_id: str = Query(default="CLT-001"),
-    status:    str = Query(default="ALL", description="pending | accepted | declined | ALL"),
-    limit:     int = Query(default=20, le=200),
+    client_id:  str           = Query(default="CLT-001"),
+    status:     str           = Query(default="ALL", description="pending | accepted | declined | ALL"),
+    limit:      int           = Query(default=20, le=500),
+    risk_tier:  Optional[str] = Query(default=None, description="HIGH | MEDIUM — filter by risk tier"),
+    escalated:  Optional[bool]= Query(default=None, description="true — only escalated interventions"),
     x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
 ) -> dict:
     cid = x_client_id or client_id
 
-    # Build status filter
-    status_filter = "" if status.upper() == "ALL" else f"AND offer_status = '{status.lower()}'"
+    # Build WHERE filters dynamically
+    filters = ["client_id = $1"]
+    params  = [cid]
+
+    if status.upper() != "ALL":
+        params.append(status.lower())
+        filters.append(f"offer_status = ${len(params)}")
+
+    if risk_tier:
+        params.append(risk_tier.upper())
+        filters.append(f"risk_tier = ${len(params)}")
+
+    if escalated is True:
+        filters.append("escalated_to_human = TRUE")
+
+    params.append(limit)
+    where_clause = " AND ".join(filters)
 
     try:
         pool = await get_analyst_pool()
@@ -169,26 +236,23 @@ async def interventions(
                 f"""
                 SELECT intervention_id, customer_id, churn_probability,
                        risk_tier, offer_type, discount_pct, channel,
-                       offer_status, escalated_to_human, customer_ltv_usd,
+                       offer_message, offer_status, escalated_to_human,
+                       customer_ltv_usd, max_allowed_discount, guardrail_passed,
                        revenue_recovered, created_at
                 FROM retention_interventions
-                WHERE client_id = $1
-                {status_filter}
+                WHERE {where_clause}
                 ORDER BY created_at DESC
-                LIMIT $2
+                LIMIT ${len(params)}
                 """,
-                cid,
-                limit,
+                *params,
             )
         return {
-            "client_id": cid,
-            "count":     len(rows),
+            "client_id":     cid,
+            "count":         len(rows),
             "interventions": [dict(r) for r in rows],
         }
     except Exception as exc:
         msg = str(exc)
-        # "Table doesn't exist yet" means nothing has run — treat as empty, not error.
-        # The pipeline hasn't run in save-mode; the UI should show "no data" not "failed".
         if "does not exist" in msg.lower() or "relation" in msg.lower():
             return {
                 "client_id": cid,
@@ -197,7 +261,6 @@ async def interventions(
                 "message": "No retention interventions yet. Run the pipeline to generate.",
             }
         raise HTTPException(status_code=503, detail=f"DB error: {exc}")
-
 
 # ---------------------------------------------------------------------------
 # GET /value-propositions — view discount rules

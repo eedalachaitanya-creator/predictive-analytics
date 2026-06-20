@@ -113,7 +113,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount(
     "/static",
     StaticFiles(directory=str(BASE_DIR / "static")),
-    name="static
+    name="static",
 )
 
 app.add_middleware(

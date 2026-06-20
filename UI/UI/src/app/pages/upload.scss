@@ -3,9 +3,6 @@
 .step-num { width:28px; height:28px; border-radius:50%; background:rgba(26,111,212,.10); color:var(--accent-blue); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .col-chip { display:inline-block; padding:2px 7px; background:#EBF1FB; border:1px solid var(--border); border-radius:4px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-secondary); margin:2px; }
 
-/* Row at the top of each upload tile: icon + label on the left,
-   Required/Optional pill on the right. Flex + gap so the label can
-   grow/shrink and the badge stays pinned to the right edge. */
 .tile-header-row {
   display: flex;
   align-items: center;
@@ -238,6 +235,14 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  min-width: 0;
+}
+.preview-head .modal-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 .preview-table-wrap {
   max-height: 55vh;

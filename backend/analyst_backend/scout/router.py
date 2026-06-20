@@ -48,15 +48,8 @@ def _client_id(user: dict) -> str:
     super_admin has clientAccess=["*"] — for scout we default to "" (all platforms)
     so admins still see everything. Regular client users get their own tenant scope."""
     access = user.get("clientAccess") or []
-    if "*" in access:          # check access first
+    if "*" in access or not access:
         return ""
-    role = user.get("role", "") # role defined only after access check
-    if role == "super_admin":
-        return ""
-
-    if not access:
-        # No clientAccess assigned yet → return sentinel that matches nothing
-        return user.get("user_id", "__unassigned__")
     return access[0]
 
 CACHE_TTL_MINUTES = 120
@@ -215,12 +208,12 @@ async def _search_across_sites(
         "listings": cached_listings + fresh_listings,
     }
 
-    found_platforms  = {l["platform"].lower() for l in final_product["listings"]}
-    cached_platforms = {c["platform"].lower() for c in cached_listings}
+    found_platforms  = {l["platform"] for l in final_product["listings"]}
+    cached_platforms = {c["platform"] for c in cached_listings}
     final_product["platform_status"] = {
         s["name"]: (
-            "found"     if s["name"].lower() in found_platforms
-            else "cache" if s["name"].lower() in cached_platforms
+            "found"     if s["name"] in found_platforms
+            else "cache" if s["name"] in cached_platforms
             else "not_found"
         )
         for s in targets
@@ -252,6 +245,7 @@ async def _search_across_sites(
                 price=price,
                 currency=currency,
                 url=url or "",
+                client_id=client_id,
             )
 
     return final_product

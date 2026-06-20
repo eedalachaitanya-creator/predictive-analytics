@@ -39,8 +39,6 @@ export class StrategistRecommendTab {
   targetMargin  = signal(20);
   minMargin     = signal(8);
   undercutPct      = signal(2);
-  clientPriority   = signal<string>('');
-  customerSegment  = signal<string>('');
 
   loading       = signal(false);
   error         = signal('');
@@ -182,8 +180,8 @@ export class StrategistRecommendTab {
       undercut_pct:      this.undercutPct(),
       currency:          this.currency(),
       skip_churn:        true,
-      client_priority:   this.clientPriority() || null,
-      customer_segment:  this.customerSegment() || null,
+      client_priority:   null,   // always default
+      customer_segment:  null,   // always default
     };
 
     this.loading.set(true);

@@ -64,7 +64,7 @@ export class SidebarComponent {
     pathPrefixes: ['/app/pricing-engine', '/app/market-trends'],
     children: [
       { path: '/app/pricing-engine', label: 'Pricing Engine', icon: '🧠' },
-      { path: '/app/market-trends',  label: 'Market Trends',  icon: '📈' },
+      // { path: '/app/market-trends',  label: 'Market Trends',  icon: '📈' },  // temporarily hidden
     ],
   };
 

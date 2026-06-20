@@ -4,7 +4,7 @@ import { ScoutService } from '../../../services/scout.service';
 
 // Page sizes for the two tables. Defined as constants rather than magic
 // numbers so they're easy to change in one place.
-const ALERTS_PAGE_SIZE   = 50;
+const ALERTS_PAGE_SIZE   = 10;
 const PRODUCTS_PAGE_SIZE = 20;
 
 @Component({
@@ -19,6 +19,7 @@ export class ScoutMonitorTab implements OnInit {
 
   // ── Tables (paged) ──────────────────────────────────────────────
   alerts        = signal<any[]>([]);
+  allAlerts     = signal<any[]>([]);  // full deduped list for frontend pagination
   alertsTotal   = signal(0);
   alertsPage    = signal(1);              // 1-based page index
   alertsLoading = signal(false);          // independent of products loading
@@ -76,12 +77,31 @@ export class ScoutMonitorTab implements OnInit {
   loadAlerts() {
     this.alertsLoading.set(true);
     this.alertsError.set('');
-    const page = this.alertsPage();
-    const offset = (page - 1) * ALERTS_PAGE_SIZE;
-    this.svc.getAlerts({ limit: ALERTS_PAGE_SIZE, offset }).subscribe({
+    // Fetch ALL alerts at once, deduplicate on frontend, then paginate.
+    // This gives accurate total count and correct LIFO order.
+    this.svc.getAlerts({ limit: 500, offset: 0 }).subscribe({
       next: (res: any) => {
-        this.alerts.set(res.alerts || []);
-        this.alertsTotal.set(res.total ?? (res.alerts || []).length);
+        // Deduplicate: keep only the latest alert per product+platform
+        const allAlerts: any[] = res.alerts || [];
+        const seen = new Map<string, any>();
+        for (const a of allAlerts) {
+          // Normalize: use first 30 chars of title to group same product
+          // with different scraped titles (e.g. search query vs full title)
+          const normTitle = (a.title || a.product_name || '').toLowerCase().slice(0, 30);
+          const key = `${normTitle}__${a.platform}`;
+          if (!seen.has(key) || new Date(a.detected_at) > new Date(seen.get(key).detected_at)) {
+            seen.set(key, a);
+          }
+        }
+        const deduped = Array.from(seen.values())
+          .sort((a, b) => new Date(b.detected_at).getTime() - new Date(a.detected_at).getTime());
+        // Store ALL deduped alerts, paginate in template via slice
+        this.allAlerts.set(deduped);
+        this.alertsTotal.set(deduped.length);
+        // Show current page slice
+        const page = this.alertsPage();
+        const start = (page - 1) * ALERTS_PAGE_SIZE;
+        this.alerts.set(deduped.slice(start, start + ALERTS_PAGE_SIZE));
         this.alertCount.set(res.unread_count ?? 0);
         this.alertsLoading.set(false);
       },
@@ -95,13 +115,17 @@ export class ScoutMonitorTab implements OnInit {
   nextAlertsPage() {
     if (!this.alertsHasNext()) return;
     this.alertsPage.update(p => p + 1);
-    this.loadAlerts();
+    const page = this.alertsPage();
+    const start = (page - 1) * ALERTS_PAGE_SIZE;
+    this.alerts.set(this.allAlerts().slice(start, start + ALERTS_PAGE_SIZE));
   }
 
   prevAlertsPage() {
     if (this.alertsPage() <= 1) return;
     this.alertsPage.update(p => p - 1);
-    this.loadAlerts();
+    const page = this.alertsPage();
+    const start = (page - 1) * ALERTS_PAGE_SIZE;
+    this.alerts.set(this.allAlerts().slice(start, start + ALERTS_PAGE_SIZE));
   }
 
   // ── Products page loading ───────────────────────────────────────
@@ -169,7 +193,7 @@ export class ScoutMonitorTab implements OnInit {
     this.monitorResult.set('');
     this.svc.runMonitor().subscribe({
       next: (res: any) => {
-        this.monitorResult.set(`Checked ${res.products_checked} products, ${res.alerts_generated} alerts`);
+        this.monitorResult.set('');
         this.monitoring.set(false);
         // Reset to page 1 after a monitor run so the newest alerts are visible.
         this.alertsPage.set(1);
@@ -276,10 +300,21 @@ export class ScoutMonitorTab implements OnInit {
     return 'INR';
   }
 
-  changeIcon(a: any): string { return a.direction === 'down' ? '📉' : a.direction === 'up' ? '📈' : '🆕'; }
-  changeClass(a: any): string { return a.direction === 'down' ? 'text-green' : a.direction === 'up' ? 'text-red' : 'text-blue'; }
+  changeIcon(a: any): string {
+    if (a.direction === 'down')   return '📉';
+    if (a.direction === 'up')     return '📈';
+    if (a.direction === 'stable') return '➡️';
+    return '🆕';
+  }
+  changeClass(a: any): string {
+    if (a.direction === 'down')   return 'text-green';
+    if (a.direction === 'up')     return 'text-red';
+    if (a.direction === 'stable') return 'text-muted';
+    return 'text-blue';
+  }
   fmtChange(a: any): string {
-    if (a.direction === 'new') return 'New';
+    if (a.direction === 'new')    return 'New';
+    if (a.direction === 'stable') return 'Stable';
     return a.change_percent != null ? `${a.change_percent > 0 ? '+' : ''}${a.change_percent.toFixed(1)}%` : '—';
   }
   timeAgo(d: string): string {

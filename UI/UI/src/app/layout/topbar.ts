@@ -23,7 +23,7 @@ const META: Record<string, { title: string; meta: string }> = {
 
   // ── Strategist Agent ─────────────────────────────────────────────
   'pricing-engine': { title: '💎 Pricing Engine',        meta: 'Strategist Agent · Dynamic pricing recommendations' },
-  'market-trends':  { title: '📈 Market Trends',         meta: 'Strategist Agent · Category and competitor trend analysis' },
+  // 'market-trends':  { title: '📈 Market Trends',         meta: 'Strategist Agent · Category and competitor trend analysis' },  // temporarily hidden
 
   // ── Retention Agent ──────────────────────────────────────────────
   'run-pipeline':      { title: '🚀 Run Pipeline',       meta: 'Retention Agent · Trigger retention model execution' },

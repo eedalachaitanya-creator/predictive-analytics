@@ -11,7 +11,6 @@
     @if (monitoring()) { <span class="spin"></span> Running… } @else { 🔄 Run Price Monitor }
   </button>
   <button class="btn outline" (click)="loadData()">↻ Refresh</button>
-  @if (monitorResult()) { <span class="badge green">{{ monitorResult() }}</span> }
 </div>
 
 <!-- Alerts Table -->
@@ -20,7 +19,7 @@
     <div class="card-header">
       <div class="card-title">🔔 Recent Price Alerts</div>
     </div>
-    <div class="table-scroll paged-scroll">
+    <div class="table-scroll paged-scroll" style="max-height:480px; overflow-y:auto;">
       <table class="data-table recentproducts-table">
         <thead>
           <tr>
@@ -29,8 +28,7 @@
             <th>Platform</th>
             <th>Old Price</th>
             <th>New Price</th>
-            <th>Change</th>
-            <th>When</th>
+            <th>Alert</th>
           </tr>
         </thead>
         <tbody>
@@ -42,7 +40,6 @@
               <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, currencyFor(a.platform)) : '—' }}</td>
               <td class="font-mono"><strong>{{ fmt(a.new_price, currencyFor(a.platform)) }}</strong></td>
               <td [class]="changeClass(a)"><strong>{{ fmtChange(a) }}</strong></td>
-              <td class="text-muted">{{ timeAgo(a.detected_at) }}</td>
             </tr>
           }
         </tbody>

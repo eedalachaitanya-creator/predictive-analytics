@@ -531,9 +531,10 @@ class Database:
         # "new" alert even though history existed.
         product_name = self._normalize_name(product_name)
 
-        last = self.get_last_price(product_name, platform)
+        last = self.get_last_price(product_name, platform, client_id)
 
-        # Skip if same price was recorded in the last hour (dedup)
+        # Dedup: skip price_history INSERT if same price was recorded in last hour.
+        # But still run _detect_price_change so old_price is populated in alerts.
         if last:
             last_price = float(last["price"])
             last_time  = last["scraped_at"]
@@ -541,7 +542,9 @@ class Database:
                 last_time = last_time.replace(tzinfo=timezone.utc)
             minutes_since = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
             if last_price == price and minutes_since < 60:
-                return None
+                # Price unchanged within dedup window — skip history insert
+                # but still return the alert with old_price so UI shows it.
+                return self._detect_price_change(product_name, platform, last, price, url, client_id)
 
         with self._conn() as conn:
             self._execute(conn, """
@@ -657,6 +660,20 @@ class Database:
         change_percent = round((change_amount / old_price) * 100, 2)
 
         if abs(change_percent) < CHANGE_THRESHOLD_PERCENT:
+            # Price unchanged — update the most recent alert's old_price
+            # in place if it was null, so UI shows OLD PRICE without
+            # creating a new alert (which would break LIFO order).
+            with self._conn() as conn:
+                self._execute(conn, """
+                    UPDATE price_alerts
+                    SET old_price = %s
+                    WHERE id = (
+                        SELECT id FROM price_alerts
+                        WHERE product_name = %s AND platform = %s AND client_id = %s
+                        ORDER BY detected_at DESC LIMIT 1
+                    )
+                    AND old_price IS NULL
+                """, (old_price, product_name, platform, client_id))
             return None
 
         return self._save_alert(
@@ -689,8 +706,9 @@ class Database:
                 SELECT id FROM price_alerts
                 WHERE product_name = %s AND platform = %s AND client_id = %s
                   AND new_price = %s AND direction = %s
+                  AND old_price IS NOT DISTINCT FROM %s
                   AND detected_at > NOW() - INTERVAL '5 minutes'
-            """, (product_name, platform, client_id, new_price, direction))
+            """, (product_name, platform, client_id, new_price, direction, old_price))
             if existing:
                 return None
 
@@ -742,6 +760,7 @@ class Database:
         # The JOIN gets the scraped title from product_details JSON.
         # COALESCE falls back to product_name so the UI never shows blank
         # if the product_results row was deleted or has no title field.
+        # DISTINCT ON keeps only the latest alert per product+platform (LIFO)
         select_with_title = """
             SELECT
                 a.*,
@@ -749,7 +768,12 @@ class Database:
                     pr.product_details->>'title',
                     a.product_name
                 ) AS title
-            FROM price_alerts a
+            FROM (
+                SELECT DISTINCT ON (product_name, platform) *
+                FROM price_alerts
+                WHERE client_id = %s
+                ORDER BY product_name, platform, detected_at DESC
+            ) a
             LEFT JOIN product_results pr
               ON pr.product_name = a.product_name
              AND pr.platform     = a.platform
@@ -759,22 +783,31 @@ class Database:
             if unacknowledged_only:
                 rows = self._fetchall(conn, f"""
                     {select_with_title}
-                    WHERE a.acknowledged = FALSE AND a.client_id = %s
+                    WHERE a.acknowledged = FALSE
                     ORDER BY a.detected_at DESC
                     LIMIT %s OFFSET %s
                 """, (client_id, limit, offset))
                 total_row = self._fetchone(conn,
-                    "SELECT COUNT(*) AS count FROM price_alerts WHERE acknowledged = FALSE AND client_id = %s",
+                    """SELECT COUNT(*) AS count FROM (
+                        SELECT DISTINCT ON (product_name, platform) id
+                        FROM price_alerts
+                        WHERE acknowledged = FALSE AND client_id = %s
+                        ORDER BY product_name, platform, detected_at DESC
+                    ) t""",
                     (client_id,))
             else:
                 rows = self._fetchall(conn, f"""
                     {select_with_title}
-                    WHERE a.client_id = %s
                     ORDER BY a.detected_at DESC
                     LIMIT %s OFFSET %s
                 """, (client_id, limit, offset))
                 total_row = self._fetchone(conn,
-                    "SELECT COUNT(*) AS count FROM price_alerts WHERE client_id = %s",
+                    """SELECT COUNT(*) AS count FROM (
+                        SELECT DISTINCT ON (product_name, platform) id
+                        FROM price_alerts
+                        WHERE client_id = %s
+                        ORDER BY product_name, platform, detected_at DESC
+                    ) t""",
                     (client_id,))
 
             total = int(total_row["count"]) if total_row else 0

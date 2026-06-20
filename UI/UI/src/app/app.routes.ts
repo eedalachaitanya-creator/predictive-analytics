@@ -45,7 +45,7 @@ export const routes: Routes = [
       },
 
       { path: 'pricing-engine',    loadComponent: () => import('./pages/pricing-engine').then(m => m.PricingEngineComponent),       canActivate: [clientGuard] },
-      { path: 'market-trends',     loadComponent: () => import('./pages/market-trends').then(m => m.MarketTrendsComponent),         canActivate: [clientGuard] },
+      // { path: 'market-trends',     loadComponent: () => import('./pages/market-trends').then(m => m.MarketTrendsComponent),         canActivate: [clientGuard] },  // temporarily hidden
       
       { path: 'strategist', redirectTo: 'pricing-engine', pathMatch: 'full' },
       { path: 'run-pipeline',      loadComponent: () => import('./pages/run-pipeline').then(m => m.RunPipelineComponent),            canActivate: [clientGuard] },

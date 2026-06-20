@@ -94,6 +94,7 @@ VALID_MASTER_TYPES = {
     "category", "sub_category", "sub_sub_category",
     "brand", "vendor",
     "customer_reviews", "support_tickets",
+    "login_event",
 }
 
 # Directory to save uploaded files
@@ -182,6 +183,12 @@ MASTER_TYPE_TO_TABLE = {
          "status", "channel", "opened_date", "resolved_date", "resolution_time_hrs",
          "ticket_text", "source"],
     ),
+    # One row per login (engagement event log) — feeds point-in-time login
+    # features in the temporal model. Same upload path as orders/tickets.
+    "login_event": (
+        "login_events",
+        ["client_id", "login_id", "customer_id", "login_at", "login_channel"],
+    ),
 }
 
 # ── Required-column rules per master type ────────────────────────────────────
@@ -211,6 +218,7 @@ REQUIRED_COLS_PER_MASTER = {
     "vendor":           ["vendor_id", "vendor_name"],
     "customer_reviews": ["review_id", "customer_id", "product_id", "rating"],
     "support_tickets":  ["ticket_id", "customer_id", "ticket_type"],
+    "login_event":      ["login_id", "customer_id", "login_at"],
 }
 
 
@@ -605,6 +613,7 @@ COMMIT_CONFLICT = {
     "line_items":       (("client_id", "line_item_id"),        "nothing"),
     "customer_reviews": (("client_id", "review_id"),           "nothing"),
     "support_tickets":  (("client_id", "ticket_id"),           "nothing"),
+    "login_event":      (("client_id", "login_id"),            "nothing"),
 }
 
 
@@ -621,7 +630,7 @@ COMMIT_ORDER = [
     "customer",
     "order",
     "line_items",
-    "customer_reviews", "support_tickets",
+    "customer_reviews", "support_tickets", "login_event",
 ]
 
 

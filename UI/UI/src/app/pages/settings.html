@@ -11,7 +11,7 @@
       <div class="param-row" [class.param-disabled]="!hasLoginData()">
         <div>
           <div class="param-label">RECENT LOGIN WINDOW</div>
-          <div class="param-desc">How many days of recent logins count as active engagement. The model treats fewer recent logins as an early churn-warning signal — separate from order activity.
+          <div class="param-desc">How recently a customer must have logged in to still count as active. We decide who has churned by looking at both things together — their last login and their last order — so a customer who keeps logging in isn't marked as lost just because they haven't bought in a while.
             @if (!hasLoginData()) {
               <span class="login-locked-hint">🔒 Upload <strong>Login Events</strong> on the Upload page to enable this.</span>
             }

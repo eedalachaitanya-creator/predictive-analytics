@@ -35,16 +35,19 @@ export class SidebarComponent {
     pathPrefixes: [
       '/app/upload', '/app/validation', '/app/settings',
       '/app/dashboard', '/app/churn-scores',
-      '/app/chat', '/app/cost-tracking',
+      // Agent Chat + Cost Tracking hidden from the Analyst Agent nav (commented
+      // out per request — routes still exist; un-comment to re-enable).
+      // '/app/chat', '/app/cost-tracking',
    ],
     children: [
       { path: '/app/dashboard',     label: 'Dashboard',       icon: '📊' },
       { path: '/app/upload',        label: 'Upload Data',     icon: '📤' },
       { path: '/app/validation',    label: 'Validation',      icon: '✅' },
-      { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' }, 
+      { path: '/app/settings',      label: 'Configure & Run', icon: '⚙️' },
       { path: '/app/churn-scores',  label: 'Churn Scores',    icon: '📈' },
-      { path: '/app/chat',          label: 'Agent Chat',      icon: '🤖' },
-      { path: '/app/cost-tracking', label: 'Cost Tracking',   icon: '💰' },
+      // Hidden per request (un-comment to restore):
+      // { path: '/app/chat',          label: 'Agent Chat',      icon: '🤖' },
+      // { path: '/app/cost-tracking', label: 'Cost Tracking',   icon: '💰' },
     ],
   };
 

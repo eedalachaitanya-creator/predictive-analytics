@@ -108,8 +108,11 @@
     </table>
   </div>
 
-  <!-- Per-tenant external-signal integrations (own card, own Save/Test/Sync) -->
-  <app-jira-integration />
+  <!-- Per-tenant external-signal integrations — one card per provider, each with
+       its own Save/Test/Sync (rendered from GET /integrations). -->
+  @for (i of integrations(); track i.provider) {
+    <app-integration-card [provider]="i.provider" [meta]="i.meta" />
+  }
 
   <div class="flex-row">
     <button class="btn walmart" (click)="save()">💾 Save Settings</button>

@@ -7,7 +7,7 @@ import { AuthService } from '../services/auth.service';
 import { TierLabelService } from '../services/tier-label.service';
 import { PipelineService } from '../services/pipeline.service';
 import { PipelineRunRequest } from '../models';
-import { JiraIntegrationComponent } from './jira-integration';
+import { IntegrationCardComponent, ProviderMeta } from './integration-card';
 
 // ─────────────────────────────────────────────────────────────────────────
 // System defaults — single source of truth for "Reset to Defaults".
@@ -43,7 +43,7 @@ const DEFAULTS = {
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, JiraIntegrationComponent],
+  imports: [CommonModule, FormsModule, IntegrationCardComponent],
   templateUrl: './settings.html',
   styleUrls: ['./settings.scss']
 })
@@ -77,6 +77,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   tierLabelSilver   = signal('🥈 Silver');
   tierLabelBronze   = signal('🥉 Bronze');
 
+  // Third-party integrations — one card per provider (from GET /integrations).
+  integrations = signal<{ provider: string; meta: ProviderMeta }[]>([]);
+
   // State
   loading = signal(true);
   saved = signal(false);
@@ -103,6 +106,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.loadSettings();
+    this.loadIntegrations();
+  }
+
+  /** Fetch the provider list + metadata so we can render one card per provider. */
+  private loadIntegrations() {
+    this.api.get<Record<string, { meta: ProviderMeta }>>(
+      `/integrations?clientId=${this.clientId}`
+    ).subscribe({
+      next: res => {
+        this.integrations.set(
+          Object.entries(res).map(([provider, v]) => ({ provider, meta: v.meta }))
+        );
+      },
+      error: () => { /* integrations are optional — a load failure just hides the cards */ },
+    });
   }
 
   ngOnDestroy() { this.sub?.unsubscribe(); }

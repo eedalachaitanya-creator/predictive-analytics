@@ -20,9 +20,9 @@ interface ProductRow {
   styleUrls: ['./recommend.scss']
 })
 export class StrategistRecommendTab {
-  private svc  = inject(StrategistService);
-  private auth = inject(AuthService);
-  clientId     = this.auth.getClientId();
+  private svc   = inject(StrategistService);
+  private auth  = inject(AuthService);
+  clientId      = this.auth.getClientId();
 
   constructor() {
     // Pre-fill currency dropdown from client_config (silent fallback to INR)
@@ -48,7 +48,24 @@ export class StrategistRecommendTab {
 
   // Currency — prefilled from client_config.currency, user can override per request
   currency        = signal('INR');
-  currencyOptions = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
+  // responseCurrency — set from res.currency after a successful API call.
+  // This is what fmtPrice() uses to display symbols, so the symbol always
+  // matches the actual currency the backend computed prices in, not just
+  // whatever the user has currently selected in the dropdown.
+  responseCurrency = signal('INR');
+
+  // Single source of truth for currency metadata.
+  // To add a new currency: add one entry here. The dropdown and symbol
+  // formatter both read from this — no other changes needed.
+  readonly CURRENCIES: { code: string; symbol: string }[] = [
+    { code: 'INR', symbol: '₹'    },
+    { code: 'USD', symbol: '$'    },
+    { code: 'EUR', symbol: '€'    },
+    { code: 'GBP', symbol: '£'    },
+    { code: 'AED', symbol: 'AED ' },
+    { code: 'SGD', symbol: 'S$'   },
+  ];
+  get currencyOptions(): string[] { return this.CURRENCIES.map(c => c.code); }
 
   // Autocomplete state — suggestions[i] = list for product row i
   suggestions     = signal<Record<number, { name: string; sku: string; saved_cost: number }[]>>({});
@@ -190,6 +207,9 @@ export class StrategistRecommendTab {
 
     this.svc.recommend(req).subscribe({
       next: (res) => {
+        // Lock the displayed currency to what the backend actually used.
+        // This is the source of truth — not the dropdown signal.
+        this.responseCurrency.set(res.currency);
         // Map product_name back to displayName for UI
         const displayMap: Record<string, string> = {};
         this.products().forEach(p => {
@@ -269,11 +289,32 @@ export class StrategistRecommendTab {
     return 'gray';
   }
 
+  /**
+   * Returns true when the recommended price is driven by competitor market
+   * data rather than the user's margin settings — so the banner explaining
+   * "adjust Undercut By %" is relevant to show.
+   *
+   * Two cases where this is true:
+   *  1. strategy = 'undercut'  — price is always comp_min × (1 - undercut%).
+   *     Target/min margin had no effect.
+   *  2. strategy = 'match' AND suggested === competitor_min — our target margin
+   *     was above the market floor so we capped to it. Margin settings still
+   *     had no effect on the final number.
+   *
+   * All other strategies (floor_only, premium, retention, no_data) are driven
+   * by cost, positioning, or churn — not competitor anchoring — so no hint.
+   */
+  showMarketHint(rec: PricingRecommendation): boolean {
+    if (rec.strategy === 'undercut') return true;
+    if (rec.strategy === 'match' && rec.suggested_price === rec.competitor_min) return true;
+    return false;
+  }
+
   trendIcon(t: string) { return t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️'; }
 
   fmtPrice(n: number) {
-    const symbols: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ', SGD: 'S$' };
-    const sym = symbols[this.currency()] || '';
+    const entry = this.CURRENCIES.find(c => c.code === this.responseCurrency());
+    const sym = entry ? entry.symbol : this.responseCurrency();
     return n ? sym + n.toFixed(2) : '—';
   }
 
@@ -281,9 +322,18 @@ export class StrategistRecommendTab {
   fmtProb(n: number) { return ((n || 0) * 100).toFixed(1) + '%'; }
 
   platformIcon(p: string) {
-    const icons: Record<string, string> = {
-      amazon: '🛒', flipkart: '🏪', meesho: '🛍', myntra: '👗', snapdeal: '🏷'
-    };
-    return icons[p?.toLowerCase()] || '🌐';
+    // Keyword-based matching — works for any platform name without hardcoding.
+    // New platforms the Scout Agent discovers automatically get a sensible icon.
+    const name = p?.toLowerCase() ?? '';
+    if (name.includes('amazon'))   return '🛒';
+    if (name.includes('flipkart')) return '🏪';
+    if (name.includes('meesho'))   return '🛍';
+    if (name.includes('myntra'))   return '👗';
+    if (name.includes('snapdeal')) return '🏷';
+    if (name.includes('nykaa'))    return '💄';
+    if (name.includes('jiomart') || name.includes('jio')) return '📦';
+    if (name.includes('ebay'))     return '🔨';
+    if (name.includes('walmart'))  return '🏬';
+    return '🌐';
   }
 }

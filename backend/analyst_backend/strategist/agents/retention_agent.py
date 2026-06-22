@@ -83,12 +83,7 @@ _VP_DISCOUNTS: dict[tuple[str, str], float] = {
 # Channel routing — hardcoded fallback. Used ONLY when a (tier, risk) row in
 # value_propositions has no `channel` column value. Otherwise the DB wins.
 # Change the DB, not this dict, to customize channels per client.
-_CHANNEL_ROUTING: dict[str, str] = {
-    "Platinum": "email",
-    "Gold":     "email",
-    "Silver":   "email",
-    "Bronze":   "email",
-}
+_DEFAULT_CHANNEL = "email"   # fallback when value_propositions.channel is null
 
 # Human escalation thresholds
 ESCALATION_THRESHOLD = 0.90   # churn_probability must be at or above this
@@ -256,7 +251,7 @@ class RetentionAgent:
         # ── Channel routing ─────────────────────────────────────────────────
         # DB-first: if value_propositions specifies a channel for this (tier, risk),
         # use it. Otherwise fall back to the hardcoded tier-based routing.
-        channel = channel_lookup.get((tier, risk)) or _CHANNEL_ROUTING.get(tier, "email")
+        channel = channel_lookup.get((tier, risk)) or _DEFAULT_CHANNEL
 
         # ── LTV and high-value flag ─────────────────────────────────────────
         ltv_usd       = score.total_spend_usd

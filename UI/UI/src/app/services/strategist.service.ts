@@ -100,6 +100,7 @@ export interface StrategistResponse {
   retention_count:   number;
   total_products:    number;
   elapsed_seconds:   number;
+  currency:        string;
 }
 
 export interface MarketTrend   { product_name: string; trend: string; }

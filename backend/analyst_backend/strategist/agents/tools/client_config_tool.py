@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Defined here so it's available even if the DB module fails to import
 # ---------------------------------------------------------------------------
 _DEFAULT_CONFIG = ClientConfig(
-    client_id          = "CLT-001",
+    client_id          = "__fallback__",   # sentinel — DB was unreachable, no real client
     client_name        = "Default Client",
     currency           = "USD",
     max_discount_pct   = 30.0,

@@ -85,7 +85,7 @@ class ScoutPriceFetchTool(BaseTool):
             logger.info("ScoutPriceFetchTool: API unavailable — falling back to DB")
 
         # ── Source 2: entity_listings DB (always available) ─────────────────
-        return await self._fetch_from_db(product_names, currency=currency)
+        return await self._fetch_from_db(product_names, currency=currency, client_id=client_id)
 
     # ── HTTP source ───────────────────────────────────────────────────────────
 
@@ -138,17 +138,11 @@ class ScoutPriceFetchTool(BaseTool):
         self,
         product_names: list[str],
         currency: str = "INR",
+        client_id: str = "",          # ← FIXED: added client_id parameter
     ) -> ScoutBulkResponse:
         """
         Query entity_listings directly from Scout DB.
-
-        Matching strategy (in priority order):
-          1. Exact match on entities.canonical_name
-          2. Case-insensitive match on entities.query
-          3. Trigram similarity >= 0.3 (pg_trgm) — works for ANY product name
-
-        DISTINCT ON (el.platform) deduplicates — one listing per platform
-        even if multiple entities match the same product.
+        Falls back to price_history if no entity data exists for this client_id.
         """
         try:
             from strategist.db.connection import get_scout_pool
@@ -182,71 +176,103 @@ class ScoutPriceFetchTool(BaseTool):
                       AND el.availability = 'in_stock'
                       AND el.price > 0
                       AND el.currency = $3
+                      AND el.client_id = $4
+                      AND e.client_id  = $4
                     ORDER BY el.platform, el.price ASC, el.last_seen DESC
                     """,
                     product_names,
                     lowered,
                     currency,
+                    client_id,
                 )
 
-            # Map every returned row back to the user's input product name.
-            # Priority: exact canonical → exact query → token overlap fallback.
-            input_set_exact  = set(product_names)
-            input_set_lower  = {n.lower(): n for n in product_names}
-            products: dict[str, list[ScoutListing]] = {n: [] for n in product_names}
+                # Map every returned row back to the user's input product name.
+                input_set_exact  = set(product_names)
+                input_set_lower  = {n.lower(): n for n in product_names}
+                products: dict[str, list[ScoutListing]] = {n: [] for n in product_names}
 
-            for row in rows:
-                canonical = row["canonical_name"]
-                orig_q    = row["orig_query"]
-                matched_key = None
+                for row in rows:
+                    canonical = row["canonical_name"]
+                    orig_q    = row["orig_query"]
+                    matched_key = None
 
-                # Priority 1: exact canonical_name
-                if canonical in input_set_exact:
-                    matched_key = canonical
+                    if canonical in input_set_exact:
+                        matched_key = canonical
+                    elif orig_q and orig_q.lower() in input_set_lower:
+                        matched_key = input_set_lower[orig_q.lower()]
+                    else:
+                        best_score = 0.0
+                        for input_name in product_names:
+                            input_tokens     = set(input_name.lower().split())
+                            canonical_tokens = set(canonical.lower().split())
+                            if not input_tokens:
+                                continue
+                            overlap = len(input_tokens & canonical_tokens) / len(input_tokens)
+                            if overlap > best_score:
+                                best_score  = overlap
+                                matched_key = input_name
+                        if best_score < 0.3:
+                            matched_key = None
 
-                # Priority 2: exact query column
-                elif orig_q and orig_q.lower() in input_set_lower:
-                    matched_key = input_set_lower[orig_q.lower()]
+                    if matched_key is None:
+                        continue
 
-                # Priority 3: token overlap — no hardcoding, works for any product
-                else:
-                    best_score = 0.0
-                    for input_name in product_names:
-                        input_tokens     = set(input_name.lower().split())
-                        canonical_tokens = set(canonical.lower().split())
-                        if not input_tokens:
-                            continue
-                        overlap = len(input_tokens & canonical_tokens) / len(input_tokens)
-                        if overlap > best_score:
-                            best_score  = overlap
-                            matched_key = input_name
-                    # Require at least 30% token overlap to accept the match
-                    if best_score < 0.3:
-                        matched_key = None
+                    listing = ScoutListing(
+                        platform     = row["platform"],
+                        price        = ScoutPrice(
+                            value    = float(row["price"]),
+                            currency = row.get("currency", "INR"),
+                        ),
+                        availability = row.get("availability", "in_stock"),
+                        url          = row.get("url"),
+                        source       = ScoutSource(type="db", confidence=0.9),
+                    )
+                    if len(products[matched_key]) < 10:
+                        products[matched_key].append(listing)
 
-                if matched_key is None:
-                    continue
+                scout_products = [
+                    ScoutProduct(name=name, listings=listings)
+                    for name, listings in products.items()
+                ]
 
-                listing = ScoutListing(
-                    platform     = row["platform"],
-                    price        = ScoutPrice(
-                        value    = float(row["price"]),
-                        currency = row.get("currency", "INR"),
-                    ),
-                    availability = row.get("availability", "in_stock"),
-                    url          = row.get("url"),
-                    source       = ScoutSource(
-                        type       = "db",
-                        confidence = 0.9,
-                    ),
-                )
-                if len(products[matched_key]) < 10:
-                    products[matched_key].append(listing)
-
-            scout_products = [
-                ScoutProduct(name=name, listings=listings)
-                for name, listings in products.items()
-            ]
+                # Fallback: if no entity data for this client_id, use price_history
+                # Both queries are inside the same conn block — no scope issue
+                if not any(p.listings for p in scout_products):
+                    logger.info("ScoutPriceFetchTool: no entity data, falling back to price_history")
+                    ph_rows = await conn.fetch(
+                        """
+                        SELECT DISTINCT ON (product_name, platform)
+                            product_name, platform, price, currency, scraped_at
+                        FROM price_history
+                        WHERE client_id = $1 AND price > 0
+                          AND (
+                              product_name = ANY($2::text[])
+                              OR EXISTS (
+                                  SELECT 1 FROM unnest($2::text[]) AS input_name
+                                  WHERE similarity(LOWER(product_name), LOWER(input_name)) > 0.3
+                              )
+                          )
+                        ORDER BY product_name, platform, scraped_at DESC
+                        """,
+                        client_id, product_names,
+                    )
+                    ph_products: dict = {n: [] for n in product_names}
+                    for row in ph_rows:
+                        name = row["product_name"]
+                        if name in ph_products:
+                            ph_products[name].append(
+                                ScoutListing(
+                                    platform     = row["platform"],
+                                    price        = ScoutPrice(value=float(row["price"]), currency=row.get("currency", "INR")),
+                                    availability = "in_stock",
+                                    url          = "",
+                                    source       = ScoutSource(type="db", confidence=0.9),
+                                )
+                            )
+                    scout_products = [
+                        ScoutProduct(name=name, listings=listings)
+                        for name, listings in ph_products.items()
+                    ]
 
             found = sum(1 for p in scout_products if p.listings)
             logger.info(

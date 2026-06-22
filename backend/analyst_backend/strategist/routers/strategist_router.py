@@ -123,6 +123,7 @@ async def recommend(
         client_id       = request.client_id,
         status          = "ok",
         elapsed_seconds = elapsed,
+        currency        = request.currency or "INR",
     )
 
 
@@ -277,10 +278,12 @@ async def sample_request(
                 JOIN entity_listings el ON el.entity_id = e.id
                 WHERE el.price > 0
                   AND el.availability = 'in_stock'
+                  AND el.client_id = $2
+                  AND e.client_id  = $2
                 ORDER BY e.canonical_name, el.last_seen DESC
                 LIMIT $1
                 """,
-                limit,
+                limit, client_id,
             )
 
         # Group by canonical product name
@@ -299,6 +302,32 @@ async def sample_request(
                 "url":          r.get("url"),
                 "source":       {"type": "db", "confidence": 0.9},
             })
+
+        # Fallback: if no entity listings found for this client_id,
+        # use price_history which is correctly scoped with client_id.
+        if not products:
+            ph_rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (product_name, platform)
+                    product_name, platform, price, currency, scraped_at AS last_seen
+                FROM price_history
+                WHERE client_id = $1 AND price > 0
+                ORDER BY product_name, platform, scraped_at DESC
+                LIMIT $2
+                """,
+                client_id, limit,
+            )
+            for r in ph_rows:
+                name = r["product_name"]
+                if name not in products:
+                    products[name] = {"name": name, "listings": []}
+                products[name]["listings"].append({
+                    "platform":     r["platform"],
+                    "price":        {"value": float(r["price"]), "currency": r.get("currency", "INR")},
+                    "availability": "in_stock",
+                    "url":          None,
+                    "source":       {"type": "db", "confidence": 0.9},
+                })
 
         scout_output["products"] = list(products.values())
 

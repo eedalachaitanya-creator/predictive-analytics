@@ -268,11 +268,11 @@
               <td class="font-mono" style="font-size:12px">{{ c.company_phone || '—' }}</td>
               <td>
                 @if (c.is_active) {
-                  <span class="status-pill status-active">● Active</span>
+                  <span class="status-pill status-active"><span class="status-dot"></span>Active</span>
                 } @else {
                   <span class="status-pill status-inactive"
                         [title]="'Deactivated ' + formatDate(c.deactivated_at)">
-                    ● Inactive
+                    <span class="status-dot"></span>Inactive
                   </span>
                 }
               </td>

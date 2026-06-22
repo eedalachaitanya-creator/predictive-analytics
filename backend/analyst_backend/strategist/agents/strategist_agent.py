@@ -156,6 +156,7 @@ class StrategistAgent:
         self.config.min_margin_pct      = request.min_margin_pct
         self.config.undercut_pct        = request.undercut_pct
         self.config.overhead_multiplier = request.overhead_multiplier
+        print(f"[DEBUG] PricingConfig: target={self.config.target_margin_pct}% min={self.config.min_margin_pct}% undercut={self.config.undercut_pct}% overhead={self.config.overhead_multiplier}")
         self.config.min_confidence      = request.min_confidence
         self.config.max_discount_pct    = request.max_discount_pct
         self.config.high_ltv_threshold  = request.high_ltv_threshold
@@ -218,12 +219,15 @@ class StrategistAgent:
         span = self._lf_span(trace, f"product:{product.name[:50]}", len(product.listings))
 
         # ── Layer 1: Filter valid listings ─────────────────────────────────
-        # Only use in-stock listings with confidence above threshold
+        # Only use in-stock listings with confidence above threshold AND
+        # matching the requested currency so prices are never mixed across
+        # currencies (e.g. INR listings must not pollute a USD pricing run).
         valid: list[ScoutListing] = [
             lst for lst in product.listings
             if lst.availability == "in_stock"
             and lst.price.value > 0
             and lst.source.confidence >= self.config.min_confidence
+            and lst.price.currency.upper() == currency.upper()
         ]
 
         # Build platform breakdown for the response (all valid listings, not just cheapest)
@@ -266,8 +270,8 @@ class StrategistAgent:
             self._lf_end_span(span, {"skipped": "cogs_too_low"})
             return self._no_data(
                 product.name, platform_breakdown, "invalid_cost_data",
-                f"COGS for '{product.name}' is suspiciously low (₹{raw_cogs}). "
-                "Minimum ₹1 required. Check your data.",
+                f"COGS for '{product.name}' is suspiciously low ({currency_symbol}{raw_cogs}). "
+                f"Minimum {currency_symbol}1 required. Check your data.",
                 comp_min    = round(min(prices), 2),
                 comp_avg    = round(statistics.mean(prices), 2),
                 comp_max    = round(max(prices), 2),
@@ -279,6 +283,7 @@ class StrategistAgent:
         true_cost    = round(raw_cogs * self.config.overhead_multiplier, 2)
         floor_price  = round(true_cost * (1 + self.config.min_margin_pct    / 100), 2)
         target_price = round(true_cost * (1 + self.config.target_margin_pct / 100), 2)
+        print(f"[DEBUG] {product.name}: cogs={raw_cogs} true_cost={true_cost} floor={floor_price} target={target_price} comp_min={min(prices) if prices else 0} undercut={self.config.undercut_pct}%")
 
         # ── Layer 2: Competitor stats ───────────────────────────────────────
         comp_min    = round(min(prices), 2)
@@ -307,7 +312,7 @@ class StrategistAgent:
             strategy  = "floor_only"
             flag      = "low_margin_warning"
             warnings.append(
-                f"Our floor (₹{floor_price}) exceeds market min (₹{comp_min}). "
+                f"Our floor ({currency_symbol}{floor_price}) exceeds market min ({currency_symbol}{comp_min}). "
                 "Competitor may be selling at a loss or have lower COGS."
             )
 
@@ -472,9 +477,9 @@ class StrategistAgent:
                 customer_segment, flag, warnings, platform_breakdown,
                 currency_symbol,
             ),
-            client_note          = self._client_note(strategy, suggested, margin_pct, flag),
+            client_note          = self._client_note(strategy, suggested, margin_pct, flag, currency_symbol),
             customer_note        = self._customer_note(
-                strategy, suggested, comp_min, comp_avg, customer_segment
+                strategy, suggested, comp_min, comp_avg, customer_segment, currency_symbol
             ),
             flag                 = flag,
             warnings             = warnings,
@@ -512,20 +517,20 @@ class StrategistAgent:
         platform_str = ", ".join(p.platform for p in platform_breakdown[:5])
         market_block = (
             f"Market ({len(platform_breakdown)} platforms: {platform_str}): "
-            f"min=₹{comp_min}, median=₹{comp_median}, avg=₹{comp_avg}. "
+            f"min={currency_symbol}{comp_min}, median={currency_symbol}{comp_median}, avg={currency_symbol}{comp_avg}. "
             f"Trend: {market_trend}."
         )
 
         # Strategy-specific explanation
         strategy_text = {
-            "undercut":   (f"UNDERCUT — target (₹{target}) < comp_min (₹{comp_min}). "
-                           f"Undercutting by {self.config.undercut_pct}% → ₹{suggested}."),
-            "match":      (f"MATCH — pricing at ₹{suggested} (min of target/comp_min)."),
-            "floor_only": (f"FLOOR ONLY — our floor (₹{floor}) > comp_min (₹{comp_min}). "
+            "undercut":   (f"UNDERCUT — target ({currency_symbol}{target}) < comp_min ({currency_symbol}{comp_min}). "
+                           f"Undercutting by {self.config.undercut_pct}% → {currency_symbol}{suggested}."),
+            "match":      (f"MATCH — pricing at {currency_symbol}{suggested} (min of target/comp_min)."),
+            "floor_only": (f"FLOOR ONLY — our floor ({currency_symbol}{floor}) > comp_min ({currency_symbol}{comp_min}). "
                            "Cannot profitably undercut. Selling at cost floor."),
-            "premium":    (f"PREMIUM — brand positioning 5% above avg (₹{comp_avg}) → ₹{suggested}."),
+            "premium":    (f"PREMIUM — brand positioning 5% above avg ({currency_symbol}{comp_avg}) → {currency_symbol}{suggested}."),
             "retention":  (f"RETENTION — churn discount applied. "
-                           f"Standard price was ₹{pre_retention} → ₹{suggested}."),
+                           f"Standard price was {currency_symbol}{pre_retention} → {currency_symbol}{suggested}."),
             "no_data":    "INSUFFICIENT DATA.",
         }.get(strategy, "")
 
@@ -542,14 +547,14 @@ class StrategistAgent:
 
         return " | ".join(parts)
 
-    def _client_note(self, strategy: str, suggested: float, margin_pct: float, flag) -> str:
+    def _client_note(self, strategy: str, suggested: float, margin_pct: float, flag, currency_symbol: str = "₹") -> str:
         """Short note for internal teams / dashboards."""
         notes = {
-            "undercut":   f"₹{suggested} — undercutting market, {margin_pct}% margin.",
-            "match":      f"₹{suggested} — matching market floor, {margin_pct}% margin.",
-            "floor_only": f"⚠ ₹{suggested} (floor only) — market is cheaper; review COGS.",
-            "premium":    f"₹{suggested} — premium positioning, {margin_pct}% margin.",
-            "retention":  f"₹{suggested} — retention price (churn discount applied).",
+            "undercut":   f"{currency_symbol}{suggested} — undercutting market, {margin_pct}% margin.",
+            "match":      f"{currency_symbol}{suggested} — matching market floor, {margin_pct}% margin.",
+            "floor_only": f"⚠ {currency_symbol}{suggested} (floor only) — market is cheaper; review COGS.",
+            "premium":    f"{currency_symbol}{suggested} — premium positioning, {margin_pct}% margin.",
+            "retention":  f"{currency_symbol}{suggested} — retention price (churn discount applied).",
             "no_data":    "⚠ Cannot price — missing cost or competitor data.",
         }
         return notes.get(strategy, "")
@@ -561,6 +566,7 @@ class StrategistAgent:
         comp_min: float,
         comp_avg: float,
         customer_segment: str | None,
+        currency_symbol: str = "₹",
     ) -> str:
         """Customer-facing price justification text."""
         if strategy == "no_data":
@@ -569,28 +575,28 @@ class StrategistAgent:
 
         if strategy == "premium":
             return (
-                f"Priced at ₹{suggested} — a quality-first choice. "
+                f"Priced at {currency_symbol}{suggested} — a quality-first choice. "
                 "You get premium formulation, authenticity guarantee, and priority support."
             )
         elif strategy == "retention":
             return (
-                f"Special offer: ₹{suggested}. "
+                f"Special offer: {currency_symbol}{suggested}. "
                 "Exclusive price for valued customers — limited time."
             )
         elif strategy == "undercut":
             return (
-                f"Best price available: ₹{suggested} — "
-                f"₹{abs(savings_vs_avg)} below market average (₹{comp_avg}). "
+                f"Best price available: {currency_symbol}{suggested} — "
+                f"{currency_symbol}{abs(savings_vs_avg)} below market average ({currency_symbol}{comp_avg}). "
                 "Quality product, lowest price."
             )
         elif savings_vs_avg > 0:
             return (
-                f"Competitive price: ₹{suggested} — "
-                f"₹{savings_vs_avg} below the market average."
+                f"Competitive price: {currency_symbol}{suggested} — "
+                f"{currency_symbol}{savings_vs_avg} below the market average."
             )
         else:
             return (
-                f"Market-aligned price: ₹{suggested}. "
+                f"Market-aligned price: {currency_symbol}{suggested}. "
                 "Inline with the best available rate from trusted sellers."
             )
 

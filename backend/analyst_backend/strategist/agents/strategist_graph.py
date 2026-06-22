@@ -623,6 +623,7 @@ async def persist_results(state: StrategistState) -> StrategistState:
     """
     if state.get("error_message"):
         # Build an error response so the router doesn't return None
+        request = state.get("request")
         return {
             **state,
             "response": StrategistResponse(
@@ -632,7 +633,8 @@ async def persist_results(state: StrategistState) -> StrategistState:
                 strategies_used = [],
                 avg_margin_pct  = 0.0,
                 retention_count = 0,
-                run_id          = state.get("run_id", "error"),
+                run_id          = state.get("run_id") or str(uuid.uuid4()),
+                currency        = (request.currency if request and request.currency else ""),
             ),
         }
 
@@ -679,6 +681,7 @@ async def persist_results(state: StrategistState) -> StrategistState:
         avg_margin_pct  = avg_margin,
         retention_count = sum(1 for r in recommendations if r.strategy == "retention"),
         run_id          = run_id,
+        currency = request.currency,
     )
 
     logger.info(

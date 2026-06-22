@@ -171,8 +171,8 @@ class StrategistRequest(BaseModel):
         description="Absolute floor — never sell below this margin")
     undercut_pct:        float = Field(default=2.0,  ge=0, le=50,
         description="% to undercut the cheapest competitor")
-    overhead_multiplier: float = Field(default=1.15, ge=1.0, le=5.0,
-        description="COGS × this = true cost (covers logistics, ops, tax)")
+    overhead_multiplier: float = Field(default=1.0, ge=1.0, le=5.0,
+        description="COGS × this = true cost (overhead removed — enter your all-in cost directly)")
     min_confidence:      float = Field(default=0.5, ge=0.0, le=1.0,
         description="Ignore Scout listings below this confidence score")
 
@@ -291,6 +291,7 @@ class StrategistResponse(BaseModel):
     client_id:       Optional[str] = None
     status:          str           = "ok"
     elapsed_seconds: float         = 0.0
+    currency:        str
 
 
 # ---------------------------------------------------------------------------

@@ -385,7 +385,7 @@ def _send_welcome_email(
 
         <tr>
           <td style="padding:28px 40px 20px;border-bottom:1px solid #eef0f5;text-align:center;">
-            <img src="http://10.0.0.14/Crp_QA/media/Loyaltix_logo-5HUR76FK.svg" alt="Loyaltix" height="50" width="150"
+            <img src=" https://dev-data.glixify.ai/Loyaltix.png" alt="Loyaltix" height="50" width="150"
                  style="display:block;margin:0 auto;height:auto;border:0;max-width:100%;" />
             <div style="font-size:12px;color:#888;margin-top:6px;">
               Churn Prediction &amp; Retention Platform · v4.0

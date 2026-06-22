@@ -460,8 +460,8 @@ def forgot_password(req: ForgotPasswordRequest):
             subject="Your Temporary Password — Loyaltix",
             html_body=f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
-  <div style="background:#ffffff;padding:24px 32px;text-align:center;border-bottom:3px solid;border-image:linear-gradient(90deg,#ef5f24,#f8991e,#219bcb) 1">
-    <img src="http://10.0.0.14/Crp_QA/media/Loyaltix_logo-5HUR76FK.svg" alt="Loyaltix" height="50" width="150"
+  <div style="background:#fhttpfffff;padding:24px 32px;text-align:center;border-bottom:3px solid;border-image:linear-gradient(90deg,#ef5f24,#f8991e,#219bcb) 1">
+    <img src=" https://dev-data.glixify.ai/Loyaltix.png" alt="Loyaltix" height="50" width="150"
      style="display:block;margin:0 auto;height:auto;border:0;max-width:100%;" />
     <div style="color:#888;margin-top:6px;font-size:12px">Churn Prediction &amp; Retention Platform · v4.0</div>
   </div>
@@ -539,7 +539,7 @@ def change_password(
             html_body=f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
   <div style="background:#ffffff;padding:24px 32px;text-align:center;border-bottom:3px solid;border-image:linear-gradient(90deg,#ef5f24,#f8991e,#219bcb) 1">
-    <img src="http://10.0.0.14/Crp_QA/media/Loyaltix_logo-5HUR76FK.svg" alt="Loyaltix" height="50" width="150"
+    <img src=" https://dev-data.glixify.ai/Loyaltix.png" alt="Loyaltix" height="50" width="150"
          style="display:block;margin:0 auto;height:auto;border:0;max-width:100%;" />
     <div style="color:#888;margin-top:6px;font-size:12px">Churn Prediction &amp; Retention Platform · v4.0</div>
   </div>

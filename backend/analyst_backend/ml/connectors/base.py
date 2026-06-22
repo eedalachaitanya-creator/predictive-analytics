@@ -41,5 +41,9 @@ class ExternalSignalConnector(ABC):
 
     @abstractmethod
     def fetch(self, client_id: str,
-              since: Optional[date] = None) -> Iterable[Union[RawTicket, RawReview]]:
+              since: Optional[date] = None,
+              customer_ids: Optional[list] = None) -> Iterable[Union[RawTicket, RawReview]]:
+        """Yield normalized signals for the tenant. ``customer_ids`` (when given)
+        is the set of known customer ids — connectors use it to skip records that
+        can't be tied to a tracked customer."""
         ...

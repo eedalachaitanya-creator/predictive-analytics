@@ -1100,11 +1100,15 @@ def _extract_product_links(soup: BeautifulSoup, search_url: str) -> list[dict]:
             # if title and len(title.split()) >= 3 and full_url not in seen_urls:
             #     seen_urls.add(full_url)
             #     products.append({"url": full_url, "title": title.strip()})
+            # Skip "+N other color/pattern" placeholder titles — they
+            # waste candidate slots without adding product information.
+            if title and re.search(r"^\+\d+\s+other", title.strip(), re.IGNORECASE):
+                continue
             if title and len(title.split()) >= 3 and full_url not in seen_urls:
                 seen_urls.add(full_url)
                 products.append({"url": full_url, "title": _sanitize_title(title.strip())})
 
-            if len(products) >= 30:
+            if len(products) >= 50:
                 break
 
         if len(products) >= 5:
@@ -1274,9 +1278,15 @@ def find_and_validate_product(
             # Check title (with and without spaces) AND the product URL.
             # Amazon often omits the brand from the title text but always
             # includes it in the product URL (e.g. /Dyson-Supersonic-).
-            brand_in_title = all(
-                b in title_lower or b in title_lower_nospace or b in url_lower
-                for b in brand_tokens
+            # Require ALL brand tokens to appear somewhere (title, title-nospace, or URL).
+            # Exception: if ANY token matches the title, that is strong enough —
+            # Amazon titles say "iPhone 17 Pro Max" not "Apple iPhone 17 Pro Max",
+            # so requiring both "apple" AND "iphone" rejects valid results.
+            # We still block completely off-brand results (e.g. Samsung when
+            # searching Dyson) because none of the brand tokens would match.
+            brand_in_title = (
+                any(b in title_lower or b in title_lower_nospace for b in brand_tokens)
+                or all(b in url_lower for b in brand_tokens)
             )
             if not brand_in_title:
                 logger.info(

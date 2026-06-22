@@ -5,9 +5,15 @@
 .stat-card-btn.is-selected { border-color: var(--accent-blue, #1a6fd4); box-shadow: 0 0 0 3px rgba(26,111,212,.12), 0 4px 14px rgba(15,23,42,.08); }
 .stat-card-btn.is-selected::after { content: ''; position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-blue, #1a6fd4); }
 .section-heading .sh-count { margin-left: 8px; font-size: 12px; font-weight: 500; color: var(--text-muted); letter-spacing: normal; text-transform: none; }
-.status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; letter-spacing: .01em; line-height: 1.4; }
+
+/* Fixed: line-height:1, white-space:nowrap, vertical-align:middle to keep dot + text aligned */
+.status-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; letter-spacing: .01em; line-height: 1; white-space: nowrap; vertical-align: middle; }
 .status-pill.status-active { color: #15803d; background: rgba(22,163,74,.12); border: 1px solid rgba(22,163,74,.25); }
 .status-pill.status-inactive { color: #b91c1c; background: rgba(220,38,38,.10); border: 1px solid rgba(220,38,38,.22); }
+
+/* CSS dot — replaces ● unicode which sits above text baseline */
+.status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
 .deleted-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 8px; color: var(--text-muted); background: rgba(100,116,139,.10); border: 1px dashed rgba(100,116,139,.35); cursor: default; user-select: none; }
 .data-table tr.dim td { color: var(--text-muted); }
 .add-client-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; position: relative; }
@@ -81,6 +87,5 @@
 
 @media screen and (min-width:992px) {
   .modal-card{min-width: 800px;} 
-
   .row-count{text-align: right;}
 }

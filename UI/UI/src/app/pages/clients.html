@@ -252,7 +252,7 @@
           @for (c of visibleClients(); track c.client_id) {
             <tr [class.selected]="selected()?.client_id === c.client_id"
                 [class.dim]="!c.is_active">
-              <td class="font-mono">{{ c.client_id }}</td>
+              <td class="font-mono" style="white-space:nowrap">{{ c.client_id }}</td>
               <td>{{ c.client_name }}</td>
               <td class="addr-cell">
                 @let lines = addressLines(c);

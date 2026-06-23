@@ -769,6 +769,40 @@ def _humanize_staging_error(exc: Exception, master_type: str = "") -> str:
             "uploaded the correct file for this slot.")
 
 
+def _resolve_customers_in_df(df, client_id: str):
+    """For ticket/review uploads: rewrite each row's customer_id to a known
+    customer (id→email). Drops unmatched rows. Returns (matched_df, report)."""
+    from ml.connectors.sources import resolve_customer_id
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT customer_id, LOWER(customer_email) FROM customers WHERE client_id = :c"),
+            {"c": client_id},
+        ).fetchall()
+    by_id = {r[0] for r in rows}
+    by_email = {r[1]: r[0] for r in rows if r[1]}
+
+    matched_idx, skipped_sample = [], []
+    for idx, row in df.iterrows():
+        rid = resolve_customer_id(row.to_dict(), by_id, by_email)
+        if rid is not None:
+            df.at[idx, "customer_id"] = rid
+            matched_idx.append(idx)
+        elif len(skipped_sample) < 10:
+            ref = row.get("customer_id")
+            if ref is None or str(ref).strip() == "":
+                ref = row.get("customer_email") or row.get("email") or ""
+            skipped_sample.append(str(ref))
+
+    matched_df = df.loc[matched_idx].copy()
+    report = {
+        "matched": len(matched_idx),
+        "skipped": int(len(df) - len(matched_idx)),
+        "skippedSample": skipped_sample,
+    }
+    return matched_df, report
+
+
 def _load_df_to_staging(df: pd.DataFrame, master_type: str, client_id: str) -> dict:
     """
     Insert a pandas DataFrame into the STAGING table for this master type.
@@ -1243,6 +1277,8 @@ async def upload_file(
     file: UploadFile = File(...),
     clientId: str = Form(None),             # NOW OPTIONAL — auto-detected from token
     masterType: str = Form(None),
+    source: Optional[str] = Form(None),
+    sourceName: Optional[str] = Form(None),
     authorization: Optional[str] = Header(default=None),
     user: dict = Depends(get_current_user),  # Audit fix #1 — require auth
 ):
@@ -1357,6 +1393,20 @@ async def upload_file(
     # (e.g. template Excel where every cell is a placeholder). Raises 400 if so.
     _assert_file_has_real_data(df, master_type, filename)
 
+    # Source-aware ingest (tickets/reviews only): stamp a canonical source on
+    # every row and resolve each to a known customer, dropping unmatched rows.
+    match_report = None
+    if master_type in ("support_tickets", "customer_reviews"):
+        from ml.connectors.sources import normalize_source
+        df["source"] = normalize_source(source, sourceName)
+        df, match_report = _resolve_customers_in_df(df, clientId)
+        if df.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="None of the uploaded rows could be matched to a customer "
+                       "in this client. Check the customer_id / email columns.",
+            )
+
     row_count = len(df)
     columns = list(df.columns)
 
@@ -1408,6 +1458,7 @@ async def upload_file(
         "stagingTable": db_result["staging_table"],
         "rowsStaged": db_result["rows_staged"],
         "rowsReplaced": db_result["rows_replaced"],
+        "matchReport": match_report,
     }
 
 

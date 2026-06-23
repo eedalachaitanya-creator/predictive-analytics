@@ -101,8 +101,22 @@ export class SettingsComponent implements OnInit, OnDestroy {
   get running() { return this.pipelineSvc.isRunning(); }
   get progress() { return this.pipelineSvc.currentJob()?.progress ?? 0; }
 
+  // Pipeline readiness — disables the run button when the client has no data
+  // (new tenant / nothing uploaded). Optimistic until the probe returns; the
+  // backend /run enforces the same rule regardless.
+  canRun          = signal(true);
+  readinessReason = signal('');
+
   ngOnInit() {
     this.loadSettings();
+    this.loadReadiness();
+  }
+
+  private loadReadiness() {
+    this.pipelineSvc.readiness(this.clientId).subscribe({
+      next: r => { this.canRun.set(r.canRun); this.readinessReason.set(r.reason); },
+      error: () => { /* leave optimistic; the backend run guard still protects us */ },
+    });
   }
 
   ngOnDestroy() { this.sub?.unsubscribe(); }
@@ -110,6 +124,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
   runPipeline() {
     this.runError.set(null);
     this.runSuccess.set(false);  // reset success banner on each new run
+
+    // Client-side guard mirrors the backend: never start a run with no data.
+    if (!this.canRun()) {
+      this.runError.set(this.readinessReason() ||
+        'No data found for this client. Upload customer and order data first.');
+      return;
+    }
 
     const req: PipelineRunRequest = { clientId: this.clientId, mode: this.predMode };
     this.pipelineSvc.run(req).subscribe({

@@ -575,6 +575,49 @@ def _build_summary(client_id: str) -> dict:
 # ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _client_data_counts(client_id: str) -> dict:
+    """Source-row counts that decide whether the pipeline has anything to run.
+    The ML stages (RFM → train → score) all derive from orders, so a client
+    with zero orders has nothing to process."""
+    with engine.connect() as conn:
+        customers = conn.execute(
+            text("SELECT COUNT(*) FROM customers WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar() or 0
+        orders = conn.execute(
+            text("SELECT COUNT(*) FROM orders WHERE client_id = :cid"),
+            {"cid": client_id},
+        ).scalar() or 0
+    return {"customers": int(customers), "orders": int(orders)}
+
+
+def _caller_from_auth(authorization: Optional[str]):
+    """Resolve the calling user from a bearer token (None for unauthenticated
+    or automated callers)."""
+    if authorization and authorization.lower().startswith("bearer "):
+        return _find_user_by_token(authorization.split(None, 1)[1].strip())
+    return None
+
+
+_NO_DATA_DETAIL = ("No data found for this client. Upload customer and order "
+                   "data before running the pipeline.")
+
+
+@router.get("/readiness")
+def pipeline_readiness(clientId: str = Query(default="CLT-001")):
+    """Whether the pipeline has data to run for this client. The UI calls this
+    to disable the run button (and explain why) BEFORE a run is attempted, so
+    new/empty tenants never see a misleading 'Pipeline Running…' bar."""
+    counts = _client_data_counts(clientId)
+    can_run = counts["orders"] > 0
+    return {
+        "canRun": can_run,
+        "customers": counts["customers"],
+        "orders": counts["orders"],
+        "reason": "" if can_run else _NO_DATA_DETAIL,
+    }
+
+
 @router.post("/run", response_model=PipelineRunResponse)
 def run_pipeline(
     req: PipelineRunRequest,
@@ -584,6 +627,26 @@ def run_pipeline(
 ):
     """Start a new pipeline run. Returns immediately with a jobId for polling."""
     require_client_access(user, req.clientId)   # tenant authorization (prevent cross-tenant pipeline run)
+
+    # Guard: refuse to run on a client with no source data (new tenants, or
+    # nothing uploaded yet). Without orders the stages produce nothing — running
+    # only shows a misleading progress bar. Block with a clear 400 instead, and
+    # audit the blocked attempt.
+    counts = _client_data_counts(req.clientId)
+    if counts["orders"] == 0:
+        caller = _caller_from_auth(authorization)
+        log_audit_event(
+            request,
+            action_type="pipeline_run",
+            details=(f"Blocked — no data for client {req.clientId} "
+                     f"(customers={counts['customers']}, orders={counts['orders']})"),
+            client_id=req.clientId,
+            user_id=caller["id"] if caller else None,
+            user_email=caller["email"] if caller else None,
+            outcome="warning",
+        )
+        raise HTTPException(status_code=400, detail=_NO_DATA_DETAIL)
+
     job_id = str(uuid.uuid4())[:8]
 
     job = job_store.create_job(job_id, [s.model_dump() for s in _make_stages()])
@@ -613,9 +676,7 @@ def run_pipeline(
     # Audit: record who kicked off this job. We extract the user from the
     # bearer token if present; background/automated runs will have no token
     # and simply land in the log with user_email=None.
-    caller = None
-    if authorization and authorization.lower().startswith("bearer "):
-        caller = _find_user_by_token(authorization.split(None, 1)[1].strip())
+    caller = _caller_from_auth(authorization)
     log_audit_event(
         request,
         action_type="pipeline_run",

@@ -3,12 +3,29 @@ import { Observable, interval, switchMap, takeWhile, tap, startWith, catchError,
 import { ApiService } from './api.service';
 import { PipelineRunRequest, PipelineRunResponse, PipelineStage } from '../models';
 
+/** Whether a client has source data for the pipeline to run on. */
+export interface PipelineReadiness {
+  canRun: boolean;
+  customers: number;
+  orders: number;
+  reason: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PipelineService {
   private api = inject(ApiService);
 
   readonly currentJob   = signal<PipelineRunResponse | null>(null);
   readonly polling      = signal(false);
+
+  /** Does this client have data to run on? Lets the UI disable the run button
+   *  (and explain why) before a run is attempted. The backend /run also
+   *  enforces this — see pipeline_router.run_pipeline. */
+  readiness(clientId: string): Observable<PipelineReadiness> {
+    return this.api.get<PipelineReadiness>(
+      `/pipeline/readiness?clientId=${encodeURIComponent(clientId)}`
+    );
+  }
 
   /** Trigger a new pipeline run, then poll until complete */
   run(req: PipelineRunRequest): Observable<PipelineRunResponse> {

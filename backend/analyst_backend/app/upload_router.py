@@ -1411,6 +1411,13 @@ async def upload_file(
     }
 
 
+@router.get("/uploads/sources")
+def list_sources(user: dict = Depends(get_current_user)):
+    """Source options for the ticket/review upload dropdown (registry-driven)."""
+    from ml.connectors.registry import SOURCES
+    return {"sources": SOURCES}
+
+
 @router.get("/uploads")
 def list_uploads(
     clientId: str = Query(...),

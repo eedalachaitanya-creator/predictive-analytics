@@ -119,9 +119,26 @@ export class UploadService {
     return this.uploads()[masterType]?.status === 'uploading';
   }
 
+  /** Master types that already have COMMITTED rows for the active client
+   *  (from GET /uploads/data-status). A required master is "satisfied" if it's
+   *  in the current batch OR already committed — so an existing client can
+   *  upload one master (e.g. new tickets) without re-uploading the rest. */
+  readonly committed = signal<Record<string, boolean>>({});
+
+  loadDataStatus(clientId: string): Observable<{ committed: Record<string, boolean> }> {
+    return this.api.get<{ committed: Record<string, boolean> }>(
+      `/uploads/data-status?clientId=${encodeURIComponent(clientId)}`
+    ).pipe(tap(res => this.committed.set(res.committed ?? {})));
+  }
+
+  isCommitted(masterType: MasterType): boolean {
+    return this.committed()[masterType] === true;
+  }
+
   allRequiredUploaded(): boolean {
     const required: MasterType[] = ['customer','order','line_items','product','price','vendor_map','category','sub_category','sub_sub_category','brand','vendor'];
-    return required.every(m => this.isUploaded(m));
+    // Satisfied = staged in this batch OR already committed for the client.
+    return required.every(m => this.isUploaded(m) || this.isCommitted(m));
   }
 
   uploadedCount(): number {

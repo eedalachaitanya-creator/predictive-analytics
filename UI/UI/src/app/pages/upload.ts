@@ -84,6 +84,9 @@ export class UploadComponent implements OnInit {
       next: r => this.sources.set(r.sources),
       error: () => {},
     });
+    // Which masters are ALREADY committed for this client — lets a required
+    // master count as satisfied without re-uploading it (incremental top-ups).
+    this.uploadSvc.loadDataStatus(this.clientId).subscribe({ error: () => {} });
   }
 
   /** Re-fetch pending batch info from the backend. Called after uploads,
@@ -99,6 +102,8 @@ export class UploadComponent implements OnInit {
       next: () => {
         // After commit, staging is empty — reload to confirm and refresh batch info
         this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
+        // Newly-committed masters are now "satisfied" for any follow-up batch.
+        this.uploadSvc.loadDataStatus(this.clientId).subscribe({ error: () => {} });
       },
       error: (err) => console.error('Commit failed:', err.message ?? err),
     });
@@ -283,7 +288,9 @@ export class UploadComponent implements OnInit {
     const missing: string[] = [];
     for (const grp of this.masters) {
       for (const item of grp.items) {
-        if (item.required && !this.uploadSvc.isUploaded(item.key)) {
+        // "missing" only if required AND not staged in this batch AND not
+        // already committed for the client (incremental top-ups don't re-need it).
+        if (item.required && !this.uploadSvc.isUploaded(item.key) && !this.uploadSvc.isCommitted(item.key)) {
           missing.push(item.label.replace(/ Master$/, ''));
         }
       }

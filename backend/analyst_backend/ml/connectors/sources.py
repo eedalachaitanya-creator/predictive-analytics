@@ -26,3 +26,20 @@ def normalize_source(selected_key: Optional[str], custom_name: Optional[str] = N
         slug = slugify_source(custom_name or "")
         return slug or "other"
     return key
+
+
+def resolve_customer_id(row: dict, by_id: set, by_email: dict) -> "str | None":
+    """Match an uploaded row to a known customer: customer_id first, then email
+    (case-insensitive). Returns the resolved customer_id or None."""
+    cid = row.get("customer_id")
+    cid = str(cid).strip() if cid is not None else ""
+    if cid and cid in by_id:
+        return cid
+    for k in ("customer_email", "email"):
+        v = row.get(k)
+        if v is not None and str(v).strip():
+            email = str(v).strip().lower()
+            if email in by_email:
+                return by_email[email]
+            break
+    return None

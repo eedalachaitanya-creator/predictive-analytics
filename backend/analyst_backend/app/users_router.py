@@ -194,6 +194,43 @@ def _guard_self_lockout(caller: dict, user_id: str, req: UpdateUserRequest) -> N
                             detail="You cannot remove your own super-admin role.")
 
 
+def _cascade_user_status_to_clients(conn, user_id: str, now_active: bool) -> list:
+    """Keep a tenant's status in sync with its logins (user→client cascade).
+
+    - Reactivating a client_user reactivates each client it can access.
+    - Deactivating a client_user deactivates a client ONLY when no other active
+      client_user can still access it — so multi-user tenants stay active while
+      any login remains.
+    super_admins / '*'-access users never cascade (they aren't tenant logins).
+    Runs on the caller's connection so it's atomic with the user update.
+    Returns the list of client_ids whose status actually changed."""
+    row = conn.execute(text("SELECT role, client_access FROM users WHERE user_id = :u"),
+                       {"u": user_id}).fetchone()
+    if not row:
+        return []
+    role, access = row[0], (list(row[1]) if row[1] else [])
+    if role != "client_user" or "*" in access:
+        return []
+    changed = []
+    for cid in access:
+        if now_active:
+            res = conn.execute(text("UPDATE client_config SET is_active = TRUE "
+                                    "WHERE client_id = :c AND is_active = FALSE"), {"c": cid})
+            if res.rowcount:
+                changed.append(cid)
+        else:
+            other = conn.execute(text(
+                "SELECT 1 FROM users WHERE user_id <> :u AND role = 'client_user' "
+                "AND is_active = TRUE AND :c = ANY(client_access) LIMIT 1"),
+                {"u": user_id, "c": cid}).fetchone()
+            if not other:
+                res = conn.execute(text("UPDATE client_config SET is_active = FALSE "
+                                        "WHERE client_id = :c AND is_active = TRUE"), {"c": cid})
+                if res.rowcount:
+                    changed.append(cid)
+    return changed
+
+
 @router.put("/users/{user_id}")
 def update_user(
     user_id: str,
@@ -228,12 +265,17 @@ def update_user(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
+    cascaded: list = []
     try:
         with engine.connect() as conn:
             conn.execute(
                 text(f"UPDATE users SET {', '.join(updates)} WHERE user_id = :uid"),
                 params,
             )
+            # Keep tenant status in sync with its logins (atomic with the update).
+            if req.status is not None:
+                cascaded = _cascade_user_status_to_clients(
+                    conn, user_id, req.status == "active")
             conn.commit()
 
             # Fetch updated user
@@ -254,6 +296,7 @@ def update_user(
         if req.role is not None:       changed.append(f"role→{req.role}")
         if req.clientAccess is not None: changed.append(f"access→{','.join(req.clientAccess) or '∅'}")
         if req.status is not None:     changed.append(f"status→{req.status}")
+        if cascaded:                   changed.append(f"cascaded client(s)→{','.join(cascaded)}")
         log_audit_event(
             request,
             action_type="user_updated",

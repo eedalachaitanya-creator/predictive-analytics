@@ -28,8 +28,7 @@ export class LoginComponent {
   forgotEmail   = signal('');
   forgotLoading = signal(false);
   forgotError   = signal('');
-  forgotResult  = signal<{ email: string; temp_password: string; message: string } | null>(null);
-  copyDone      = signal(false);
+  forgotResult  = signal<{ email: string; message: string } | null>(null);
 
   constructor(private auth: AuthService, private router: Router) {}
 
@@ -94,7 +93,6 @@ export class LoginComponent {
     this.forgotError.set('');
     this.forgotResult.set(null);
     this.forgotLoading.set(false);
-    this.copyDone.set(false);
     this.forgotOpen.set(true);
   }
 
@@ -104,7 +102,6 @@ export class LoginComponent {
     this.forgotError.set('');
     this.forgotResult.set(null);
     this.forgotLoading.set(false);
-    this.copyDone.set(false);
   }
 
   submitForgot() {
@@ -134,13 +131,4 @@ export class LoginComponent {
     });
   }
 
-  async copyTempPassword() {
-    const pw = this.forgotResult()?.temp_password;
-    if (!pw) return;
-    try {
-      await navigator.clipboard.writeText(pw);
-      this.copyDone.set(true);
-      setTimeout(() => this.copyDone.set(false), 2000);
-    } catch {}
-  }
 }

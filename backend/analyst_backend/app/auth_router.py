@@ -33,6 +33,7 @@ from sqlalchemy import text
 from app.database import engine
 from app.security import hash_password, verify_password, is_hashed, validate_password
 from app.email_service import LOGO_SRC
+from app import email_service  # module ref so send_email is patchable/testable
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 log = logging.getLogger("auth")
@@ -412,6 +413,21 @@ def _generate_temp_password(length: int = 12) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _apply_password_reset(user_id, new_hash: str) -> None:
+    """Persist the new password hash and log out every existing session.
+    Kept separate so it can be called ONLY after the email is confirmed sent
+    (and so tests can verify the send-first ordering)."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
+            {"pw": new_hash, "uid": user_id},
+        )
+        conn.execute(
+            text("DELETE FROM active_tokens WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
+
+
 @router.post("/auth/forgot-password")
 def forgot_password(req: ForgotPasswordRequest):
     email_trimmed = (req.email or "").strip()
@@ -422,7 +438,7 @@ def forgot_password(req: ForgotPasswordRequest):
     if not user:
         raise HTTPException(
             status_code=404,
-            detail=f"No account found for {email_trimmed}",
+            detail="This email address is not registered with us.",
         )
 
     if not user.get("is_active", True):
@@ -433,29 +449,13 @@ def forgot_password(req: ForgotPasswordRequest):
 
     new_password = _generate_temp_password()
 
+    # ── Email the temporary password FIRST, then reset ───────────────
+    # Send-before-persist: if delivery fails we must NOT change the password,
+    # otherwise the user is locked out of both their old and new password with
+    # no way to receive the new one. The temporary password is ONLY ever sent
+    # by email — it is never returned to the browser.
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text("UPDATE users SET password_hash = :pw WHERE user_id = :uid"),
-                {"pw": hash_password(new_password), "uid": user["id"]},
-            )
-            conn.execute(
-                text("DELETE FROM active_tokens WHERE user_id = :uid"),
-                {"uid": user["id"]},
-            )
-    except Exception as e:
-        log.error("Failed to reset password for %s: %s", email_trimmed, e)
-        raise HTTPException(
-            status_code=500,
-            detail="Could not reset password. Please try again.",
-        )
-
-    log.info("Password reset for user %s (%s)", user["id"], email_trimmed)
-
-    # ── Send password reset email ─────────────────────────────────────
-    try:
-        from app.email_service import send_email
-        send_email(
+        sent = email_service.send_email(
             to=user["email"],
             subject="Your Temporary Password — Loyaltix",
             html_body=f"""
@@ -483,14 +483,33 @@ def forgot_password(req: ForgotPasswordRequest):
 """,
         )
     except Exception as e:
-        log.warning("Forgot-password email failed (non-fatal): %s", e)
+        log.error("Forgot-password email send raised for %s: %s", email_trimmed, e)
+        sent = False
+
+    if not sent:
+        # Delivery failed (SMTP down / misconfigured). Do NOT reset the password.
+        raise HTTPException(
+            status_code=502,
+            detail="We couldn't send the reset email right now. Please try again "
+                   "later or contact IT support.",
+        )
+
+    try:
+        _apply_password_reset(user["id"], hash_password(new_password))
+    except Exception as e:
+        log.error("Failed to reset password for %s: %s", email_trimmed, e)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not reset password. Please try again.",
+        )
+
+    log.info("Password reset emailed for user %s (%s)", user["id"], email_trimmed)
 
     return {
         "email": user["email"],
-        "temp_password": new_password,
         "message": (
-            "Your temporary password is shown below. Copy it, sign in with "
-            "it, and any open sessions have been logged out."
+            f"A temporary password has been sent to {user['email']}. "
+            "Please check your inbox (and spam folder), then sign in and change it."
         ),
     }
 

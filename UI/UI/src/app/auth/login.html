@@ -84,7 +84,7 @@
           @if (!forgotResult()) {
             <h3 class="modal-title">Forgot your password?</h3>
             <p class="modal-sub">
-              Enter the email address linked to your account. We'll generate a temporary password and display it here.
+              Enter the email address linked to your account. If it's registered with us, we'll email you a temporary password.
             </p>
 
             <label class="form-label">Email Address <span class="required">*</span></label>
@@ -106,23 +106,16 @@
             <div class="modal-actions">
               <button class="btn outline" (click)="closeForgot()" [disabled]="forgotLoading()">Cancel</button>
               <button class="btn walmart" (click)="submitForgot()" [disabled]="forgotLoading()">
-                {{ forgotLoading() ? 'Resetting…' : 'Reset Password' }}
+                {{ forgotLoading() ? 'Sending…' : 'Send temporary password' }}
               </button>
             </div>
           } @else {
-            <h3 class="modal-title">✅ Password Reset</h3>
+            <h3 class="modal-title">✅ Check your email</h3>
             <p class="modal-sub">{{ forgotResult()!.message }}</p>
 
-            <label class="form-label">Temporary password for {{ forgotResult()!.email }}</label>
-            <div class="temp-password-box">
-              <code class="temp-password-value">{{ forgotResult()!.temp_password }}</code>
-              <button class="btn outline sm" (click)="copyTempPassword()">
-                {{ copyDone() ? 'Copied!' : 'Copy' }}
-              </button>
-            </div>
-
             <p class="modal-hint">
-              All previous sessions have been logged out. Close this dialog and sign in with the temporary password above.
+              For your security, the temporary password is sent only to your registered email — it is never shown here.
+              All previous sessions have been logged out.
             </p>
 
             <div class="modal-actions">

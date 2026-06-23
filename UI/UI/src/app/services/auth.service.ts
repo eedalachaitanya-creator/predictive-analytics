@@ -77,8 +77,8 @@ export class AuthService {
    * and returns it inline — no email is sent. The caller (login page) shows
    * the temp password in a modal with a Copy button.
    */
-  forgotPassword(email: string): Observable<{ email: string; temp_password: string; message: string }> {
-    return this.api.post<{ email: string; temp_password: string; message: string }>(
+  forgotPassword(email: string): Observable<{ email: string; message: string }> {
+    return this.api.post<{ email: string; message: string }>(
       '/auth/forgot-password',
       { email }
     );

@@ -131,6 +131,7 @@ class Database:
                     encoding   TEXT NOT NULL DEFAULT 'plus',
                     active     BOOLEAN NOT NULL DEFAULT TRUE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    icon       TEXT NOT NULL DEFAULT '🌐',
                     UNIQUE (name, client_id)
                 )
             """)
@@ -284,12 +285,13 @@ class Database:
         search_url: str,
         encoding:   str = "plus",
         client_id:  str = "",
+        icon:       str = "🌐",
     ) -> dict:
         with self._conn() as conn:
             self._execute(conn, """
-                INSERT INTO websites (name, client_id, base_url, search_url, encoding, active, created_at)
-                VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
-            """, (name, client_id, base_url, search_url, encoding))
+                INSERT INTO websites (name, client_id, base_url, search_url, encoding, active, created_at, icon)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), %s)
+            """, (name, client_id, base_url, search_url, encoding, icon))
         return self.get_website_by_name(name, client_id)
 
     def update_website(
@@ -299,17 +301,19 @@ class Database:
         base_url:   Optional[str] = None,
         search_url: Optional[str] = None,
         client_id:  str = "",
+        icon:       Optional[str] = None,
     ) -> Optional[dict]:
         site = self.get_website_by_name(name, client_id)
         if not site:
             return None
         b = base_url   if base_url   is not None else site["base_url"]
         s = search_url if search_url is not None else site["search_url"]
+        i = icon       if icon       is not None else site.get("icon", "🌐")
         with self._conn() as conn:
             self._execute(conn, """
-                UPDATE websites SET base_url = %s, search_url = %s, active = %s
+                UPDATE websites SET base_url = %s, search_url = %s, active = %s, icon = %s
                 WHERE name = %s AND client_id = %s
-            """, (b, s, active, name, client_id))
+            """, (b, s, active, i, name, client_id))
         return self.get_website_by_name(name, client_id)
 
     def delete_website(self, name: str, client_id: str = "") -> dict:
@@ -723,9 +727,9 @@ class Database:
                 change_amount, change_percent, direction, url,
             ))
 
-        print(
-            f"  [price] 🔔 Alert: {product_name} on {platform} "
-            f"{direction} {old_price} → {new_price} ({change_percent}%)"
+        logger.info(
+            "price alert: %s on %s %s %s → %s (%.1f%%)",
+            product_name, platform, direction, old_price, new_price, change_percent,
         )
         return {
             "product_name":   product_name,

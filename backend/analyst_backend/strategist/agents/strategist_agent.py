@@ -46,12 +46,15 @@ Post-Processing — Charm Pricing
 
 from __future__ import annotations
 
+import logging
 import statistics
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from strategist.models.schemas import (
     ChurnContext,
@@ -99,13 +102,17 @@ _VP_DISCOUNTS: dict[tuple[str, str], float] = {
 @dataclass
 class StrategistConfig:
     """Runtime config for the pricing engine. Synced from StrategistRequest at run time."""
-    target_margin_pct:   float = 20.0
-    min_margin_pct:      float = 8.0
-    undercut_pct:        float = 2.0
-    overhead_multiplier: float = 1.15
-    min_confidence:      float = 0.5
-    max_discount_pct:    float = 30.0   # hard cap from client_config
-    high_ltv_threshold:  float = 500.0
+    target_margin_pct:         float = 20.0
+    min_margin_pct:            float = 8.0
+    undercut_pct:              float = 2.0
+    overhead_multiplier:       float = 1.15
+    min_confidence:            float = 0.5
+    max_discount_pct:          float = 30.0   # hard cap from client_config
+    high_ltv_threshold:        float = 500.0
+    premium_markup_pct:        float = 5.0    # % above comp_avg for premium strategy
+    falling_market_undercut_pct: float = 1.0  # % undercut when market trend is falling
+    charm_high_threshold:      float = 1000.0 # prices >= this snap to xx99 pattern
+    charm_low_threshold:       float = 50.0   # prices < this skip charm pricing entirely
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +163,11 @@ class StrategistAgent:
         self.config.min_margin_pct      = request.min_margin_pct
         self.config.undercut_pct        = request.undercut_pct
         self.config.overhead_multiplier = request.overhead_multiplier
-        print(f"[DEBUG] PricingConfig: target={self.config.target_margin_pct}% min={self.config.min_margin_pct}% undercut={self.config.undercut_pct}% overhead={self.config.overhead_multiplier}")
+        logger.debug(
+            "PricingConfig: target=%.1f%% min=%.1f%% undercut=%.1f%% overhead=%.2f",
+            self.config.target_margin_pct, self.config.min_margin_pct,
+            self.config.undercut_pct, self.config.overhead_multiplier,
+        )
         self.config.min_confidence      = request.min_confidence
         self.config.max_discount_pct    = request.max_discount_pct
         self.config.high_ltv_threshold  = request.high_ltv_threshold
@@ -283,7 +294,11 @@ class StrategistAgent:
         true_cost    = round(raw_cogs * self.config.overhead_multiplier, 2)
         floor_price  = round(true_cost * (1 + self.config.min_margin_pct    / 100), 2)
         target_price = round(true_cost * (1 + self.config.target_margin_pct / 100), 2)
-        print(f"[DEBUG] {product.name}: cogs={raw_cogs} true_cost={true_cost} floor={floor_price} target={target_price} comp_min={min(prices) if prices else 0} undercut={self.config.undercut_pct}%")
+        logger.debug(
+            "%s: cogs=%s true_cost=%s floor=%s target=%s comp_min=%s undercut=%.1f%%",
+            product.name, raw_cogs, true_cost, floor_price, target_price,
+            min(prices) if prices else 0, self.config.undercut_pct,
+        )
 
         # ── Layer 2: Competitor stats ───────────────────────────────────────
         comp_min    = round(min(prices), 2)
@@ -318,7 +333,7 @@ class StrategistAgent:
 
         elif client_priority == "brand" or customer_segment == "premium":
             # Premium positioning: price 5% above avg to signal quality
-            premium_price = round(comp_avg * 1.05, 2)
+            premium_price = round(comp_avg * (1 + self.config.premium_markup_pct / 100), 2)
             if premium_price >= floor_price:
                 suggested = premium_price
                 strategy  = "premium"
@@ -353,7 +368,7 @@ class StrategistAgent:
         # ── Layer 3 continuation: trend adjustments ─────────────────────────
         if market_trend == "falling" and strategy == "match":
             # Market falling → be more aggressive to capture share before competitors catch up
-            aggressive = round(comp_min * 0.99, 2)
+            aggressive = round(comp_min * (1 - self.config.falling_market_undercut_pct / 100), 2)
             if aggressive >= floor_price:
                 suggested = aggressive
                 strategy  = "undercut"
@@ -379,8 +394,7 @@ class StrategistAgent:
             raw_discount = discount_lookup.get(lookup_key, None)
 
             if raw_discount is None:
-                import logging as _log
-                _log.getLogger(__name__).warning(
+                logger.warning(
                     "_process_product: no discount rule for tier=%s risk=%s — "
                     "skipping retention pricing for customer %s. "
                     "Add this tier to value_propositions table or _VP_DISCOUNTS.",
@@ -424,7 +438,7 @@ class StrategistAgent:
         # Applied AFTER all margin/churn logic. The final floor guardrail runs
         # LAST (below) so charm can never push the price below the cost floor.
         if strategy not in ("floor_only", "no_data"):
-            charmed = _charm_price(suggested)
+            charmed = _charm_price(suggested, self.config.charm_high_threshold, self.config.charm_low_threshold)
             # Guard: charm must not push price UP to or above comp_min on undercut/match
             # e.g. match at ₹130 → charm ₹139 = above market floor → defeats the match
             # e.g. undercut at ₹293 → charm ₹299 = same as Amazon → defeats the undercut
@@ -705,22 +719,22 @@ def _margin(price: float, cost: float) -> float:
     return round(((price - cost) / cost) * 100, 1)
 
 
-def _charm_price(price: float) -> float:
+def _charm_price(price: float, high_threshold: float = 1000.0, low_threshold: float = 50.0) -> float:
     """
     Psychological pricing — proven 1-3% conversion lift in e-commerce.
 
     Rules:
-      Prices >= ₹1000: snap to nearest ₹xx99  (₹1823 → ₹1799, not ₹1899)
-      Prices  < ₹1000: snap to nearest ₹x9    (₹250  → ₹249,  not ₹259)
-      Prices  < ₹50:   no adjustment          (charm looks odd on small amounts)
+      Prices >= high_threshold: snap to nearest xx99  (1823 → 1799, not 1899)
+      Prices  < high_threshold: snap to nearest x9    (250  → 249,  not 259)
+      Prices  < low_threshold:  no adjustment         (charm looks odd on small amounts)
 
     Always picks the NEAREST charm number — never silently rounds up and
     inflates the price past the uncharmed value.
     """
-    if price < 50:
+    if price < low_threshold:
         return price
 
-    if price >= 1000:
+    if price >= high_threshold:
         # Two candidates: (hundreds_floor - 1) and (hundreds_floor + 99)
         base = int(price / 100) * 100
         low  = base - 1        # e.g. 1799 for 1823

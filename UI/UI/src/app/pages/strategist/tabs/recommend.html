@@ -33,11 +33,20 @@
             }
           </div>
 
-          <input class="form-input" type="number"
-            placeholder="At our expense — optional, uses saved cost if blank"
-            [value]="p.cost"
-            (input)="updateProduct(i, 'cost', $any($event.target).value)"
-            (wheel)="$event.preventDefault()" />
+          <div class="cost-row">
+            <input class="form-input cost-input" type="number"
+              placeholder="At our expense — optional"
+              [value]="p.cost"
+              (input)="updateProduct(i, 'cost', $any($event.target).value)"
+              (wheel)="$event.preventDefault()" />
+            <select class="form-input cost-currency"
+              [value]="p.currency"
+              (change)="updateProduct(i, 'currency', $any($event.target).value)">
+              @for (cur of currencyOptions; track cur) {
+                <option [value]="cur">{{ cur }}</option>
+              }
+            </select>
+          </div>
 
           @if (p.platforms.length > 0) {
             <div class="comp-chips-wrap">
@@ -86,18 +95,6 @@
             <input class="form-input param-input" type="number"
               [value]="undercutPct()" (input)="undercutPct.set(+$any($event.target).value)" />
             <span class="param-unit">%</span>
-          </div>
-        </div>
-        <div class="param-item">
-          <label class="param-label">Market Currency</label>
-          <div class="param-input-wrap">
-            <select class="form-input param-input"
-              [value]="currency()"
-              (change)="currency.set($any($event.target).value)">
-              @for (cur of currencyOptions; track cur) {
-                <option [value]="cur">{{ cur }}</option>
-              }
-            </select>
           </div>
         </div>
       </div>
@@ -160,6 +157,13 @@
               rec.strategy === 'no_data'    ? '❌ No Data' : '🎯 Retention' }}
           </span>
         </div>
+
+        @if (showMarketHint(rec)) {
+          <div class="market-hint">
+            <span class="market-hint-icon">ℹ</span>
+            <span>Your cost is well below the market, so this price is driven by competitor data — not your margin settings. To change it, adjust the <strong>Undercut By %</strong> on the left.</span>
+          </div>
+        }
 
         <div class="price-comparison">
           <div class="price-col highlight">
@@ -226,7 +230,12 @@
             <span class="stat-label">Confidence</span>
             <span class="stat-value">{{ rec.confidence }}</span>
           </div>
-          @if (rec.flag) {
+          @if (rec.strategy === 'no_data') {
+            <div class="no-data-message">
+              <span class="no-data-icon">🔍</span>
+              <span>{{ noDataMessage(rec) }}</span>
+            </div>
+          } @else if (rec.flag) {
             <div class="stat-item">
               <span class="flag-val">⚠ {{ rec.flag.replace('_', ' ') }}</span>
             </div>

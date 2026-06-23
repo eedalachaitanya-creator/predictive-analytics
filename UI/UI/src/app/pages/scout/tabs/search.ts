@@ -87,6 +87,11 @@ export class ScoutSearchTab implements OnInit {
     const q = this.query().trim();
     if (!q || this.searching()) return;
 
+    if (!this.selected().size) {
+      this.error.set('Please select at least one platform before searching.');
+      return;
+    }
+
     // Generate a request_id that the backend uses to register this search
     // in its cancellation registry. crypto.randomUUID is widely supported
     // (Chrome 92+, Firefox 95+, Safari 15.4+) — covers the targeted dev/user
@@ -179,6 +184,11 @@ export class ScoutSearchTab implements OnInit {
   searchBulk() {
     const file = this.bulkFile();
     if (!file || this.searching()) return;
+
+    if (!this.selected().size) {
+      this.error.set('Please select at least one platform before searching.');
+      return;
+    }
 
     // Same cancellation pattern as single search — generate a request_id,
     // pass it to the upload, and wire up Cancel via shared cancel() method.

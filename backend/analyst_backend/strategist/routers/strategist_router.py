@@ -29,6 +29,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from strategist.agents.strategist_graph import run_strategist_graph
+from strategist.db.persistence import fetch_client_config
 from strategist.models.schemas import (
     ChurnBatch,
     CostSummaryResponse,
@@ -39,6 +40,12 @@ from strategist.services.langfuse_service import get_langfuse_safe, get_cost_sum
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/strategist", tags=["Strategist Agent"])
+
+# Fallback COGS estimate used by GET /sample-request when no saved cost exists.
+# Assumes cost is this % of the lowest observed competitor price.
+# Only used for sample/prefetch data — never for actual /recommend runs
+# (those use product_prices.cost_price_usd saved via POST /product-costs).
+COGS_ESTIMATE_PCT = 0.60
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +130,33 @@ async def recommend(
         client_id       = request.client_id,
         status          = "ok",
         elapsed_seconds = elapsed,
-        currency        = request.currency or "INR",
+        currency        = request.currency,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /defaults — pricing parameter defaults for the UI
+# Single source of truth: derived from StrategistRequest field definitions.
+# Frontend reads this on init so signal defaults are never hardcoded.
+# ---------------------------------------------------------------------------
+
+@router.get("/defaults", summary="Pricing parameter defaults")
+def get_defaults() -> dict:
+    """
+    Returns the default values for all pricing parameters.
+    Derived directly from StrategistRequest field definitions — if a default
+    changes in the schema, the UI picks it up automatically.
+    """
+    fields = StrategistRequest.model_fields
+    return {
+        name: field.default
+        for name, field in fields.items()
+        if field.default is not None
+        and name in {
+            "target_margin_pct", "min_margin_pct", "undercut_pct",
+            "overhead_multiplier", "min_confidence",
+        }
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +278,7 @@ async def sample_request(
 
     What it returns:
       - scout_output: real competitor listings from entity_listings table
-      - our_costs:    COGS estimated at 60% of lowest listed price per product
+      - our_costs:    COGS estimated at COGS_ESTIMATE_PCT of lowest listed price per product
       - churn_batch:  real HIGH/MEDIUM risk customers from churn_scores table
     """
     from strategist.db.connection import get_scout_pool, get_analyst_pool
@@ -255,6 +287,10 @@ async def sample_request(
     our_costs:    dict = {}
     churn_batch:  dict = {"scores": []}
     errors:       list = []
+
+    # ── Load client guardrails from Analyst DB ────────────────────────────
+    # fetch_client_config falls back to _DEFAULT_CONFIG if DB is unreachable.
+    client_config = await fetch_client_config(client_id)
 
     # ── Pull entity_listings from Scout DB ────────────────────────────────
     # entity_listings schema: id, entity_id, platform, title, price, currency,
@@ -331,11 +367,12 @@ async def sample_request(
 
         scout_output["products"] = list(products.values())
 
-        # Estimate COGS at 60% of minimum listed price (adjust to your actual margins)
+        # Estimate COGS at COGS_ESTIMATE_PCT of minimum listed price.
+        # Only used here — real /recommend runs use saved product_prices.cost_price_usd.
         for prod in scout_output["products"]:
             prices = [lst["price"]["value"] for lst in prod["listings"]]
             if prices:
-                our_costs[prod["name"]] = round(min(prices) * 0.60, 2)
+                our_costs[prod["name"]] = round(min(prices) * COGS_ESTIMATE_PCT, 2)
 
     except Exception as exc:
         errors.append(f"entity_listings fetch failed: {exc}")
@@ -384,20 +421,21 @@ async def sample_request(
     except Exception as exc:
         errors.append(f"churn_scores fetch failed: {exc}")
 
+    _defaults = get_defaults()
     result = {
         "client_id":           client_id,
         "scout_output":        scout_output,
         "our_costs":           our_costs,
         "churn_batch":         churn_batch,
-        "target_margin_pct":   20.0,
-        "min_margin_pct":       8.0,
-        "undercut_pct":         2.0,
-        "overhead_multiplier":  1.15,
-        "min_confidence":       0.5,
-        "max_discount_pct":    30.0,
-        "high_ltv_threshold": 500.0,
-        "client_priority":    None,
-        "customer_segment":   None,
+        "target_margin_pct":   _defaults["target_margin_pct"],
+        "min_margin_pct":      _defaults["min_margin_pct"],
+        "undercut_pct":        _defaults["undercut_pct"],
+        "overhead_multiplier": _defaults["overhead_multiplier"],
+        "min_confidence":      _defaults["min_confidence"],
+        "max_discount_pct":    client_config.max_discount_pct,
+        "high_ltv_threshold":  client_config.high_ltv_threshold,
+        "client_priority":     None,
+        "customer_segment":    None,
     }
 
     if errors:

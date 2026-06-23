@@ -2,12 +2,14 @@ import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StrategistService, StrategistRequest, PricingRecommendation } from '../../../services/strategist.service';
+import { ScoutService } from '../../../services/scout.service';
 import { AuthService } from '../../../services/auth.service';
 
 interface ProductRow {
   name:        string;   // query sent to backend (Scout search term)
   displayName: string;   // canonical name shown to user in input field
   cost:        string;
+  currency:    string;   // currency the cost is entered in (drives market currency)
   listings:    string;
   platforms:   { name: string; price: number }[];
 }
@@ -21,24 +23,43 @@ interface ProductRow {
 })
 export class StrategistRecommendTab {
   private svc   = inject(StrategistService);
+  private scout = inject(ScoutService);
   private auth  = inject(AuthService);
   clientId      = this.auth.getClientId();
 
   constructor() {
-    // Pre-fill currency dropdown from client_config (silent fallback to INR)
+    // Pre-fill cost currency per product from client_config default.
     this.svc.getClientConfig(this.clientId).subscribe({
       next: (cfg: any) => {
-        if (cfg?.currency) this.currency.set(cfg.currency);
+        const cur = cfg?.currency || 'INR';
+        this.products.update(rows => rows.map(r => ({ ...r, currency: cur })));
       },
-      error: () => { /* keep INR default */ }
+      error: () => { /* keep INR default on each product row */ }
+    });
+    // Load websites so platformIcon() can read icons from DB via the signal.
+    // subscribe() is called for the side-effect only; the signal update
+    // inside ScoutService is what matters.
+    this.scout.loadWebsites().subscribe();
+
+    // Load pricing parameter defaults from backend schema.
+    // Keeps frontend in sync with StrategistRequest field definitions.
+    this.svc.getDefaults().subscribe({
+      next: (d) => {
+        if (d['target_margin_pct'] != null) this.targetMargin.set(d['target_margin_pct']);
+        if (d['min_margin_pct']    != null) this.minMargin.set(d['min_margin_pct']);
+        if (d['undercut_pct']      != null) this.undercutPct.set(d['undercut_pct']);
+      },
+      error: () => { /* keep placeholder defaults */ }
     });
   }
 
-  products      = signal<ProductRow[]>([{ name: '', displayName: '', cost: '', listings: '', platforms: [] }]);
+  products      = signal<ProductRow[]>([{ name: '', displayName: '', cost: '', currency: 'INR', listings: '', platforms: [] }]);
   savedCosts    = signal<Record<string, number>>({});
+  // Defaults loaded from GET /api/strategist/defaults on init.
+  // Signal values below are placeholders only, overwritten in constructor.
   targetMargin  = signal(20);
   minMargin     = signal(8);
-  undercutPct      = signal(2);
+  undercutPct   = signal(2);
 
   loading       = signal(false);
   error         = signal('');
@@ -46,8 +67,6 @@ export class StrategistRecommendTab {
   runMeta       = signal<{ run_id: string; elapsed: number; retention_count: number } | null>(null);
   savedMsg      = signal('');
 
-  // Currency — prefilled from client_config.currency, user can override per request
-  currency        = signal('INR');
   // responseCurrency — set from res.currency after a successful API call.
   // This is what fmtPrice() uses to display symbols, so the symbol always
   // matches the actual currency the backend computed prices in, not just
@@ -73,7 +92,8 @@ export class StrategistRecommendTab {
   private searchTimeouts: Record<number, any> = {};
 
   loadSample() {
-    this.products.set([{ name: '', displayName: '', cost: '', listings: '', platforms: [] }]);
+    const cur = this.products()[0]?.currency || 'INR';
+    this.products.set([{ name: '', displayName: '', cost: '', currency: cur, listings: '', platforms: [] }]);
     this.results.set([]);
     this.runMeta.set(null);
     this.error.set('');
@@ -82,14 +102,16 @@ export class StrategistRecommendTab {
   }
 
   addProduct() {
-    this.products.update(p => [...p, { name: '', displayName: '', cost: '', listings: '', platforms: [] }]);
+    // New rows inherit the currency of the first existing row
+    const cur = this.products()[0]?.currency || 'INR';
+    this.products.update(p => [...p, { name: '', displayName: '', cost: '', currency: cur, listings: '', platforms: [] }]);
   }
 
   removeProduct(i: number) {
     this.products.update(p => p.filter((_, idx) => idx !== i));
   }
 
-  updateProduct(i: number, field: 'name' | 'cost', value: string) {
+  updateProduct(i: number, field: 'name' | 'cost' | 'currency', value: string) {
     this.products.update(p => {
       const updated = [...p];
       if (field === 'name') {
@@ -149,6 +171,10 @@ export class StrategistRecommendTab {
 
   run() {
     this.error.set('');
+    // Reset responseCurrency to what the user has selected right now.
+    // This ensures noDataMessage() shows the correct currency even before
+    // the API responds, and is overwritten by res.currency on success.
+    this.responseCurrency.set(this.products()[0]?.currency || 'INR');
     if (!this.clientId) {
       this.error.set('No client selected. Please select a client from the top menu.');
       return;
@@ -195,7 +221,9 @@ export class StrategistRecommendTab {
       target_margin_pct: this.targetMargin(),
       min_margin_pct:    this.minMargin(),
       undercut_pct:      this.undercutPct(),
-      currency:          this.currency(),
+      // Currency comes from the product's cost currency.
+      // All products in one run must share the same currency.
+      currency:          this.products()[0]?.currency || 'INR',
       skip_churn:        true,
       client_priority:   null,   // always default
       customer_segment:  null,   // always default
@@ -312,6 +340,24 @@ export class StrategistRecommendTab {
 
   trendIcon(t: string) { return t === 'rising' ? '📈' : t === 'falling' ? '📉' : '➡️'; }
 
+  noDataMessage(rec: PricingRecommendation): string {
+    // responseCurrency is reset to the selected currency at the start of each
+    // run(), so it always reflects what the current results were computed in.
+    const cur = this.responseCurrency();
+    switch (rec.flag) {
+      case 'no_price_data':
+        return `No ${cur}-priced competitor data found for this product. `
+             + `This product may only be available on platforms that price in a different currency. `
+             + `Try switching to INR if it is sold on Indian platforms.`;
+      case 'no_cost_data':
+        return 'No cost entered for this product. Enter your cost in the field on the left to get a recommendation.';
+      case 'invalid_cost_data':
+        return 'The cost entered looks too low (less than 1). Please check and re-enter your cost.';
+      default:
+        return 'Not enough data to generate a recommendation for this product.';
+    }
+  }
+
   fmtPrice(n: number) {
     const entry = this.CURRENCIES.find(c => c.code === this.responseCurrency());
     const sym = entry ? entry.symbol : this.responseCurrency();
@@ -321,19 +367,13 @@ export class StrategistRecommendTab {
   fmtPct(n: number)  { return (n || 0).toFixed(1) + '%'; }
   fmtProb(n: number) { return ((n || 0) * 100).toFixed(1) + '%'; }
 
-  platformIcon(p: string) {
-    // Keyword-based matching — works for any platform name without hardcoding.
-    // New platforms the Scout Agent discovers automatically get a sensible icon.
-    const name = p?.toLowerCase() ?? '';
-    if (name.includes('amazon'))   return '🛒';
-    if (name.includes('flipkart')) return '🏪';
-    if (name.includes('meesho'))   return '🛍';
-    if (name.includes('myntra'))   return '👗';
-    if (name.includes('snapdeal')) return '🏷';
-    if (name.includes('nykaa'))    return '💄';
-    if (name.includes('jiomart') || name.includes('jio')) return '📦';
-    if (name.includes('ebay'))     return '🔨';
-    if (name.includes('walmart'))  return '🏬';
-    return '🌐';
+  platformIcon(name: string): string {
+    // Icon is a property of the platform stored in the DB (websites.icon).
+    // DB column DEFAULT 🌐 so every platform always has one.
+    // The ?? fallback here only fires if the websites signal hasn't loaded yet.
+    const site = this.scout.websites().find(
+      w => w.name.toLowerCase() === name?.toLowerCase()
+    );
+    return site?.icon ?? '🌐';
   }
 }

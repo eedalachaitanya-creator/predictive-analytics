@@ -59,7 +59,8 @@ BULK_CONCURRENCY  = 5
 # ── Pydantic models ───────────────────────────────────────────────────
 
 class AddWebsiteRequest(BaseModel):
-    name: str
+    name:       str
+    icon:       str = "🌐"            # emoji shown next to platform name in UI
     request_id: Optional[str] = None  # for cooperative cancel — frontend sends UUID
 
 class UpdateWebsiteRequest(BaseModel):
@@ -67,6 +68,7 @@ class UpdateWebsiteRequest(BaseModel):
     search_url: str
     base_url:   Optional[str] = None
     active:     bool = True
+    icon:       Optional[str] = None  # if omitted, existing icon is preserved
 
 class SearchRequest(BaseModel):
     name:          str
@@ -84,6 +86,7 @@ def _shape_site(site: dict) -> dict:
         "base_url":   site.get("base_url", ""),
         "encoding":   site.get("encoding", "plus"),
         "active":     bool(site["active"]),
+        "icon":       site.get("icon", "🌐"),
     }
 
 
@@ -425,6 +428,7 @@ async def add_website(payload: AddWebsiteRequest, user: dict = Depends(get_curre
             search_url=resolved["search_url"],
             encoding=resolved.get("encoding", "plus"),
             client_id=cid,
+            icon=payload.icon,
         )
         return {"data": _shape_site(site)}
     except SearchCancelledException:
@@ -446,7 +450,7 @@ def update_website(payload: UpdateWebsiteRequest, user: dict = Depends(get_curre
     updated = db.update_website(
         name=payload.name, active=payload.active,
         search_url=payload.search_url, base_url=payload.base_url,
-        client_id=cid,
+        client_id=cid, icon=payload.icon,
     )
     return {"data": _shape_site(updated)}
 

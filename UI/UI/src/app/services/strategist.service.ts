@@ -100,7 +100,7 @@ export interface StrategistResponse {
   retention_count:   number;
   total_products:    number;
   elapsed_seconds:   number;
-  currency:        string;
+  currency:          string;   // ISO code of all prices in this response
 }
 
 export interface MarketTrend   { product_name: string; trend: string; }
@@ -174,6 +174,11 @@ export class StrategistService {
   getClientConfig(clientId: string): Observable<any> {
     return this.http.get<any>(`${BASE}/api/db/client-config/${clientId}`, { headers: headers() })
       .pipe(catchError(() => of({ currency: 'INR' })));
+  }
+
+  getDefaults(): Observable<Record<string, number>> {
+    return this.http.get<Record<string, number>>(`${BASE}/api/strategist/defaults`, { headers: headers() })
+      .pipe(catchError(() => of({})));
   }
 
   getPriceHistoryProducts(q: string): Observable<any> {

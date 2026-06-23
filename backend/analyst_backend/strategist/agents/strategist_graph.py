@@ -9,73 +9,6 @@ This module wraps the existing StrategistAgent pricing engine in a
 LangGraph StateGraph, giving the pipeline explicit, inspectable nodes
 with typed state, conditional routing, and full LangSmith / LangFuse
 observability.
-
-Graph topology
---------------
-
-                  ┌─────────────────────┐
-                  │   START             │
-                  └────────┬────────────┘
-                           │
-                  ┌────────▼────────────┐
-                  │  validate_input     │  Pydantic guards, early-exit on bad data
-                  └────────┬────────────┘
-                           │
-              ┌────────────▼────────────────┐
-              │  load_market_context        │  Fetch market trends + client config from DB
-              └────────────┬────────────────┘
-                           │
-              ┌────────────▼────────────────┐
-              │  build_churn_lookup         │  Index churn batch for O(1) access per product
-              └────────────┬────────────────┘
-                           │
-              ┌────────────▼────────────────┐
-              │  run_pricing_engine         │  5-layer pricing engine (StrategistAgent.run)
-              └────────────┬────────────────┘
-                           │
-              ┌────────────▼────────────────┐
-              │  apply_charm_pricing        │  Post-process: psychological pricing pass
-              └────────────┬────────────────┘
-                           │
-        ┌──────────────────▼─────────────────────┐
-        │  route_by_churn_risk (conditional)      │
-        │   HIGH   → retention_offer_node         │
-        │   MEDIUM → soft_flag_node               │
-        │   LOW    → persist_results              │
-        └──────────────────┬─────────────────────┘
-                           │
-          ┌────────────────┴────────────────┐
-          │                                 │
- ┌────────▼──────────┐          ┌──────────▼──────────┐
- │ retention_offer   │          │   soft_flag_node     │
- │  _node            │          │ (MEDIUM risk note)   │
- └────────┬──────────┘          └──────────┬──────────┘
-          │                                 │
-          └────────────┬────────────────────┘
-                       │
-            ┌──────────▼──────────┐
-            │   persist_results   │  Write to DB (best-effort, non-blocking)
-            └──────────┬──────────┘
-                       │
-            ┌──────────▼──────────┐
-            │       END           │
-            └─────────────────────┘
-
-Node responsibilities
----------------------
-validate_input        Validates request fields; sets error_message on bad input.
-load_market_context   Async DB calls: fetch_client_config + fetch_market_trends.
-build_churn_lookup    Indexes ChurnBatch.scores by customer_id for O(1) lookup.
-run_pricing_engine    Delegates to StrategistAgent._process_product() per product.
-apply_charm_pricing   Re-runs charm pricing post-processing (idempotent).
-retention_offer_node  Enriches HIGH-risk recommendations with full ChurnContext.
-soft_flag_node        Appends MEDIUM-risk re-engagement warnings.
-persist_results       Calls persistence.persist_run() — failures never abort the graph.
-
-State schema
-------------
-StrategistState is a TypedDict consumed and produced by every node.
-All fields default to None / [] so nodes can be composed in any order.
 """
 
 from __future__ import annotations
@@ -94,7 +27,7 @@ from langgraph.graph import END, START, StateGraph
 from langchain_core.runnables import RunnableConfig
 
 # Internal modules
-from strategist.agents.strategist_agent import StrategistAgent, StrategistConfig
+from strategist.agents.strategist_agent import StrategistAgent, StrategistConfig, _CURRENCY_SYMBOLS
 from strategist.agents.tools import (
     ChurnScoreFetchTool,
     ClientConfigTool,
@@ -541,25 +474,30 @@ def retention_offer_node(state: StrategistState) -> StrategistState:
 
     recs         = state.get("recommendations", [])
     churn_lookup = state.get("churn_lookup", {})
+    request      = state.get("request")
+    currency_sym = _CURRENCY_SYMBOLS.get(
+        (request.currency or "INR").upper(), request.currency or "INR"
+    ) if request else "₹"
 
     retention_recs = [r for r in recs if r.strategy == "retention"]
 
     for rec in retention_recs:
         if rec.churn_context:
             logger.info(
-                "retention_offer_node: %s → ₹%.2f (was ₹%.2f, discount=%.0f%%, tier=%s)",
+                "retention_offer_node: %s → %s%.2f (was %s%.2f, discount=%.0f%%, tier=%s)",
                 rec.product_name,
-                rec.suggested_price,
-                rec.pre_retention_price,
+                currency_sym, rec.suggested_price,
+                currency_sym, rec.pre_retention_price,
                 rec.churn_context.discount_applied,
                 rec.churn_context.customer_tier,
             )
         # Guardrail: retention price must never go below floor
         if rec.suggested_price < rec.floor_price:
             logger.warning(
-                "retention_offer_node: GUARDRAIL HIT — %s retention price ₹%.2f < floor ₹%.2f, "
+                "retention_offer_node: GUARDRAIL HIT — %s retention price %s%.2f < floor %s%.2f, "
                 "clamping to floor.",
-                rec.product_name, rec.suggested_price, rec.floor_price,
+                rec.product_name, currency_sym, rec.suggested_price,
+                currency_sym, rec.floor_price,
             )
             rec.suggested_price = rec.floor_price
 
@@ -681,7 +619,7 @@ async def persist_results(state: StrategistState) -> StrategistState:
         avg_margin_pct  = avg_margin,
         retention_count = sum(1 for r in recommendations if r.strategy == "retention"),
         run_id          = run_id,
-        currency = request.currency,
+        currency        = request.currency,
     )
 
     logger.info(

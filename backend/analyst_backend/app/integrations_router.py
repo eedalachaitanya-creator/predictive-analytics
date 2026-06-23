@@ -106,6 +106,63 @@ def list_integrations(clientId: str = Query(...),
     return out
 
 
+@router.get("/summary")
+def integrations_summary(clientId: str = Query(...),
+                         authorization: Optional[str] = Header(default=None)):
+    """Per-client 'Your integrations' view. One row per source the client has
+    feedback data from (ticket/review counts), merged with any configured
+    connector (enabled / last sync). Declared BEFORE GET /{provider} so the
+    literal 'summary' path isn't swallowed by the provider catch-all."""
+    user = _user_or_401(authorization)
+    _require_client_access(user, clientId)
+
+    from ml.connectors.registry import PROVIDER_META
+
+    with engine.connect() as conn:
+        counts = conn.execute(text("""
+            SELECT source,
+                   SUM(CASE WHEN kind = 'ticket' THEN 1 ELSE 0 END) AS tickets,
+                   SUM(CASE WHEN kind = 'review' THEN 1 ELSE 0 END) AS reviews
+            FROM (
+                SELECT COALESCE(NULLIF(TRIM(source), ''), 'unknown') AS source, 'ticket' AS kind
+                  FROM support_tickets WHERE client_id = :c
+                UNION ALL
+                SELECT COALESCE(NULLIF(TRIM(source), ''), 'unknown') AS source, 'review' AS kind
+                  FROM customer_reviews WHERE client_id = :c
+            ) x
+            GROUP BY source
+        """), {"c": clientId}).mappings().all()
+
+        configured = conn.execute(text(
+            "SELECT provider, enabled, last_sync_at, last_sync_status "
+            "FROM tenant_integrations WHERE client_id = :c"), {"c": clientId}).mappings().all()
+
+    by_source: dict[str, dict] = {}
+    for r in counts:
+        src = r["source"]
+        by_source[src] = {
+            "source": src, "tickets": int(r["tickets"] or 0), "reviews": int(r["reviews"] or 0),
+            "configured": False, "enabled": False, "lastSyncAt": None, "lastSyncStatus": None,
+        }
+    for r in configured:
+        src = r["provider"]
+        row = by_source.setdefault(src, {
+            "source": src, "tickets": 0, "reviews": 0,
+            "configured": False, "enabled": False, "lastSyncAt": None, "lastSyncStatus": None,
+        })
+        row["configured"] = True
+        row["enabled"] = bool(r["enabled"])
+        row["lastSyncAt"] = r["last_sync_at"].isoformat() if r["last_sync_at"] else None
+        row["lastSyncStatus"] = r["last_sync_status"]
+
+    for src, row in by_source.items():
+        row["label"] = PROVIDER_META.get(src, {}).get(
+            "label", (src[:1].upper() + src[1:]) if src else "Unknown")
+
+    out = sorted(by_source.values(), key=lambda r: (-(r["tickets"] + r["reviews"]), r["source"]))
+    return {"integrations": out}
+
+
 @router.get("/{provider}")
 def get_integration(provider: str, clientId: str = Query(...),
                     authorization: Optional[str] = Header(default=None)):

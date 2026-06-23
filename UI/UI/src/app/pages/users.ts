@@ -3,7 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UserManagementService } from '../services/user-management.service';
 import { AuthService } from '../services/auth.service';
-import { AppUser, UserRole } from '../models';
+import { ApiService } from '../services/api.service';
+import { AppUser, UserRole, CreateUserRequest } from '../models';
 
 @Component({
   selector: 'app-users',
@@ -15,6 +16,7 @@ import { AppUser, UserRole } from '../models';
 export class UsersComponent implements OnInit {
   svc = inject(UserManagementService);
   private auth = inject(AuthService);
+  private api = inject(ApiService);
 
   // The currently signed-in user — used to forbid changing your OWN status
   // (a super admin who deactivates themselves is locked out at next login).
@@ -42,8 +44,59 @@ export class UsersComponent implements OnInit {
   superAdmins = computed(() => this.svc.users().filter(u => u.role === 'super_admin').length);
   clientUsers = computed(() => this.svc.users().filter(u => u.role === 'client_user').length);
 
+  // ── Add-user modal ─────────────────────────────────────────────────
+  // Restores the ability to add MORE logins to a client (each client was
+  // provisioned with exactly one login at onboarding). Backend: POST /users.
+  clients = signal<{ client_id: string; client_name: string }[]>([]);
+  addOpen     = signal(false);
+  addName     = signal('');
+  addEmail    = signal('');
+  addPassword = signal('');
+  addRole     = signal<UserRole>('client_user');
+  addClient   = signal('');
+  addSaving   = signal(false);
+  addError    = signal('');
+
   ngOnInit() {
     this.svc.loadUsers().subscribe({ error: () => {} });
+    // client list for the access dropdown (active clients only)
+    this.api.get<any[]>('/clients').subscribe({
+      next: (cs) => this.clients.set(
+        (cs || []).map(c => ({ client_id: c.client_id, client_name: c.client_name }))),
+      error: () => {},
+    });
+  }
+
+  openAdd() {
+    this.addName.set(''); this.addEmail.set(''); this.addPassword.set('');
+    this.addRole.set('client_user'); this.addClient.set('');
+    this.addError.set(''); this.addSaving.set(false);
+    this.addOpen.set(true);
+  }
+
+  closeAdd() { this.addOpen.set(false); }
+
+  submitAdd() {
+    const name = this.addName().trim();
+    const email = this.addEmail().trim();
+    const password = this.addPassword();
+    const role = this.addRole();
+    if (!name || !email || !password) {
+      this.addError.set('Name, email and a temporary password are required.'); return;
+    }
+    if (role === 'client_user' && !this.addClient()) {
+      this.addError.set('Select the client this login belongs to.'); return;
+    }
+    const clientAccess = role === 'super_admin' ? ['*'] : [this.addClient()];
+    const req: CreateUserRequest = { name, email, password, role, clientAccess };
+    this.addSaving.set(true); this.addError.set('');
+    this.svc.createUser(req).subscribe({
+      next: () => { this.addSaving.set(false); this.closeAdd(); },
+      error: (e) => {
+        this.addSaving.set(false);
+        this.addError.set(e?.error?.detail ?? e?.message ?? 'Could not create the user.');
+      },
+    });
   }
 
   toggleStatus(u: AppUser) {

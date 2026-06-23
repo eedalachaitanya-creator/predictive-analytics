@@ -7,22 +7,17 @@
     <div class="stat-card"><div class="stat-value">{{ clientUsers() }}</div><div class="stat-label">Client Users</div></div>
   </div>
 
-  <!-- Loading / error indicators. The "+ Add New User" button has been
-       retired — new users are now created exclusively as part of the
-       "+ Add New Client" flow on the Clients page (the super admin picks a
-       contact name/email/password there and that user is provisioned in the
-       same transaction as the client_config row). This page is a read-only
-       roster.
+  <!-- "+ Add User" creates ADDITIONAL logins for a client (each client is
+       provisioned with one login at onboarding via "+ Add New Client"; this lets
+       you add more). Backend: POST /users.
 
        The per-row Delete button was removed 2026-04-25. Reason: it was the
        only HARD-delete in the system (DELETE FROM users), which created
-       drift between Users and Clients pages — a deleted user vanished
-       here, but their client_config row stayed visible on the Clients
-       page, and a later soft-delete + reactivate from there couldn't
-       resurrect the (gone) user. To remove a tenant, use the Clients
-       page → 🗑 Delete (soft-delete with reactivate). The user account
+       drift between Users and Clients pages. To remove a tenant, use the
+       Clients page → 🗑 Delete (soft-delete with reactivate); the login
        follows the client's active state via auth_router's is_active gate. -->
-  <div class="flex-row mb-20">
+  <div class="flex-row mb-20" style="gap:10px;align-items:center">
+    <button class="btn walmart" (click)="openAdd()">+ Add User</button>
     @if (svc.loading()) { <span class="text-muted" style="font-size:12px">Loading…</span> }
     @if (svc.error()) { <span class="text-red" style="font-size:12px">⚠️ {{ svc.error() }}</span> }
   </div>
@@ -68,4 +63,54 @@
       </div>
     }
   </div>
+
+  <!-- Add-user modal -->
+  @if (addOpen()) {
+    <div class="modal-backdrop" (click)="closeAdd()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="flex-row" style="align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h3 class="modal-title" style="margin:0">Add User</h3>
+          <button class="btn outline sm" (click)="closeAdd()">✕ Close</button>
+        </div>
+        <p class="modal-sub">Create an additional login. For a client login, pick the client it belongs to.</p>
+
+        <label class="form-label">Full Name <span class="required">*</span></label>
+        <input class="form-input mb-16" [ngModel]="addName()" (ngModelChange)="addName.set($event)" placeholder="Jane Doe">
+
+        <label class="form-label">Login Email <span class="required">*</span></label>
+        <input class="form-input mb-16" type="email" [ngModel]="addEmail()" (ngModelChange)="addEmail.set($event)" placeholder="jane@company.com" autocomplete="off">
+
+        <label class="form-label">Temporary Password <span class="required">*</span></label>
+        <input class="form-input" type="password" [ngModel]="addPassword()" (ngModelChange)="addPassword.set($event)" placeholder="Min 8 chars · upper, lower, number, symbol" autocomplete="new-password">
+        <p class="modal-hint" style="margin:4px 0 16px">At least 8 characters with an uppercase letter, lowercase letter, number and symbol; no spaces.</p>
+
+        <label class="form-label">Role</label>
+        <select class="form-input mb-16" [ngModel]="addRole()" (ngModelChange)="addRole.set($event)">
+          <option value="client_user">Client User</option>
+          <option value="super_admin">Super Admin</option>
+        </select>
+
+        @if (addRole() === 'client_user') {
+          <label class="form-label">Client <span class="required">*</span></label>
+          <select class="form-input mb-16" [ngModel]="addClient()" (ngModelChange)="addClient.set($event)">
+            <option value="">— Select a client —</option>
+            @for (c of clients(); track c.client_id) {
+              <option [value]="c.client_id">{{ c.client_id }} · {{ c.client_name }}</option>
+            }
+          </select>
+        }
+
+        @if (addError()) {
+          <div class="notice warning" style="font-size:13px;padding:10px 16px;border-radius:8px;margin-bottom:12px">⚠️ {{ addError() }}</div>
+        }
+
+        <div class="modal-actions">
+          <button class="btn outline" (click)="closeAdd()" [disabled]="addSaving()">Cancel</button>
+          <button class="btn walmart" (click)="submitAdd()" [disabled]="addSaving()">
+            {{ addSaving() ? 'Creating…' : 'Create User' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
 </div>

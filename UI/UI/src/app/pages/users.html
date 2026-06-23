@@ -29,6 +29,9 @@
 
   <!-- Users Table -->
   <div class="section-heading">👥 All Users</div>
+  @if (toggleError()) {
+    <div class="notice warning" style="margin-bottom:12px;font-size:13px;padding:10px 16px;border-radius:8px">⚠️ {{ toggleError() }}</div>
+  }
   <div class="card mb-24">
     @if (svc.users().length) {
       <table class="data-table user-table">
@@ -45,7 +48,9 @@
               <td style="font-size:12px">{{ accessLabel(u) }}</td>
               <td class="font-mono" style="font-size:11px">{{ formatLogin(u.lastLogin) }}</td>
               <td>
-                <button class="status-toggle" (click)="toggleStatus(u)" [title]="u.status">
+                <button class="status-toggle" (click)="toggleStatus(u)"
+                        [disabled]="isSelf(u)"
+                        [title]="isSelf(u) ? 'You cannot change your own account status' : u.status">
                   <span class="dot" [class]="statusDot(u.status)"></span>
                   <span style="font-size:11px;margin-left:4px;color:var(--text-secondary)">{{ u.status }}</span>
                 </button>

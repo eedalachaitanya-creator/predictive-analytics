@@ -174,6 +174,26 @@ def create_user(
         raise HTTPException(status_code=500, detail=f"Could not create user: {e}")
 
 
+def _guard_self_lockout(caller: dict, user_id: str, req: UpdateUserRequest) -> None:
+    """Prevent a super admin from locking THEMSELVES out via this endpoint.
+
+    The Users-page status toggle routes through update_user, so — exactly like
+    delete_user blocks self-delete — a super admin must not be able to deactivate
+    their own account or strip their own super-admin role here. Login refuses
+    is_active=false accounts (auth_router), so self-deactivation = a permanent
+    lockout. Since a super admin can never deactivate themselves, at least one
+    active super admin always remains, which also rules out the
+    last-super-admin-locked-out case."""
+    if user_id != caller.get("id"):
+        return
+    if req.status is not None and req.status != "active":
+        raise HTTPException(status_code=400,
+                            detail="You cannot deactivate your own account.")
+    if req.role is not None and req.role != "super_admin":
+        raise HTTPException(status_code=400,
+                            detail="You cannot remove your own super-admin role.")
+
+
 @router.put("/users/{user_id}")
 def update_user(
     user_id: str,
@@ -184,6 +204,7 @@ def update_user(
     """Update a user's details (super admin only)."""
     caller = _require_super_admin(authorization)
     _validate_role(req.role)
+    _guard_self_lockout(caller, user_id, req)
 
     updates = []
     params = {"uid": user_id}

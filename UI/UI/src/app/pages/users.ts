@@ -1,7 +1,8 @@
-import { Component, OnInit, inject, computed } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UserManagementService } from '../services/user-management.service';
+import { AuthService } from '../services/auth.service';
 import { AppUser, UserRole } from '../models';
 
 @Component({
@@ -13,6 +14,14 @@ import { AppUser, UserRole } from '../models';
 })
 export class UsersComponent implements OnInit {
   svc = inject(UserManagementService);
+  private auth = inject(AuthService);
+
+  // The currently signed-in user — used to forbid changing your OWN status
+  // (a super admin who deactivates themselves is locked out at next login).
+  private currentUserId = this.auth.user()?.id ?? null;
+  toggleError = signal('');
+
+  isSelf(u: AppUser): boolean { return !!this.currentUserId && u.id === this.currentUserId; }
 
   // The "+ Add New User" modal has been retired — new users are created by
   // the "+ Add New Client" flow on the Clients page (which provisions a
@@ -38,8 +47,18 @@ export class UsersComponent implements OnInit {
   }
 
   toggleStatus(u: AppUser) {
+    // Never let an admin deactivate their own account (backend also blocks it,
+    // but stop the click here so it can't even be attempted).
+    if (this.isSelf(u)) {
+      this.toggleError.set('You cannot change your own account status.');
+      return;
+    }
+    this.toggleError.set('');
     const next = u.status === 'active' ? 'inactive' : 'active';
-    this.svc.toggleStatus(u.id, next).subscribe({ error: () => {} });
+    this.svc.toggleStatus(u.id, next).subscribe({
+      error: (e) => this.toggleError.set(
+        e?.error?.detail ?? e?.message ?? `Could not update ${u.email}.`),
+    });
   }
 
   roleColor(r: string) {

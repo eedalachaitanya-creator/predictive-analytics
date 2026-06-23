@@ -17,7 +17,6 @@ export class RegisterComponent {
 
   // Field values
   companyName     = signal('');
-  companyCode     = signal('');
   contactName     = signal('');
   contactEmail    = signal('');
   password        = signal('');
@@ -33,14 +32,12 @@ export class RegisterComponent {
 
   // Touched flags — one per field
   companyNameTouched = signal(false);
-  companyCodeTouched = signal(false);
   contactNameTouched = signal(false);
   emailTouched       = signal(false);
   passTouched        = signal(false);
   confirmTouched     = signal(false);
 
   private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{3,}$/;
-  private readonly CODE_RE  = /^[A-Za-z0-9]+$/;
 
   // Password rules
   rules = computed(() => {
@@ -63,15 +60,6 @@ export class RegisterComponent {
     const name = this.companyName().trim();
     if (!name) return 'Company name is required.';
     if (name.length > 100) return 'Company name must be 100 characters or less.';
-    return '';
-  });
-
-  companyCodeError = computed(() => {
-    if (!this.companyCodeTouched()) return '';
-    const code = this.companyCode().trim();
-    if (!code) return 'Company code is required (e.g. COSTCO, TARGET).';
-    if (code.length > 10) return 'Company code must be 10 characters or less.';
-    if (!this.CODE_RE.test(code)) return 'Letters and numbers only — no spaces or special characters.';
     return '';
   });
 
@@ -112,9 +100,6 @@ export class RegisterComponent {
     return (
       !!this.companyName().trim() &&
       this.companyName().trim().length <= 100 &&
-      !!this.companyCode().trim() &&
-      this.companyCode().length <= 10 &&
-      this.CODE_RE.test(this.companyCode()) &&
       !!this.contactName().trim() &&
       this.contactName().trim().length <= 100 &&
       !!this.contactEmail().trim() &&
@@ -129,7 +114,6 @@ export class RegisterComponent {
   register() {
     // Touch all fields so all inline errors appear at once
     this.companyNameTouched.set(true);
-    this.companyCodeTouched.set(true);
     this.contactNameTouched.set(true);
     this.emailTouched.set(true);
     this.passTouched.set(true);
@@ -145,7 +129,6 @@ export class RegisterComponent {
 
     const body = {
       client_name:   this.companyName().trim(),
-      client_code:   this.companyCode().toUpperCase(),
       contact_name:  this.contactName().trim(),
       contact_email: this.contactEmail().trim(),
       password:      this.password().trim(),  // PA_011 fix: strip trailing/leading spaces

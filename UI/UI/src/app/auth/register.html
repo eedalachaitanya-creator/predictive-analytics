@@ -47,25 +47,6 @@
         }
       </div>
 
-      <label class="form-label">Company Code <span class="required">*</span></label>
-      <input
-        class="form-input mb-4"
-        [class.input-error]="companyCodeError()"
-        type="text"
-        [ngModel]="companyCode()"
-        (ngModelChange)="companyCode.set($event)"
-        (blur)="companyCodeTouched.set(true)"
-        placeholder="e.g., COSTCO (max 10 characters)"
-        maxlength="10"
-        style="text-transform:uppercase"
-        [disabled]="loading()"
-        required />
-      <div class="field-error-area mb-12">
-        @if (companyCodeError()) {
-          <span class="field-err">⚠ {{ companyCodeError() }}</span>
-        }
-      </div>
-
       <div class="form-section-label" style="margin-top:4px">Your Account</div>
 
       <label class="form-label">Full Name <span class="required">*</span></label>

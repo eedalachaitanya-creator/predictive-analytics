@@ -331,7 +331,6 @@ def get_client(client_id: str, authorization: Optional[str] = Header(default=Non
 
 class SelfRegisterRequest(BaseModel):
     client_name: str
-    client_code: str
     contact_name: str
     contact_email: str
     password: str
@@ -514,10 +513,6 @@ def self_register(req: SelfRegisterRequest):
     # ── Validate inputs ───────────────────────────────────────────────
     if not req.client_name.strip():
         raise HTTPException(status_code=400, detail="Company name is required")
-    if not req.client_code.strip():
-        raise HTTPException(status_code=400, detail="Company code is required")
-    if len(req.client_code) > 10:
-        raise HTTPException(status_code=400, detail="Company code must be 10 characters or less")
     import re
     email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
     if not req.contact_email.strip() or not email_re.match(req.contact_email.strip()):
@@ -557,6 +552,9 @@ def self_register(req: SelfRegisterRequest):
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
     new_client_id = _generate_next_client_id()
+    # Company code is no longer collected from the user — derive it from the
+    # client id, exactly like the admin "Add New Client" flow (_resolve_client_code).
+    new_client_code = _resolve_client_code(new_client_id)
 
     try:
         with engine.connect() as conn:
@@ -571,7 +569,7 @@ def self_register(req: SelfRegisterRequest):
                 {
                     "client_id": new_client_id,
                     "client_name": req.client_name,
-                    "client_code": req.client_code.upper(),
+                    "client_code": new_client_code,
                 },
             )
             conn.commit()
@@ -602,7 +600,7 @@ def self_register(req: SelfRegisterRequest):
 
     log.info(
         "Self-registration complete: %s (%s) → %s, user: %s (%s)",
-        req.client_name, req.client_code, new_client_id,
+        req.client_name, new_client_code, new_client_id,
         req.contact_name, req.contact_email,
     )
 
@@ -611,14 +609,14 @@ def self_register(req: SelfRegisterRequest):
         contact_name=req.contact_name,
         company_name=req.client_name,
         client_id=new_client_id,
-        client_code=req.client_code.upper(),
+        client_code=new_client_code,
         password=req.password,
     )
 
     return {
         "client_id": new_client_id,
         "client_name": req.client_name,
-        "client_code": req.client_code.upper(),
+        "client_code": new_client_code,
         "user_email": req.contact_email,
         "message": f"Account created successfully! Your Client ID is {new_client_id}. You can now sign in.",
     }

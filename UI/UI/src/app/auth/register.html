@@ -47,6 +47,48 @@
         }
       </div>
 
+      <label class="form-label">Address <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="addressError()" type="text" maxlength="255"
+             [ngModel]="address()" (ngModelChange)="address.set($event)" (blur)="addressTouched.set(true)"
+             placeholder="Street address" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (addressError()) { <span class="field-err">⚠ {{ addressError() }}</span> }</div>
+
+      <label class="form-label">City <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="cityError()" type="text" maxlength="100"
+             [ngModel]="city()" (ngModelChange)="city.set($event)" (blur)="cityTouched.set(true)"
+             placeholder="City" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (cityError()) { <span class="field-err">⚠ {{ cityError() }}</span> }</div>
+
+      <label class="form-label">State / Province <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="stateError()" type="text" maxlength="100"
+             [ngModel]="stateProvince()" (ngModelChange)="stateProvince.set($event)" (blur)="stateTouched.set(true)"
+             placeholder="State / Province" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (stateError()) { <span class="field-err">⚠ {{ stateError() }}</span> }</div>
+
+      <label class="form-label">Zip / Postal Code <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="postalError()" type="text" maxlength="20"
+             [ngModel]="postalCode()" (ngModelChange)="postalCode.set($event)" (blur)="postalTouched.set(true)"
+             placeholder="Zip / Postal code" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (postalError()) { <span class="field-err">⚠ {{ postalError() }}</span> }</div>
+
+      <label class="form-label">Country <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="countryError()" type="text" maxlength="100"
+             [ngModel]="country()" (ngModelChange)="country.set($event)" (blur)="countryTouched.set(true)"
+             placeholder="Country" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (countryError()) { <span class="field-err">⚠ {{ countryError() }}</span> }</div>
+
+      <label class="form-label">Company Contact Email <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="ccEmailError()" type="email" maxlength="150"
+             [ngModel]="companyContactEmail()" (ngModelChange)="companyContactEmail.set($event)" (blur)="ccEmailTouched.set(true)"
+             placeholder="e.g., info@costco.com" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (ccEmailError()) { <span class="field-err">⚠ {{ ccEmailError() }}</span> }</div>
+
+      <label class="form-label">Company Phone <span class="required">*</span></label>
+      <input class="form-input mb-4" [class.input-error]="companyPhoneError()" type="tel" inputmode="numeric" maxlength="12"
+             [ngModel]="companyPhone()" (ngModelChange)="companyPhone.set($event)" (blur)="companyPhoneTouched.set(true)"
+             placeholder="10–12 digits" [disabled]="loading()" required />
+      <div class="field-error-area mb-12">@if (companyPhoneError()) { <span class="field-err">⚠ {{ companyPhoneError() }}</span> }</div>
+
       <div class="form-section-label" style="margin-top:4px">Your Account</div>
 
       <label class="form-label">Full Name <span class="required">*</span></label>

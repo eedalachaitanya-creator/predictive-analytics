@@ -331,9 +331,70 @@ def get_client(client_id: str, authorization: Optional[str] = Header(default=Non
 
 class SelfRegisterRequest(BaseModel):
     client_name: str
+    # Org profile — same set the admin "Add New Client" form captures. Optional
+    # in the model (default "") so a missing field yields a friendly validator
+    # message instead of a raw 422; _validate_self_register enforces "required".
+    address: str = ""
+    city: str = ""
+    state_province: str = ""
+    postal_code: str = ""
+    country: str = ""
+    company_contact_email: str = ""
+    company_phone: str = ""
     contact_name: str
     contact_email: str
     password: str
+
+
+def _validate_self_register(req: "SelfRegisterRequest") -> list[str]:
+    """Validate a public self-registration. Mirrors validate_admin_create_payload
+    (the admin Add-Client rules) for the shared org fields, so both creation paths
+    enforce the same requirements — minus the admin-phone the admin form has."""
+    errors: list[str] = []
+
+    def _require(value: str, label: str) -> None:
+        if not (value or "").strip():
+            errors.append(f"{label} is required.")
+
+    _require(req.client_name, "Company name")
+    _require(req.address, "Address")
+    _require(req.city, "City")
+    _require(req.state_province, "State / Province")
+    _require(req.postal_code, "Zip / Postal code")
+    _require(req.country, "Country")
+    _require(req.contact_name, "Full name")
+
+    def _max_len(value: str, limit: int, label: str) -> None:
+        if len((value or "").strip()) > limit:
+            errors.append(f"{label} must be {limit} characters or fewer.")
+
+    _max_len(req.client_name,            100, "Company name")
+    _max_len(req.address,                255, "Address")
+    _max_len(req.city,                   100, "City")
+    _max_len(req.state_province,         100, "State / Province")
+    _max_len(req.postal_code,             20, "Zip / Postal code")
+    _max_len(req.country,                100, "Country")
+    _max_len(req.company_contact_email,  150, "Company contact email")
+    _max_len(req.contact_name,           100, "Full name")
+    _max_len(req.contact_email,          150, "Email")
+
+    cce = (req.company_contact_email or "").strip()
+    if not cce or not EMAIL_RE.match(cce):
+        errors.append("A valid company contact email is required.")
+    ce = (req.contact_email or "").strip()
+    if not ce or not EMAIL_RE.match(ce):
+        errors.append("A valid email address is required.")
+
+    cp = (req.company_phone or "").strip()
+    if not cp:
+        errors.append("Company phone is required.")
+    elif not PHONE_RE.match(cp):
+        errors.append("Company phone must be 10–12 digits.")
+
+    pw_error = validate_password(req.password)
+    if pw_error:
+        errors.append(pw_error)
+    return errors
 
 
 def _send_welcome_email(
@@ -510,16 +571,10 @@ def _send_welcome_email(
 
 @router.post("/clients/self-register", dependencies=[])
 def self_register(req: SelfRegisterRequest):
-    # ── Validate inputs ───────────────────────────────────────────────
-    if not req.client_name.strip():
-        raise HTTPException(status_code=400, detail="Company name is required")
-    import re
-    email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
-    if not req.contact_email.strip() or not email_re.match(req.contact_email.strip()):
-        raise HTTPException(status_code=400, detail="Valid email address is required")
-    pw_error = validate_password(req.password)
-    if pw_error:
-        raise HTTPException(status_code=400, detail=pw_error)
+    # ── Validate inputs (same rules as the admin Add-Client form) ──────
+    errors = _validate_self_register(req)
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
 
     try:
         with engine.connect() as conn:
@@ -561,15 +616,26 @@ def self_register(req: SelfRegisterRequest):
             conn.execute(
                 text("""
                     INSERT INTO client_config (
-                        client_id, client_name, client_code
+                        client_id, client_name, client_code,
+                        address, city, state_province, postal_code, country,
+                        contact_email, company_phone
                     ) VALUES (
-                        :client_id, :client_name, :client_code
+                        :client_id, :client_name, :client_code,
+                        :address, :city, :state, :postal, :country,
+                        :contact_email, :company_phone
                     )
                 """),
                 {
                     "client_id": new_client_id,
-                    "client_name": req.client_name,
+                    "client_name": req.client_name.strip(),
                     "client_code": new_client_code,
+                    "address": req.address.strip(),
+                    "city": req.city.strip(),
+                    "state": req.state_province.strip(),
+                    "postal": req.postal_code.strip(),
+                    "country": req.country.strip(),
+                    "contact_email": req.company_contact_email.strip(),
+                    "company_phone": req.company_phone.strip(),
                 },
             )
             conn.commit()

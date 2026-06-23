@@ -17,6 +17,14 @@ export class RegisterComponent {
 
   // Field values
   companyName     = signal('');
+  // Org profile — matches the admin "Add New Client" form.
+  address             = signal('');
+  city                = signal('');
+  stateProvince       = signal('');
+  postalCode          = signal('');
+  country             = signal('');
+  companyContactEmail = signal('');
+  companyPhone        = signal('');
   contactName     = signal('');
   contactEmail    = signal('');
   password        = signal('');
@@ -32,12 +40,20 @@ export class RegisterComponent {
 
   // Touched flags — one per field
   companyNameTouched = signal(false);
+  addressTouched     = signal(false);
+  cityTouched        = signal(false);
+  stateTouched       = signal(false);
+  postalTouched      = signal(false);
+  countryTouched     = signal(false);
+  ccEmailTouched     = signal(false);
+  companyPhoneTouched= signal(false);
   contactNameTouched = signal(false);
   emailTouched       = signal(false);
   passTouched        = signal(false);
   confirmTouched     = signal(false);
 
   private readonly EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{3,}$/;
+  private readonly PHONE_RE = /^\d{10,12}$/;
 
   // Password rules
   rules = computed(() => {
@@ -60,6 +76,33 @@ export class RegisterComponent {
     const name = this.companyName().trim();
     if (!name) return 'Company name is required.';
     if (name.length > 100) return 'Company name must be 100 characters or less.';
+    return '';
+  });
+
+  private _req(touched: boolean, val: string, label: string, max: number): string {
+    if (!touched) return '';
+    const v = val.trim();
+    if (!v) return `${label} is required.`;
+    if (v.length > max) return `${label} must be ${max} characters or less.`;
+    return '';
+  }
+  addressError = computed(() => this._req(this.addressTouched(), this.address(), 'Address', 255));
+  cityError    = computed(() => this._req(this.cityTouched(), this.city(), 'City', 100));
+  stateError   = computed(() => this._req(this.stateTouched(), this.stateProvince(), 'State / Province', 100));
+  postalError  = computed(() => this._req(this.postalTouched(), this.postalCode(), 'Zip / Postal code', 20));
+  countryError = computed(() => this._req(this.countryTouched(), this.country(), 'Country', 100));
+  ccEmailError = computed(() => {
+    if (!this.ccEmailTouched()) return '';
+    const v = this.companyContactEmail().trim();
+    if (!v) return 'Company contact email is required.';
+    if (!this.EMAIL_RE.test(v)) return 'Please enter a valid company contact email.';
+    return '';
+  });
+  companyPhoneError = computed(() => {
+    if (!this.companyPhoneTouched()) return '';
+    const v = this.companyPhone().trim();
+    if (!v) return 'Company phone is required.';
+    if (!this.PHONE_RE.test(v)) return 'Company phone must be 10–12 digits.';
     return '';
   });
 
@@ -100,6 +143,15 @@ export class RegisterComponent {
     return (
       !!this.companyName().trim() &&
       this.companyName().trim().length <= 100 &&
+      !this.addressError() && !!this.address().trim() &&
+      !this.cityError() && !!this.city().trim() &&
+      !this.stateError() && !!this.stateProvince().trim() &&
+      !this.postalError() && !!this.postalCode().trim() &&
+      !this.countryError() && !!this.country().trim() &&
+      !!this.companyContactEmail().trim() &&
+      this.EMAIL_RE.test(this.companyContactEmail().trim()) &&
+      !!this.companyPhone().trim() &&
+      this.PHONE_RE.test(this.companyPhone().trim()) &&
       !!this.contactName().trim() &&
       this.contactName().trim().length <= 100 &&
       !!this.contactEmail().trim() &&
@@ -114,6 +166,13 @@ export class RegisterComponent {
   register() {
     // Touch all fields so all inline errors appear at once
     this.companyNameTouched.set(true);
+    this.addressTouched.set(true);
+    this.cityTouched.set(true);
+    this.stateTouched.set(true);
+    this.postalTouched.set(true);
+    this.countryTouched.set(true);
+    this.ccEmailTouched.set(true);
+    this.companyPhoneTouched.set(true);
     this.contactNameTouched.set(true);
     this.emailTouched.set(true);
     this.passTouched.set(true);
@@ -128,10 +187,17 @@ export class RegisterComponent {
     this.loading.set(true);
 
     const body = {
-      client_name:   this.companyName().trim(),
-      contact_name:  this.contactName().trim(),
-      contact_email: this.contactEmail().trim(),
-      password:      this.password().trim(),  // PA_011 fix: strip trailing/leading spaces
+      client_name:           this.companyName().trim(),
+      address:               this.address().trim(),
+      city:                  this.city().trim(),
+      state_province:        this.stateProvince().trim(),
+      postal_code:           this.postalCode().trim(),
+      country:               this.country().trim(),
+      company_contact_email: this.companyContactEmail().trim(),
+      company_phone:         this.companyPhone().trim(),
+      contact_name:          this.contactName().trim(),
+      contact_email:         this.contactEmail().trim(),
+      password:              this.password().trim(),  // PA_011 fix: strip trailing/leading spaces
     };
 
     this.api.post<any>('/clients/self-register', body).subscribe({

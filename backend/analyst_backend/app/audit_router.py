@@ -101,12 +101,21 @@ def _build_where_clause(
     if user_email and user_email != "ALL":
         conds.append("user_email = :uemail")
         params["uemail"] = user_email
+    # action_type / outcome accept a comma-separated list so the KPI cards
+    # (whose counts span multiple values — e.g. Warnings = warning OR failure)
+    # can be reproduced exactly by the filter. A single value is just a
+    # one-element list, so this stays backward-compatible. `= ANY(:list)` keeps
+    # it parameterized (no interpolation).
     if action_type and action_type != "ALL":
-        conds.append("action_type = :atype")
-        params["atype"] = action_type
+        atypes = [a.strip() for a in action_type.split(",") if a.strip()]
+        if atypes:
+            conds.append("action_type = ANY(:atypes)")
+            params["atypes"] = atypes
     if outcome and outcome != "ALL":
-        conds.append("outcome = :outcome")
-        params["outcome"] = outcome
+        outcomes = [o.strip() for o in outcome.split(",") if o.strip()]
+        if outcomes:
+            conds.append("outcome = ANY(:outcomes)")
+            params["outcomes"] = outcomes
 
     where_sql = ("WHERE " + " AND ".join(conds)) if conds else ""
     return where_sql, params

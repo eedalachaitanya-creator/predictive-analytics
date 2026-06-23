@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { environment } from '../../environments/environment';
+import { UiSelectComponent, UiSelectOption } from '../components/ui-select/ui-select.component';
 
 // ── Shape of a single audit event coming back from /api/v1/audit ────────────
 // Matches `_row_to_event()` in backend/audit_router.py exactly. SYSTEM rows
@@ -36,7 +37,7 @@ interface AuditStats {
 @Component({
   selector: 'app-audit',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, UiSelectComponent],
   templateUrl: './audit.html',
   styleUrls: ['./audit.scss']
 })
@@ -75,6 +76,80 @@ export class AuditComponent implements OnInit {
     const start = (this.page() - 1) * this.pageSize + 1;
     const end   = Math.min(this.page() * this.pageSize, t);
     return `Showing ${start}–${end} of ${t} events`;
+  });
+
+  // ── Option lists for the custom <app-ui-select> filters ────────────────
+  // Built from the backend filter-options payload; each leads with an "ALL"
+  // sentinel that maps to no server-side constraint (see baseFilterParams()).
+  clientOptions = computed<UiSelectOption[]>(() => [
+    { value: 'ALL', label: 'All Clients' },
+    ...this.options().clients.map(c => ({ value: c.client_id, label: `${c.client_id} · ${c.client_name}` })),
+  ]);
+  userOptions = computed<UiSelectOption[]>(() => [
+    { value: 'ALL', label: 'All Users' },
+    ...this.options().users.map(u => ({ value: u, label: u })),
+  ]);
+  // Combined (multi-value) filter values that mirror the backend KPI-stat
+  // definitions, so a card click reproduces its count EXACTLY. The list
+  // endpoint accepts these comma-separated values (= ANY(...)); they're also
+  // offered as dropdown options so the bar always shows what's applied.
+  readonly PROBLEM_OUTCOMES = 'warning,failure';
+  readonly AUTH_ACTIONS     = 'login,logout,token_refresh';
+
+  actionOptions = computed<UiSelectOption[]>(() => [
+    { value: 'ALL', label: 'All' },
+    { value: this.AUTH_ACTIONS, label: 'Auth (login / logout / token refresh)' },
+    ...this.options().action_types.map(a => ({ value: a, label: this.actionLabel(a) })),
+  ]);
+  outcomeOptions = computed<UiSelectOption[]>(() => [
+    { value: 'ALL', label: 'All' },
+    { value: this.PROBLEM_OUTCOMES, label: 'Warning + Failure' },
+    ...this.options().outcomes.map(o => ({ value: o, label: o.charAt(0).toUpperCase() + o.slice(1) })),
+  ]);
+
+  // ── Clickable KPI cards → today-scoped filter presets ──────────────────
+  // Each card is a shortcut that POPULATES the visible filter bar (so the
+  // applied filter is always transparent — no hidden mismatch with the count)
+  // then re-runs the query. Clicking the active card again clears back to the
+  // default 30-day view. All three card stats are scoped to "today".
+  activeCard = signal<'' | 'today' | 'warnings' | 'security'>('');
+
+  setCardPreset(card: 'today' | 'warnings' | 'security') {
+    if (this.activeCard() === card) { this.resetFilters(); return; }
+    const t = this.today();
+    // Mirror the backend stat definitions exactly so the filtered row count
+    // EQUALS the card number (pinned by test_audit_card_presets.py):
+    //   warnings = outcome IN (warning, failure)
+    //   security = warnings AND action_type IN (login, logout, token_refresh)
+    this.filters.set({
+      start: t, end: t, client_id: 'ALL', user_email: 'ALL',
+      action_type: card === 'security' ? this.AUTH_ACTIONS : 'ALL',
+      outcome:     card === 'today'    ? 'ALL' : this.PROBLEM_OUTCOMES,
+    });
+    this.activeCard.set(card);
+    this.applyFilters();
+  }
+
+  // Restore the default view (last 30 days, no narrowing) — the unambiguous
+  // "show me the whole log again" action, surfaced as a Reset button so it
+  // isn't hidden behind re-clicking the active card.
+  resetFilters() {
+    this.filters.set({
+      start: this.defaultStart(), end: this.today(),
+      client_id: 'ALL', user_email: 'ALL', action_type: 'ALL', outcome: 'ALL',
+    });
+    this.activeCard.set('');
+    this.applyFilters();
+  }
+
+  // True when the filter bar differs from the default view — drives whether
+  // the Reset button is shown.
+  isFiltered = computed(() => {
+    const f = this.filters();
+    return this.activeCard() !== '' ||
+      f.client_id !== 'ALL' || f.user_email !== 'ALL' ||
+      f.action_type !== 'ALL' || f.outcome !== 'ALL' ||
+      f.start !== this.defaultStart() || f.end !== this.today();
   });
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -203,6 +278,7 @@ export class AuditComponent implements OnInit {
 
   updateFilter<K extends keyof ReturnType<typeof this.filters>>(key: K, val: any) {
     this.filters.update(f => ({ ...f, [key]: val }));
+    this.activeCard.set('');  // a manual filter edit means we're no longer in a card preset
   }
 
   // ── Private helpers ────────────────────────────────────────────────────

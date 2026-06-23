@@ -1,18 +1,27 @@
 <div class="page-anim">
-  <!-- ── KPI cards ──────────────────────────────────────────────────── -->
+  <!-- ── KPI cards — clickable today-scoped filter presets ──────────────── -->
   <div class="grid-4 mb-20">
-    <div class="stat-card">
+    <button type="button" class="stat-card stat-card-btn"
+            [class.is-selected]="activeCard() === 'today'"
+            (click)="setCardPreset('today')"
+            [attr.aria-pressed]="activeCard() === 'today'">
       <div class="stat-value">{{ stats().events_today }}</div>
       <div class="stat-label">Events Today</div>
-    </div>
-    <div class="stat-card">
+    </button>
+    <button type="button" class="stat-card stat-card-btn"
+            [class.is-selected]="activeCard() === 'warnings'"
+            (click)="setCardPreset('warnings')"
+            [attr.aria-pressed]="activeCard() === 'warnings'">
       <div class="stat-value text-yellow">{{ stats().warnings }}</div>
       <div class="stat-label">Warnings</div>
-    </div>
-    <div class="stat-card">
+    </button>
+    <button type="button" class="stat-card stat-card-btn"
+            [class.is-selected]="activeCard() === 'security'"
+            (click)="setCardPreset('security')"
+            [attr.aria-pressed]="activeCard() === 'security'">
       <div class="stat-value text-green">{{ stats().security_alerts }}</div>
       <div class="stat-label">Security Alerts</div>
-    </div>
+    </button>
     <div style="display:flex;align-items:center">
       <button class="btn outline" (click)="exportCsv()">↓ Export CSV</button>
     </div>
@@ -37,55 +46,43 @@
 
       <div>
         <label class="form-label">Client</label>
-        <select class="form-select" style="width:200px"
-                [ngModel]="filters().client_id"
-                (ngModelChange)="updateFilter('client_id', $event)">
-          <option value="ALL">All Clients</option>
-          @for (c of options().clients; track c.client_id) {
-            <option [value]="c.client_id">{{ c.client_id }} · {{ c.client_name }}</option>
-          }
-        </select>
+        <app-ui-select width="200px" ariaLabel="Filter by client"
+                       [options]="clientOptions()"
+                       [value]="filters().client_id"
+                       (valueChange)="updateFilter('client_id', $event)" />
       </div>
 
       <div>
         <label class="form-label">User</label>
-        <select class="form-select" style="width:200px"
-                [ngModel]="filters().user_email"
-                (ngModelChange)="updateFilter('user_email', $event)">
-          <option value="ALL">All Users</option>
-          @for (u of options().users; track u) {
-            <option [value]="u">{{ u }}</option>
-          }
-        </select>
+        <app-ui-select width="200px" ariaLabel="Filter by user"
+                       [options]="userOptions()"
+                       [value]="filters().user_email"
+                       (valueChange)="updateFilter('user_email', $event)" />
       </div>
 
       <div>
         <label class="form-label">Action Type</label>
-        <select class="form-select" style="width:180px"
-                [ngModel]="filters().action_type"
-                (ngModelChange)="updateFilter('action_type', $event)">
-          <option value="ALL">All</option>
-          @for (a of options().action_types; track a) {
-            <option [value]="a">{{ actionLabel(a) }}</option>
-          }
-        </select>
+        <app-ui-select width="180px" ariaLabel="Filter by action type"
+                       [options]="actionOptions()"
+                       [value]="filters().action_type"
+                       (valueChange)="updateFilter('action_type', $event)" />
       </div>
 
       <div>
         <label class="form-label">Outcome</label>
-        <select class="form-select" style="width:140px"
-                [ngModel]="filters().outcome"
-                (ngModelChange)="updateFilter('outcome', $event)">
-          <option value="ALL">All</option>
-          @for (o of options().outcomes; track o) {
-            <option [value]="o">{{ o }}</option>
-          }
-        </select>
+        <app-ui-select width="140px" ariaLabel="Filter by outcome"
+                       [options]="outcomeOptions()"
+                       [value]="filters().outcome"
+                       (valueChange)="updateFilter('outcome', $event)" />
       </div>
 
       <button class="btn primary sm" (click)="onApplyClick()" [disabled]="loading()">
         @if (loading()) { ⏳ Loading… } @else { 🔍 Apply Filter }
       </button>
+      @if (isFiltered()) {
+        <button class="btn outline sm" (click)="resetFilters()" [disabled]="loading()"
+                title="Clear all filters and show the full log">↺ Reset</button>
+      }
     </div>
   </div>
 

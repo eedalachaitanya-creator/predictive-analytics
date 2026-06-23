@@ -40,11 +40,19 @@ def get_analytics():
     with engine.connect() as conn:
 
         # ── 1. Platform KPIs (totals across ALL clients) ──
-        # Count distinct clients that have customers.
-        r = conn.execute(text(
+        # Roster counts come from client_config so they MATCH the Clients page
+        # (active vs total). The old code counted DISTINCT client_id in customers
+        # = "clients that have data", which under-reported (Analytics showed 6
+        # while Clients showed 13) and mislabelled freshly-onboarded clients.
+        row = conn.execute(text(
+            "SELECT COUNT(*) FILTER (WHERE is_active), COUNT(*) FROM client_config"
+        )).fetchone()
+        active_clients = int(row[0] or 0)
+        total_clients = int(row[1] or 0)
+        # Clients that actually have customer data (the comparison set below).
+        clients_with_data = conn.execute(text(
             "SELECT COUNT(DISTINCT client_id) FROM customers"
-        ))
-        total_clients = r.scalar() or 0
+        )).scalar() or 0
 
         # Total customers across all clients.
         r = conn.execute(text("SELECT COUNT(*) FROM customers"))
@@ -64,8 +72,9 @@ def get_analytics():
         avg_churn_rate = float(r.scalar() or 0)
 
         platform_kpis = {
-            "activeClients":   total_clients,
+            "activeClients":   active_clients,
             "totalClients":    total_clients,
+            "clientsWithData": int(clients_with_data),
             "totalCustomers":  total_customers,
             "totalOrders":     total_orders,
             "avgChurnRate":    avg_churn_rate,

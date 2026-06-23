@@ -23,7 +23,6 @@
       <table class="data-table recentproducts-table">
         <thead>
           <tr>
-            <th style="width:32px"></th>
             <th>Product</th>
             <th>Platform</th>
             <th>Old Price</th>
@@ -34,11 +33,10 @@
         <tbody>
           @for (a of alerts(); track a.id) {
             <tr [class.unread]="!a.acknowledged">
-              <td>{{ changeIcon(a) }}</td>
               <td><strong>{{ a.title || a.product_name }}</strong></td>
               <td><span class="badge gray" [title]="a.platform">{{ displayName(a.platform) }}</span></td>
-              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, currencyFor(a.platform)) : '—' }}</td>
-              <td class="font-mono"><strong>{{ fmt(a.new_price, currencyFor(a.platform)) }}</strong></td>
+              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, a.currency || 'INR') : '—' }}</td>
+              <td class="font-mono"><strong>{{ fmt(a.new_price, a.currency || 'INR') }}</strong></td>
               <td [class]="changeClass(a)"><strong>{{ fmtChange(a) }}</strong></td>
             </tr>
           }

@@ -51,15 +51,20 @@ tr.unread td { background: rgba(26,111,212,0.03); }
   width: 100%;
   table-layout: fixed;
 
-  th:nth-child(1), td:nth-child(1) { width: 32px; }   /* icon */
-  th:nth-child(2), td:nth-child(2) { width: 35%; }    /* product */
-  th:nth-child(3), td:nth-child(3) { width: 15%; }    /* platform */
-  th:nth-child(4), td:nth-child(4) { width: 12%; }    /* old price */
-  th:nth-child(5), td:nth-child(5) { width: 12%; }    /* new price */
-  th:nth-child(6), td:nth-child(6) { width: 10%; }    /* change */
-  th:nth-child(7), td:nth-child(7) { width: 10%; }    /* when */
+  th:nth-child(1), td:nth-child(1) { width: 45%; }    /* product */
+  th:nth-child(2), td:nth-child(2) { width: 12%; }    /* platform */
+  th:nth-child(3), td:nth-child(3) { width: 14%; }    /* old price */
+  th:nth-child(4), td:nth-child(4) { width: 14%; }    /* new price */
+  th:nth-child(5), td:nth-child(5) { width: 15%; }    /* alert */
 
-  td:nth-child(2) {
+  td:nth-child(1) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;   /* required for text-overflow to work in table cells */
+  }
+  td:nth-child(1) strong {
+    display: block;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

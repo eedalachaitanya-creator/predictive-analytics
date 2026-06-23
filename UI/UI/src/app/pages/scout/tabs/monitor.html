@@ -35,8 +35,8 @@
             <tr [class.unread]="!a.acknowledged">
               <td><strong>{{ a.title || a.product_name }}</strong></td>
               <td><span class="badge gray" [title]="a.platform">{{ displayName(a.platform) }}</span></td>
-              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, a.currency || 'INR') : '—' }}</td>
-              <td class="font-mono"><strong>{{ fmt(a.new_price, a.currency || 'INR') }}</strong></td>
+              <td class="font-mono">{{ a.old_price != null ? fmt(a.old_price, a.currency) : '—' }}</td>
+              <td class="font-mono"><strong>{{ fmt(a.new_price, a.currency) }}</strong></td>
               <td [class]="changeClass(a)"><strong>{{ fmtChange(a) }}</strong></td>
             </tr>
           }

@@ -334,36 +334,19 @@ def get_all_websites(user: dict = Depends(get_current_user)):
 
 
 def _canonical_platform_name(raw: str) -> str:
-    """
-    Produce a stable canonical key for duplicate detection.
-
-    Rules (applied in order):
-      1. Strip whitespace, lowercase.
-      2. Strip scheme (https://, http://).
-      3. Strip leading 'www.'.
-      4. Strip path / query / fragment.
-      5. Strip trailing TLD-like suffixes (.com, .in, .co.uk, .net, .org, .io …)
-         so 'amazon', 'amazon.com', and 'amazon.in' all collapse to 'amazon'.
-
-    Examples:
-      'Flipkart'          → 'flipkart'
-      'FlipKart'          → 'flipkart'
-      'amazon.in'         → 'amazon'
-      'amazon.com'        → 'amazon'
-      'Amazon'            → 'amazon'
-      'www.myntra.com'    → 'myntra'
-      'https://snapdeal.com/search' → 'snapdeal'
-    """
     import re as _re
     s = raw.strip().lower()
-    s = _re.sub(r'^https?://', '', s)          # strip scheme
-    s = _re.sub(r'^www\.', '', s)              # strip www.
-    s = s.split('/')[0].split('?')[0].split('#')[0]  # strip path/query/fragment
-    # Strip common TLD suffixes — order matters: longer patterns first
-    s = _re.sub(
-        r'\.(com\.au|co\.uk|co\.in|com|net|org|in|io|co|store|shop|app)$',
-        '', s,
-    )
+    s = _re.sub(r'^https?://', '', s)
+    s = _re.sub(r'^www\.', '', s)
+    s = s.split('/')[0].split('?')[0].split('#')[0]
+    # Only strip TLD if input has NO dot (typed as brand name like "amazon")
+    # If input has a dot (like "amazon.in"), keep the full domain as-is
+    # so amazon.com and amazon.in are treated as different platforms
+    if '.' not in raw.strip():
+        s = _re.sub(
+            r'\.(com\.au|co\.uk|co\.in|com|net|org|in|io|co|store|shop|app)$',
+            '', s,
+        )
     return s.strip()
 
 
@@ -382,8 +365,16 @@ async def add_website(payload: AddWebsiteRequest, user: dict = Depends(get_curre
     # Case-insensitive, TLD-insensitive duplicate check across all sites.
     cid = _client_id(user)
     existing_sites = db.get_all_websites(cid)
+    name_has_dot = '.' in name.strip()
     for site in existing_sites:
-        if _canonical_platform_name(site["name"]) == canonical:
+        existing_canonical = _canonical_platform_name(site["name"])
+        existing_has_dot = '.' in site["name"].strip()
+        if existing_canonical == canonical:
+        # If new input has a dot → let resolver run first,
+        # then compare actual resolved domains post-resolution.
+        # This allows amazon.com when amazon.in already exists.
+            if name_has_dot:
+                continue
             raise HTTPException(
                 409,
                 f"'{site['name']}' is already added. "
@@ -417,10 +408,21 @@ async def add_website(payload: AddWebsiteRequest, user: dict = Depends(get_curre
 
         # Final cancel check between resolver completion and the DB write.
         # The resolver's last phase (LLM URL guess) is non-cancellable once
-        # it starts — if the user cancelled during that call, the resolver
-        # still returns a result. Without this check, a "cancelled" add
-        # could still leave a row in the DB. With it, cancelled means
-        # cancelled — nothing written.
+        if name_has_dot:
+            import urllib.parse as _urlparse
+            new_domain = _urlparse.urlparse(resolved["base_url"]).netloc.lower()
+            for site in existing_sites:
+                if '.' in site["name"].strip():
+                    existing_domain = _urlparse.urlparse(
+                        site.get("search_url", "")
+                    ).netloc.lower()
+                    if existing_domain and existing_domain == new_domain:
+                        raise HTTPException(
+                            409,
+                            f"'{site['name']}' is already added. "
+                            f"('{name}' resolves to the same platform.)"
+                        )
+
         check_cancelled(request_id)
 
         site = db.add_website(
@@ -430,6 +432,7 @@ async def add_website(payload: AddWebsiteRequest, user: dict = Depends(get_curre
             client_id=cid,
             icon=payload.icon,
         )
+        
         return {"data": _shape_site(site)}
     except SearchCancelledException:
         # User clicked Cancel. Return the same shape as /search/products
@@ -666,14 +669,9 @@ def get_alerts(
         "alerts": [
             {
                 "id": a["id"], "product_name": a["product_name"],
-                # 'title' comes from db.get_alerts() via LEFT JOIN with
-                # product_results. It's the actual scraped product title
-                # (e.g., "Dyson Supersonic HD08 Hair Dryer Vinca Blue/Rosé")
-                # rather than the user's search query stored in product_name.
-                # COALESCE in the SQL falls back to product_name if the
-                # JOIN finds no match, so this key is always present.
                 "title": a.get("title", a["product_name"]),
                 "platform": a["platform"],
+                "currency": a.get("currency", ""),
                 "old_price":      float(a["old_price"])      if a["old_price"]      is not None else None,
                 "new_price":      float(a["new_price"]),
                 "change_amount":  float(a["change_amount"])  if a["change_amount"]  is not None else None,

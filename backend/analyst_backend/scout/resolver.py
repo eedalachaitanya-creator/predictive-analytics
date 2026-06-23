@@ -30,41 +30,23 @@ logger = logging.getLogger(__name__)
 # ── Query Normalization ───────────────────────────────────────────────
 
 def normalize_query(query: str) -> str:
-    """
-    Clean a product query for use in a search URL.
-
-    Rules:
-      - Lowercase for case-insensitive matching
-      - Apostrophes: L'Oreal → loreal, Men's → mens (remove, no space)
-      - Ampersands: fast&up → fast&up (preserve — URL encoding handles it)
-      - Hyphens with spaces: " - " → " " (separator)
-      - Hyphens without spaces: "sugar-free" → "sugar-free" (keep compound words)
-      - Parentheses: stripped, content kept
-      - Special chars (™ © ® etc.): stripped
-      - Commas: replaced with space
-      - Dots between letters: "dr.berg" → "dr.berg" (KEPT — brand names use dots)
-      - Dots at end of words: "Rs." → "Rs" (stripped)
-    
-    Previous code had: re.sub(r"[^a-z0-9\\s&\\-]", " ", q)
-    This stripped ALL dots, so "dr.berg" → "dr berg" and "1mg" was fine but
-    "dr.berg" lost its dot. Also stripped "/" which broke some category paths.
-    
-    New code: keeps dots that are between alphanumeric chars (brand names).
-    Strips dots at word boundaries (abbreviation periods like "Rs.").
-    """
     q = query.lower()
     q = re.sub(r"[™©®]", "", q)
     q = q.replace("'", "").replace("\u2019", "").replace("\u2018", "")
     q = re.sub(r"\s+-\s+", " ", q)
     q = re.sub(r"[()]", "", q)
     q = q.replace(",", " ")
+    q = q.replace("|", " ")
     # Keep dots between alphanumeric chars (dr.berg, v2.0), strip trailing dots
-    q = re.sub(r"\.(?!\w)", " ", q)           # dot NOT followed by word char → space
-    # Strip remaining special chars EXCEPT . & -
-    q = re.sub(r"[^a-z0-9\s&\-.]", " ", q)
+    q = re.sub(r"\.(?!\w)", " ", q)
+    # Keep + when attached to alphanumeric (SPF 50+, PA++++, PA+++, vitamin c+)
+    # Strip + only when standalone or between spaces
+    q = re.sub(r"(?<=[a-z0-9])\+", "+", q)    # keep: 50+, pa++++
+    q = re.sub(r"\+(?![a-z0-9+])", " ", q)    # strip: standalone +
+    # Strip remaining special chars EXCEPT . & - +
+    q = re.sub(r"[^a-z0-9\s&\-\.+]", " ", q)
     q = re.sub(r"\s+", " ", q)
     return q.strip()
-
 
 # ── Search URL Builder ───────────────────────────────────────────────
 
@@ -105,7 +87,12 @@ def build_search_url(
         # Case 1: Dual encoding — {query} in BOTH path and query params
         # e.g., https://www.myntra.com/{query}?rawQuery={query}
         if has_query_in_path and has_query_in_params:
-            path_encoded = cleaned.replace(" ", "-")
+            # Slug: & → and, + kept, spaces → hyphens
+            slug = cleaned
+            slug = slug.replace(" & ", "-and-")     # Rice & B5 → rice-and-b5
+            slug = slug.replace("&", "-and-")       # catch no-space variant
+            slug = re.sub(r"-+", "-", slug)         # collapse multiple hyphens
+            path_encoded = slug.replace(" ", "-")
             param_encoded = quote(cleaned, safe="")
             new_path = parsed.path.replace("{query}", path_encoded)
             new_query = parsed.query.replace("{query}", param_encoded)

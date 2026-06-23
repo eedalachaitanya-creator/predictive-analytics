@@ -228,14 +228,15 @@ export class ScoutMonitorTab implements OnInit {
     });
   }
 
-  fmt(val: number, cur: string = 'INR'): string {
+  fmt(val: number, cur: string = ''): string {
     if (!val || val <= 0) return '—';
+    if (!cur) return val.toLocaleString();  // no currency info — show raw number
     const symbols: Record<string, string> = {
-      INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
-      AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
+        INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
+        AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
     };
     return (symbols[cur] || cur + ' ') + val.toLocaleString();
-  }
+}
 
   /**
    * Derive a short display name for a platform column header.

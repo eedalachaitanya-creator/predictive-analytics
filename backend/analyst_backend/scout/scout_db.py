@@ -784,7 +784,12 @@ class Database:
                 COALESCE(
                     pr.product_details->>'title',
                     a.product_name
-                ) AS title
+                ) AS title,
+                COALESCE(
+                    pr.product_details->'price'->>'currency',
+                    pr.product_details->>'currency',
+                    ''
+                ) AS currency
             FROM (
                 SELECT DISTINCT ON (product_name, platform) *
                 FROM price_alerts
@@ -792,8 +797,8 @@ class Database:
                 ORDER BY product_name, platform, detected_at DESC
             ) a
             LEFT JOIN product_results pr
-              ON pr.product_name = a.product_name
-             AND pr.platform     = a.platform
+            ON pr.product_name = a.product_name
+            AND pr.platform     = a.platform
         """
 
         with self._conn() as conn:

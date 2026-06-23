@@ -1,8 +1,9 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { UploadService } from '../services/upload.service';
 import { AuthService } from '../services/auth.service';
-import { MasterType, UploadPreview } from '../models';
+import { MatchReport, MasterType, SourceOption, UploadPreview } from '../models';
 
 interface MasterDef {
   key: MasterType;
@@ -17,7 +18,7 @@ interface MasterDef {
 @Component({
   selector: 'app-upload',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './upload.html',
   styleUrls: ['./upload.scss']
 })
@@ -78,6 +79,11 @@ export class UploadComponent implements OnInit {
     this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
     // Check if this client already has a pending batch waiting to commit
     this.refreshBatch();
+    // Load source registry for the source-aware tiles
+    this.uploadSvc.loadSources().subscribe({
+      next: r => this.sources.set(r.sources),
+      error: () => {},
+    });
   }
 
   /** Re-fetch pending batch info from the backend. Called after uploads,
@@ -97,6 +103,18 @@ export class UploadComponent implements OnInit {
       error: (err) => console.error('Commit failed:', err.message ?? err),
     });
   }
+
+  // ── Source selection state (tickets + reviews only) ────────────────
+  sources    = signal<SourceOption[]>([]);
+  sourceSel  = signal<Record<string, string>>({ support_tickets: 'jira', customer_reviews: 'jira' });
+  sourceName = signal<Record<string, string>>({});
+  lastMatch  = signal<Record<string, MatchReport | null>>({});
+
+  readonly SOURCE_KEYS = ['support_tickets', 'customer_reviews'];
+  hasSource(key: string) { return this.SOURCE_KEYS.includes(key); }
+  isOther(key: string)   { return (this.sourceSel()[key] ?? '') === 'other'; }
+  setSource(key: string, v: string)     { this.sourceSel.update(m => ({ ...m, [key]: v })); }
+  setSourceName(key: string, v: string) { this.sourceName.update(m => ({ ...m, [key]: v })); }
 
   // ── Discard-confirm modal state ─────────────────────────────────────
   // discardConfirmOpen toggles the in-app modal that asks the user to
@@ -206,8 +224,13 @@ export class UploadComponent implements OnInit {
   private doUpload(key: MasterType, file: File) {
     // Starting a fresh upload — hide any stale "committed" success banner
     this.uploadSvc.dismissCommitResult();
-    this.uploadSvc.upload(this.clientId, key, file).subscribe({
-      next: () => this.refreshBatch(),  // refresh batch panel so new file shows up
+    const src  = this.hasSource(key) ? this.sourceSel()[key] : undefined;
+    const name = this.isOther(key)   ? this.sourceName()[key] : undefined;
+    this.uploadSvc.upload(this.clientId, key, file, src, name).subscribe({
+      next: res => {
+        this.refreshBatch();  // refresh batch panel so new file shows up
+        if (res.matchReport) this.lastMatch.update(m => ({ ...m, [key]: res.matchReport! }));
+      },
       error: (err) => console.error('Upload failed:', err.message)
     });
   }

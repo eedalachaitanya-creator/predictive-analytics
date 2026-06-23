@@ -162,6 +162,20 @@
                 </a>
               </div>
 
+              @if (hasSource(m.key)) {
+                <div class="source-row" style="display:flex;gap:8px;align-items:center;margin:8px 0">
+                  <label class="form-label" style="margin:0">Source</label>
+                  <select class="form-select" style="width:160px"
+                          [ngModel]="sourceSel()[m.key]" (ngModelChange)="setSource(m.key, $event)">
+                    @for (s of sources(); track s.key) { <option [value]="s.key">{{ s.label }}</option> }
+                  </select>
+                  @if (isOther(m.key)) {
+                    <input class="form-input" style="width:160px" placeholder="Name e.g. Zendesk"
+                           [ngModel]="sourceName()[m.key]" (ngModelChange)="setSourceName(m.key, $event)" />
+                  }
+                </div>
+              }
+
               <!-- Uploading state -->
               @if (isUploading(m.key)) {
                 <div class="upload-zone uploading">
@@ -189,6 +203,12 @@
                     </div>
                   </div>
                 </div>
+                @if (lastMatch()[m.key]; as rep) {
+                  <div class="notice" style="font-size:12px;margin-top:8px"
+                       [class.warning]="rep.skipped > 0" [class.success]="rep.skipped === 0">
+                    Imported {{ rep.matched }} · {{ rep.skipped }} skipped (no matching customer)
+                  </div>
+                }
               }
 
               <!-- Error state -->

@@ -64,51 +64,96 @@
     }
   </div>
 
-  <!-- Add-user modal -->
+  <!-- Add-user modal — matches the Add New Client modal styling -->
   @if (addOpen()) {
-    <div class="modal-backdrop" (click)="closeAdd()">
-      <div class="modal-card" (click)="$event.stopPropagation()">
-        <div class="flex-row" style="align-items:center;justify-content:space-between;margin-bottom:8px">
-          <h3 class="modal-title" style="margin:0">Add User</h3>
-          <button class="btn outline sm" (click)="closeAdd()">✕ Close</button>
-        </div>
-        <p class="modal-sub">Create an additional login. For a client login, pick the client it belongs to.</p>
+    <div class="modal-backdrop">
+      <div class="modal-card add-client-modal" (click)="$event.stopPropagation()">
+        <div class="add-client-card mb-24">
+          <div class="add-client-head">
+            <div class="ach-left">
+              <div class="ach-icon" aria-hidden="true">👤</div>
+              <div><div class="ach-title">Add User</div></div>
+            </div>
+            <button class="btn outline sm" (click)="closeAdd()" [disabled]="addSaving()">✕ Cancel</button>
+          </div>
 
-        <label class="form-label">Full Name <span class="required">*</span></label>
-        <input class="form-input mb-16" [ngModel]="addName()" (ngModelChange)="addName.set($event)" placeholder="Jane Doe">
+          <div class="add-client-body">
+            <section class="form-section">
+              <header class="form-section-head">
+                <span class="fs-icon" aria-hidden="true">🔑</span>
+                <div><h3 class="fs-title">Login Details</h3></div>
+              </header>
 
-        <label class="form-label">Login Email <span class="required">*</span></label>
-        <input class="form-input mb-16" type="email" [ngModel]="addEmail()" (ngModelChange)="addEmail.set($event)" placeholder="jane@company.com" autocomplete="off">
+              <div class="form-field">
+                <label class="form-label" for="au-name">Full Name <span class="required">*</span></label>
+                <input id="au-name" class="form-input" type="text" maxlength="100" placeholder="Enter full name"
+                       autocomplete="name" [ngModel]="addName()" (ngModelChange)="addName.set($event)" [disabled]="addSaving()" required />
+              </div>
 
-        <label class="form-label">Temporary Password <span class="required">*</span></label>
-        <input class="form-input" type="password" [ngModel]="addPassword()" (ngModelChange)="addPassword.set($event)" placeholder="Min 8 chars · upper, lower, number, symbol" autocomplete="new-password">
-        <p class="modal-hint" style="margin:4px 0 16px">At least 8 characters with an uppercase letter, lowercase letter, number and symbol; no spaces.</p>
+              <div class="form-field">
+                <label class="form-label" for="au-email">Login Email <span class="required">*</span></label>
+                <input id="au-email" class="form-input" type="email" maxlength="150" placeholder="name@company.com"
+                       autocomplete="off" [ngModel]="addEmail()" (ngModelChange)="addEmail.set($event)" [disabled]="addSaving()" required />
+              </div>
 
-        <label class="form-label">Role</label>
-        <select class="form-input mb-16" [ngModel]="addRole()" (ngModelChange)="addRole.set($event)">
-          <option value="client_user">Client User</option>
-          <option value="super_admin">Super Admin</option>
-        </select>
+              <div class="form-field">
+                <label class="form-label" for="au-pw">Temporary Password <span class="required">*</span></label>
+                <div class="password-wrapper">
+                  <input id="au-pw" class="form-input font-mono" [type]="showAddPassword() ? 'text' : 'password'"
+                         placeholder="Min 8 chars, uppercase, number, special" autocomplete="new-password"
+                         [ngModel]="addPassword()" (ngModelChange)="addPassword.set($event)" [disabled]="addSaving()" required />
+                  <button type="button" class="eye-btn" (click)="showAddPassword.set(!showAddPassword())"
+                          [disabled]="addSaving()" tabindex="-1"
+                          [attr.aria-label]="showAddPassword() ? 'Hide password' : 'Show password'">
+                    {{ showAddPassword() ? '🙈' : '👁' }}
+                  </button>
+                </div>
+                <div class="form-hint">Must be 8+ characters with an uppercase letter, a number, and a special character.</div>
+              </div>
+            </section>
 
-        @if (addRole() === 'client_user') {
-          <label class="form-label">Client <span class="required">*</span></label>
-          <select class="form-input mb-16" [ngModel]="addClient()" (ngModelChange)="addClient.set($event)">
-            <option value="">— Select a client —</option>
-            @for (c of clients(); track c.client_id) {
-              <option [value]="c.client_id">{{ c.client_id }} · {{ c.client_name }}</option>
+            <section class="form-section">
+              <header class="form-section-head">
+                <span class="fs-icon" aria-hidden="true">🏢</span>
+                <div><h3 class="fs-title">Access</h3></div>
+              </header>
+
+              <div class="form-row two-col">
+                <div class="form-field">
+                  <label class="form-label" for="au-role">Role</label>
+                  <select id="au-role" class="form-input" [ngModel]="addRole()" (ngModelChange)="addRole.set($event)" [disabled]="addSaving()">
+                    <option value="client_user">Client User</option>
+                    <option value="super_admin">Super Admin</option>
+                  </select>
+                </div>
+                @if (addRole() === 'client_user') {
+                  <div class="form-field">
+                    <label class="form-label" for="au-client">Client <span class="required">*</span></label>
+                    <select id="au-client" class="form-input" [ngModel]="addClient()" (ngModelChange)="addClient.set($event)" [disabled]="addSaving()">
+                      <option value="">Select a client</option>
+                      @for (c of clients(); track c.client_id) {
+                        <option [value]="c.client_id">{{ c.client_id }} · {{ c.client_name }}</option>
+                      }
+                    </select>
+                  </div>
+                }
+              </div>
+              @if (addRole() === 'super_admin') {
+                <div class="form-hint">Super Admins can access every client.</div>
+              }
+            </section>
+
+            @if (addError()) {
+              <div class="err-msg mt-8">⚠️ {{ addError() }}</div>
             }
-          </select>
-        }
 
-        @if (addError()) {
-          <div class="notice warning" style="font-size:13px;padding:10px 16px;border-radius:8px;margin-bottom:12px">⚠️ {{ addError() }}</div>
-        }
-
-        <div class="modal-actions">
-          <button class="btn outline" (click)="closeAdd()" [disabled]="addSaving()">Cancel</button>
-          <button class="btn walmart" (click)="submitAdd()" [disabled]="addSaving()">
-            {{ addSaving() ? 'Creating…' : 'Create User' }}
-          </button>
+            <div class="add-client-actions">
+              <button class="btn outline" (click)="closeAdd()" [disabled]="addSaving()">Cancel</button>
+              <button class="btn walmart" (click)="submitAdd()" [disabled]="addSaving()">
+                {{ addSaving() ? '⏳ Creating…' : '✓ Create User' }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

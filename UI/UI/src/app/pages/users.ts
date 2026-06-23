@@ -56,6 +56,7 @@ export class UsersComponent implements OnInit {
   addClient   = signal('');
   addSaving   = signal(false);
   addError    = signal('');
+  showAddPassword = signal(false);
 
   ngOnInit() {
     this.svc.loadUsers().subscribe({ error: () => {} });
@@ -70,7 +71,7 @@ export class UsersComponent implements OnInit {
   openAdd() {
     this.addName.set(''); this.addEmail.set(''); this.addPassword.set('');
     this.addRole.set('client_user'); this.addClient.set('');
-    this.addError.set(''); this.addSaving.set(false);
+    this.addError.set(''); this.addSaving.set(false); this.showAddPassword.set(false);
     this.addOpen.set(true);
   }
 

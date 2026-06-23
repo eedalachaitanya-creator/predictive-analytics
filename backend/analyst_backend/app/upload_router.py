@@ -782,22 +782,27 @@ def _resolve_customers_in_df(df, client_id: str):
     by_id = {r[0] for r in rows}
     by_email = {r[1]: r[0] for r in rows if r[1]}
 
-    matched_idx, skipped_sample = [], []
+    matched, skipped_sample = [], []
     for idx, row in df.iterrows():
         rid = resolve_customer_id(row.to_dict(), by_id, by_email)
         if rid is not None:
-            df.at[idx, "customer_id"] = rid
-            matched_idx.append(idx)
+            matched.append((idx, rid))
         elif len(skipped_sample) < 10:
             ref = row.get("customer_id")
             if ref is None or str(ref).strip() == "":
                 ref = row.get("customer_email") or row.get("email") or ""
             skipped_sample.append(str(ref))
 
-    matched_df = df.loc[matched_idx].copy()
+    if matched:
+        idxs, rids = zip(*matched)
+        matched_df = df.loc[list(idxs)].copy()
+        matched_df["customer_id"] = list(rids)
+    else:
+        matched_df = df.iloc[0:0].copy()
+
     report = {
-        "matched": len(matched_idx),
-        "skipped": int(len(df) - len(matched_idx)),
+        "matched": len(matched),
+        "skipped": int(len(df) - len(matched)),
         "skippedSample": skipped_sample,
     }
     return matched_df, report
@@ -1411,6 +1416,12 @@ async def upload_file(
     columns = list(df.columns)
 
     # Save file to disk
+    # NOTE (source-aware ingest): for ticket/review uploads the file written
+    # here is the RAW upload — all rows, including those that were skipped
+    # because their customer_id/email didn't resolve. This is intentional:
+    # the on-disk file serves as a skip audit trail so ops can review
+    # which rows were dropped and why. `rowCount` and the staging table
+    # reflect ONLY the resolved/matched rows that were actually staged.
     try:
         safe_filename = f"{clientId}_{master_type}_{filename}"
         save_path = os.path.join(UPLOAD_DIR, safe_filename)
@@ -1447,7 +1458,7 @@ async def upload_file(
         outcome="success",
     )
 
-    return {
+    result = {
         "masterType": master_type,
         "fileName": filename,
         "rowCount": row_count,
@@ -1458,8 +1469,10 @@ async def upload_file(
         "stagingTable": db_result["staging_table"],
         "rowsStaged": db_result["rows_staged"],
         "rowsReplaced": db_result["rows_replaced"],
-        "matchReport": match_report,
     }
+    if match_report is not None:
+        result["matchReport"] = match_report
+    return result
 
 
 @router.get("/uploads/sources")

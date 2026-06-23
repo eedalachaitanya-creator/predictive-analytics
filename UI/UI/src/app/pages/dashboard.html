@@ -92,16 +92,8 @@
              configurable high_value_percentile cutoff was retired. -->
         <div class="stat-sub">Platinum tier customers</div>
       </div>
-      <div class="stat-card clickable" role="button" tabindex="0"
-           (click)="openCardView('lapsed_customers', 'Lapsed Customers')"
-           (keydown.enter)="openCardView('lapsed_customers', 'Lapsed Customers')"
-           (keydown.space)="$event.preventDefault(); openCardView('lapsed_customers', 'Lapsed Customers')"
-           [title]="'Customers with no non-cancelled order in the past ' + (kpis()?.churnWindowDays ?? 90) + ' days (from the Settings page). Based on order recency only — the ML-predicted churn risk lives on the Churn Scores page and may not match this number.'">
-        <span class="stat-view">View →</span>
-        <div class="stat-value text-red">{{ kpis()?.churned | number }}</div>
-        <div class="stat-label">Lapsed Customers</div>
-        <div class="stat-sub">{{ kpis()?.churnRate | number:'1.1-1' }}% · inactive ≥ {{ kpis()?.churnWindowDays ?? 90 }} days</div>
-      </div>
+      <!-- Lapsed Customers card removed — the same figure is shown in the
+           Purchase-Recency visual summary below (B. Visual Summaries). -->
     </div>
 
     <!-- B. Charts -->

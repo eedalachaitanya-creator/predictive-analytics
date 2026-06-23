@@ -1,3 +1,49 @@
 .users-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
 .users-toolbar .form-input { width:260px; }
 .avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,var(--accent-blue),var(--accent-cyan)); color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+
+/* ── Add User modal — mirrors the Add Client modal (those styles are scoped to
+   the clients component, so the shared classes are re-declared here). ───────── */
+.modal-card.add-client-modal { width: min(640px, 95vw); padding: 0; overflow: hidden; max-height: 90vh; display: flex; }
+.add-client-modal .add-client-card { display: flex; flex-direction: column; min-height: 0; max-height: 90vh; width: 100%; margin: 0; border: none; box-shadow: none; border-radius: 14px; }
+
+/* header: icon + title on the left, Cancel pinned to the right */
+.add-client-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
+.add-client-head .ach-left { display: flex; align-items: center; gap: 12px; }
+.add-client-head .ach-icon { font-size: 24px; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: rgba(26,111,212,.10); flex-shrink: 0; }
+.add-client-head .ach-title { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -.01em; }
+
+.add-client-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 22px 20px; scrollbar-width: thin; }
+
+/* section heads: icon inline to the left of the title */
+.form-section { margin-bottom: 18px; }
+.form-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.form-section-head .fs-icon { font-size: 16px; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: var(--bg-hover, #ebf1fb); flex-shrink: 0; }
+.form-section-head .fs-title { margin: 0; font-size: 14px; font-weight: 700; color: var(--text-primary); }
+
+.form-field { margin-bottom: 12px; }
+.form-row.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.form-row .form-field { margin-bottom: 0; }
+.form-field .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
+.form-field .required { color: var(--accent-red, #dc2626); }
+
+/* password field: eye toggle pinned to the right inside the input */
+.password-wrapper { position: relative; display: flex; align-items: center; }
+.password-wrapper .form-input { width: 100%; padding-right: 44px; }
+.eye-btn { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 0; font-size: 16px; line-height: 1; display: flex; align-items: center; opacity: .7; transition: opacity .2s;
+  &:hover { opacity: 1; }
+  &:disabled { cursor: default; opacity: .3; }
+}
+
+/* footer actions: right-aligned */
+.add-client-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* Cancel buttons (header ✕ Cancel + footer Cancel) styled red per request */
+.add-client-head .btn.outline.sm,
+.add-client-actions .btn.outline {
+  color: var(--accent-red, #dc2626);
+  border-color: var(--accent-red, #dc2626);
+  background: #fff;
+  &:hover:not(:disabled) { background: rgba(220,38,38,.06); }
+}
+@media (max-width: 640px) { .form-row.two-col { grid-template-columns: 1fr; } }

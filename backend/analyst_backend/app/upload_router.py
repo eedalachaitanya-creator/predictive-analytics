@@ -1482,6 +1482,31 @@ def list_sources(user: dict = Depends(get_current_user)):
     return {"sources": SOURCES}
 
 
+@router.get("/uploads/data-status")
+def upload_data_status(
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Which master types already have COMMITTED rows for this client.
+
+    Drives the incremental-upload gate: a REQUIRED master counts as satisfied if
+    it's already committed (real table has rows), so an existing client can
+    upload just one master (e.g. new support tickets) without re-uploading the
+    core masters. A brand-new client still has everything False → must upload
+    all required masters. Table names come from the trusted internal
+    MASTER_TYPE_TO_TABLE mapping (never user input)."""
+    _require_client_access(user, clientId)
+    committed: Dict[str, bool] = {}
+    with engine.connect() as conn:
+        for master_type, (table, _cols) in MASTER_TYPE_TO_TABLE.items():
+            exists = conn.execute(
+                text(f"SELECT EXISTS (SELECT 1 FROM {table} WHERE client_id = :cid)"),
+                {"cid": clientId},
+            ).scalar()
+            committed[master_type] = bool(exists)
+    return {"committed": committed}
+
+
 @router.get("/uploads")
 def list_uploads(
     clientId: str = Query(...),

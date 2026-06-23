@@ -8,6 +8,7 @@ import {
   DiscardResponse,
   MasterType,
   PendingBatch,
+  SourceOption,
   UploadedFile,
   UploadPreview,
   UploadResponse,
@@ -41,7 +42,8 @@ export class UploadService {
    *  this to render a "✓ Committed N rows" banner. */
   readonly lastCommitResult = signal<CommitResponse | null>(null);
 
-  upload(clientId: string, masterType: MasterType, file: File): Observable<UploadResponse> {
+  upload(clientId: string, masterType: MasterType, file: File,
+         source?: string, sourceName?: string): Observable<UploadResponse> {
     // Immediately reflect uploading state
     this.setStatus(masterType, 'uploading', file.name, file.size);
 
@@ -49,6 +51,8 @@ export class UploadService {
     fd.append('file', file);
     fd.append('clientId', clientId);
     fd.append('masterType', masterType);
+    if (source)     fd.append('source', source);
+    if (sourceName) fd.append('sourceName', sourceName);
 
     return this.api.upload<UploadResponse>(`/uploads/${masterType}`, fd).pipe(
       tap({
@@ -56,6 +60,10 @@ export class UploadService {
         error: err => this.setError(masterType, err?.error?.detail ?? err?.message ?? 'Upload failed. Please try again.')  // PA_012 fix: show backend error message
       })
     );
+  }
+
+  loadSources(): Observable<{ sources: SourceOption[] }> {
+    return this.api.get<{ sources: SourceOption[] }>('/uploads/sources');
   }
 
   /** Load previously uploaded files for a client/session */

@@ -307,12 +307,26 @@ export interface UploadedFile {
   errorMessage?: string;
 }
 
+export interface SourceOption {
+  key: string;
+  label: string;
+  customer_match: string[];
+  custom: boolean;
+}
+
+export interface MatchReport {
+  matched: number;
+  skipped: number;
+  skippedSample: string[];
+}
+
 export interface UploadResponse {
   masterType: MasterType;
   fileName: string;
   rowCount: number;
   columns: string[];
   uploadedAt: string;
+  matchReport?: MatchReport | null;
 }
 
 /** First-N-rows preview of a staged master file (GET /uploads/preview). */

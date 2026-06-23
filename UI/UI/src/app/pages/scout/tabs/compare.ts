@@ -66,32 +66,6 @@ export class ScoutCompareTab {
     return entry.price === entity.cheapest.price;
   }
 
-  /**
-   * Guess the currency for a platform based on its name.
-   *
-   * WORKAROUND: The /compare/{query} API response does not include a
-   * currency field per platform entry (ComparePlatformEntry has only
-   * platform/price/url). Until the backend is updated, we guess from
-   * platform name — same pattern used in monitor.ts for the alerts table.
-   *
-   * Known limitation: can't distinguish amazon.com-serving-INR (geo-
-   * localized) from regular amazon.com. For amazon.com the scraper does
-   * return INR in those cases, but this guess assumes USD.
-   */
-  currencyFor(platform: string): string {
-    const p = (platform || '').toLowerCase();
-    // Indian platforms
-    if (p.endsWith('.in') || ['flipkart', 'myntra', 'nykaa', 'beato'].includes(p)) {
-      return 'INR';
-    }
-    // US / global platforms
-    if (['amazon', 'walmart', 'target', 'ebay'].includes(p)) {
-      return 'USD';
-    }
-    // Default: assume INR (this deployment is India-facing)
-    return 'INR';
-  }
-
   formatPrice(val: number, currency: string = 'INR'): string {
     if (!val || val <= 0) return '—';
     const symbols: Record<string, string> = {

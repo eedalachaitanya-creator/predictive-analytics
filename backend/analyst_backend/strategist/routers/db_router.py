@@ -110,7 +110,8 @@ async def price_contexts(
                     """
                     SELECT customer_id, product_name, strategy, suggested_price,
                            pre_retention_price, discount_pct_applied,
-                           churn_probability, risk_tier, created_at
+                           churn_probability, risk_tier, run_id,
+                           currency, created_at
                     FROM customer_price_context
                     WHERE client_id = $1
                     ORDER BY created_at DESC

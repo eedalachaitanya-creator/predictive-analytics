@@ -747,7 +747,8 @@ def compare_prices(query: str):
         "single_platform": [
             {"entity_id": e["entity_id"], "product": e["canonical_name"],
              "platform": e["listings"][0]["platform"] if e["listings"] else "",
-             "price": e["best_price"]}
+             "price":    e["best_price"],
+             "currency": e["listings"][0]["price"]["currency"] if e["listings"] else "INR"}
             for e in single
         ],
         "summary": {

@@ -30,7 +30,13 @@ export class StrategistContextTab implements OnInit {
     });
   }
 
-  fmtPrice(n: number) { return '₹' + (n || 0).toFixed(2); }
+  fmtPrice(n: number, currency: string = 'INR') {
+    const symbols: Record<string, string> = {
+      INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ', SGD: 'S$',
+    };
+    const sym = symbols[currency] ?? currency + ' ';
+    return sym + (n || 0).toFixed(2);
+  }
   fmtPct(n: number)   { return (n || 0).toFixed(1) + '%'; }
   fmtDate(d: string)  { return d ? new Date(d).toLocaleString() : '—'; }
 }

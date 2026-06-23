@@ -204,12 +204,12 @@ class CustomerPriceContextRepo:
                 customer_id,         client_id,          product_name,
                 strategy,            suggested_price,    pre_retention_price,
                 discount_pct_applied, churn_probability, risk_tier,
-                run_id,              created_at
+                run_id,              currency,           created_at
             ) VALUES (
                 $1,  $2,  $3,
                 $4,  $5,  $6,
                 $7,  $8,  $9,
-                $10, NOW()
+                $10, $11, NOW()
             )
             ON CONFLICT (customer_id, product_name)
             DO UPDATE SET
@@ -220,13 +220,14 @@ class CustomerPriceContextRepo:
                 churn_probability    = EXCLUDED.churn_probability,
                 risk_tier            = EXCLUDED.risk_tier,
                 run_id               = EXCLUDED.run_id,
+                currency             = EXCLUDED.currency,
                 created_at           = NOW()
             """,
             customer_id, client_id, rec.product_name,
             rec.strategy, rec.suggested_price, rec.pre_retention_price,
             churn_ctx.discount_applied, churn_ctx.churn_probability,
             churn_ctx.risk_level,
-            run_id,
+            run_id, rec.currency,
         )
 
     @staticmethod
@@ -259,6 +260,7 @@ class CustomerPriceContextRepo:
                 churn_probability,
                 risk_tier,
                 run_id,
+                currency,
                 created_at
             FROM customer_price_context
             WHERE client_id   = $1

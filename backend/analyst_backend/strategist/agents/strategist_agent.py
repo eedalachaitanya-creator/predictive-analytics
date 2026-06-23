@@ -261,6 +261,7 @@ class StrategistAgent:
             return self._no_data(
                 product.name, platform_breakdown, "no_price_data",
                 f"No in-stock listings found with confidence ≥ {self.config.min_confidence}.",
+                currency = currency,
             )
 
         # ── Guard: no COGS or suspiciously low COGS ─────────────────────────
@@ -274,6 +275,7 @@ class StrategistAgent:
                 comp_avg    = round(statistics.mean(prices), 2),
                 comp_max    = round(max(prices), 2),
                 comp_median = round(statistics.median(prices), 2),
+                currency    = currency,
             )
         # COGS must be at least ₹1 — anything less produces absurd margins
         # (₹0.50 cost + ₹100 price = 19,900% margin). Almost certainly a data-entry error.
@@ -287,6 +289,7 @@ class StrategistAgent:
                 comp_avg    = round(statistics.mean(prices), 2),
                 comp_max    = round(max(prices), 2),
                 comp_median = round(statistics.median(prices), 2),
+                currency    = currency,
             )
 
         # ── Layer 1: Cost math ──────────────────────────────────────────────
@@ -497,6 +500,7 @@ class StrategistAgent:
             ),
             flag                 = flag,
             warnings             = warnings,
+            currency             = currency,
             churn_context        = churn_context,
         )
 
@@ -628,6 +632,7 @@ class StrategistAgent:
         comp_avg:         float = 0.0,
         comp_max:         float = 0.0,
         comp_median:      float = 0.0,
+        currency:         str   = "INR",
     ) -> PricingRecommendation:
         """Return a placeholder recommendation when data is insufficient."""
         return PricingRecommendation(
@@ -653,6 +658,7 @@ class StrategistAgent:
             customer_note= "Price not currently available.",
             flag         = flag,
             warnings     = [reason],
+            currency     = currency,
         )
 
     # ------------------------------------------------------------------

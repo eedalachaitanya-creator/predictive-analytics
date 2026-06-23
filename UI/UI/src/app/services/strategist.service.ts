@@ -118,6 +118,7 @@ export interface PriceContext {
   churn_probability:    number;
   risk_tier:            string;
   run_id:               string;
+  currency:             string;
   created_at:           string;
 }
 

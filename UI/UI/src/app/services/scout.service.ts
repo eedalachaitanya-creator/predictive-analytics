@@ -77,8 +77,9 @@ export interface PricePoint {
 
 export interface ComparePlatformEntry {
   platform: string;
-  price: number;
-  url: string;
+  price:    number;
+  currency: string;
+  url:      string;
 }
 
 export interface ComparableEntity {
@@ -93,9 +94,10 @@ export interface ComparableEntity {
 
 export interface SinglePlatformEntity {
   entity_id: string;
-  product: string;
-  platform: string;
-  price: { platform: string; price: number } | null;
+  product:   string;
+  platform:  string;
+  price:     { platform: string; price: number } | null;
+  currency:  string;
 }
 
 export interface CompareResult {

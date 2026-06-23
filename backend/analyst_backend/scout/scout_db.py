@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────
 from dotenv import load_dotenv
+
+# Currency symbol map — used when constructing raw price strings
+# without a pre-existing raw value from the scraper.
+_CURRENCY_SYMBOLS: dict[str, str] = {
+    "INR": "\u20b9", "USD": "$", "EUR": "\u20ac",
+    "GBP": "\u00a3", "AED": "AED ", "SGD": "S$",
+}
 load_dotenv()
 
 DATABASE_URL: str = settings.database_url
@@ -489,7 +496,13 @@ class Database:
                     "currency": details.get("price", {}).get("currency", None)
                                 or details.get("currency", "INR"),
                     "raw":      details.get("price", {}).get("raw", None)
-                                or (f"₹{row['price']}" if row["price"] else None),
+                                or (
+                                    _CURRENCY_SYMBOLS.get(
+                                        (details.get("price", {}).get("currency")
+                                         or details.get("currency", "INR")).upper(), ""
+                                    ) + str(row["price"])
+                                    if row["price"] else None
+                                ),
                 },
                 "url": row.get("product_url", ""),
                 **{k: v for k, v in details.items() if k != "price"},

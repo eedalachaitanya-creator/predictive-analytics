@@ -276,6 +276,9 @@ class PricingRecommendation(BaseModel):
     flag:     Optional[str]  = None   # low_margin_warning | no_price_data | etc.
     warnings: list[str]      = Field(default_factory=list)
 
+    # Currency of all price fields in this recommendation
+    currency: str = "INR"
+
     # Churn fusion data (populated when strategy == "retention")
     churn_context: Optional[ChurnContext] = None
 
@@ -467,4 +470,5 @@ class CustomerPriceContext(BaseModel):
     churn_probability:    Optional[float] = None
     risk_tier:            Optional[str]   = None
     run_id:               Optional[str]   = None
+    currency:             str            = "INR"   # ISO code of suggested_price
     created_at:           Optional[datetime] = None

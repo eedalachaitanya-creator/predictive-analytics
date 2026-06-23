@@ -43,8 +43,8 @@
               <td class="mono">{{ row.customer_id }}</td>
               <td class="product-name">{{ row.product_name }}</td>
               <td><span class="badge purple">{{ row.strategy }}</span></td>
-              <td class="price-cell bold">{{ fmtPrice(row.suggested_price) }}</td>
-              <td class="price-cell muted">{{ fmtPrice(row.pre_retention_price) }}</td>
+              <td class="price-cell bold">{{ fmtPrice(row.suggested_price, row.currency) }}</td>
+              <td class="price-cell muted">{{ fmtPrice(row.pre_retention_price, row.currency) }}</td>
               <td class="price-cell">{{ fmtPct(row.discount_pct_applied) }}</td>
               <td>
                 <div class="prob-bar-wrap">

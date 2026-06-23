@@ -44,6 +44,32 @@ export class UsersComponent implements OnInit {
   superAdmins = computed(() => this.svc.users().filter(u => u.role === 'super_admin').length);
   clientUsers = computed(() => this.svc.users().filter(u => u.role === 'client_user').length);
 
+  // ── Card filter ─────────────────────────────────────────────────────
+  // The three stat cards double as a role filter for the roster table below
+  // (mirrors the Clients page status-card pattern). 'all' = no filter.
+  roleFilter = signal<'all' | UserRole>('all');
+
+  visibleUsers = computed<AppUser[]>(() => {
+    const f = this.roleFilter();
+    if (f === 'all') return this.svc.users();
+    return this.svc.users().filter(u => u.role === f);
+  });
+
+  // Clicking the active card again clears the filter (back to 'all'); the
+  // Total Users card always resets to 'all'.
+  setRoleFilter(f: 'all' | UserRole) {
+    this.roleFilter.set(this.roleFilter() === f && f !== 'all' ? 'all' : f);
+  }
+
+  // Heading suffix that names the active filter, e.g. "Super Admins".
+  filterLabel = computed(() => {
+    switch (this.roleFilter()) {
+      case 'super_admin': return 'Super Admins';
+      case 'client_user': return 'Client Users';
+      default:            return '';
+    }
+  });
+
   // ── Add-user modal ─────────────────────────────────────────────────
   // Restores the ability to add MORE logins to a client (each client was
   // provisioned with exactly one login at onboarding). Backend: POST /users.

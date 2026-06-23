@@ -1,10 +1,26 @@
 <div class="page-anim">
 
-  <!-- Stats row -->
+  <!-- Stats row — each card filters the roster table below by role.
+       Clicking the active card again clears the filter. -->
   <div class="grid-3 mb-20">
-    <div class="stat-card"><div class="stat-value">{{ svc.users().length }}</div><div class="stat-label">Total Users</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--accent-purple)">{{ superAdmins() }}</div><div class="stat-label">Super Admins</div></div>
-    <div class="stat-card"><div class="stat-value">{{ clientUsers() }}</div><div class="stat-label">Client Users</div></div>
+    <button type="button" class="stat-card stat-card-btn"
+            [class.is-selected]="roleFilter() === 'all'"
+            (click)="setRoleFilter('all')"
+            [attr.aria-pressed]="roleFilter() === 'all'">
+      <div class="stat-value">{{ svc.users().length }}</div><div class="stat-label">Total Users</div>
+    </button>
+    <button type="button" class="stat-card stat-card-btn"
+            [class.is-selected]="roleFilter() === 'super_admin'"
+            (click)="setRoleFilter('super_admin')"
+            [attr.aria-pressed]="roleFilter() === 'super_admin'">
+      <div class="stat-value" style="color:var(--accent-purple)">{{ superAdmins() }}</div><div class="stat-label">Super Admins</div>
+    </button>
+    <button type="button" class="stat-card stat-card-btn"
+            [class.is-selected]="roleFilter() === 'client_user'"
+            (click)="setRoleFilter('client_user')"
+            [attr.aria-pressed]="roleFilter() === 'client_user'">
+      <div class="stat-value">{{ clientUsers() }}</div><div class="stat-label">Client Users</div>
+    </button>
   </div>
 
   <!-- "+ Add User" creates ADDITIONAL logins for a client (each client is
@@ -23,18 +39,23 @@
   </div>
 
   <!-- Users Table -->
-  <div class="section-heading">👥 All Users</div>
+  <div class="section-heading">
+    👥 All Users
+    @if (filterLabel()) {
+      <span style="font-weight:500;color:var(--text-muted)"> — showing {{ filterLabel() }} ({{ visibleUsers().length }})</span>
+    }
+  </div>
   @if (toggleError()) {
     <div class="notice warning" style="margin-bottom:12px;font-size:13px;padding:10px 16px;border-radius:8px">⚠️ {{ toggleError() }}</div>
   }
   <div class="card mb-24">
-    @if (svc.users().length) {
+    @if (visibleUsers().length) {
       <table class="data-table user-table">
         <thead>
           <tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Client Access</th><th>Last Login</th><th>Status</th></tr>
         </thead>
         <tbody>
-          @for (u of svc.users(); track u.id; let i = $index) {
+          @for (u of visibleUsers(); track u.id; let i = $index) {
             <tr>
               <td>{{ i + 1 }}</td>
               <td>{{ u.name }}</td>
@@ -54,6 +75,13 @@
           }
         </tbody>
       </table>
+    } @else if (svc.users().length) {
+      <!-- There ARE users, just none in the active role filter — offer a
+           one-click way back to the full roster. -->
+      <div style="padding:40px;text-align:center;color:var(--text-muted)">
+        No {{ filterLabel() }} to show.
+        <button class="btn outline sm" style="margin-left:8px" (click)="setRoleFilter('all')">Show all users</button>
+      </div>
     } @else if (!svc.loading()) {
       <!-- Empty state no longer offers a "create user" shortcut here —
            users come in through the Clients page, so point the super admin

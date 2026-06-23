@@ -22,26 +22,37 @@
 
   @if (svc.data()) {
     <div class="section-heading">A. Platform-Wide Summary</div>
-    <div class="grid-4 mb-24">
-      <div class="stat-card">
+    <!-- Each tile opens a paginated, cross-client drill-down modal of the
+         records behind the number. (Avg Churn Rate removed — not a useful
+         platform-level metric for the super admin; per-client churn still
+         lives in the B. Client Comparison section below.) -->
+    <div class="grid-3 mb-24">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('active_clients', 'Active Clients')"
+           (keydown.enter)="openCardView('active_clients', 'Active Clients')"
+           (keydown.space)="$event.preventDefault(); openCardView('active_clients', 'Active Clients')">
+        <span class="stat-view">View →</span>
         <div class="stat-value text-green">{{ kpis()?.activeClients ?? '—' }}</div>
         <div class="stat-label">Active Clients</div>
         <div class="stat-sub">{{ kpis()?.totalClients }} total incl. setup</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('total_customers', 'Total Customers')"
+           (keydown.enter)="openCardView('total_customers', 'Total Customers')"
+           (keydown.space)="$event.preventDefault(); openCardView('total_customers', 'Total Customers')">
+        <span class="stat-view">View →</span>
         <div class="stat-value">{{ (kpis()?.totalCustomers ?? 0) | number }}</div>
         <div class="stat-label">Total Customers</div>
         <div class="stat-sub">Across all clients</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card clickable" role="button" tabindex="0"
+           (click)="openCardView('total_orders', 'Total Orders')"
+           (keydown.enter)="openCardView('total_orders', 'Total Orders')"
+           (keydown.space)="$event.preventDefault(); openCardView('total_orders', 'Total Orders')">
+        <span class="stat-view">View →</span>
         <div class="stat-value">{{ (kpis()?.totalOrders ?? 0) | number }}</div>
         <div class="stat-label">Total Orders</div>
         <div class="stat-sub">All clients combined</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value text-yellow">{{ (kpis()?.avgChurnRate ?? 0) | number:'1.1-1' }}%</div>
-        <div class="stat-label">Avg Churn Rate</div>
-        <div class="stat-sub">Across active clients</div>
       </div>
     </div>
 
@@ -114,5 +125,56 @@
     } @else {
       <div class="notice info mb-24">No client data available yet.</div>
     }
+  }
+
+  <!-- Summary-card drill-down modal — paginated cross-client list behind a KPI tile -->
+  @if (viewCard()) {
+    <div class="modal-backdrop" (click)="closeCardView()">
+      <div class="modal-card data-viewer-card" (click)="$event.stopPropagation()">
+        <div class="flex-row" style="align-items:center; justify-content:space-between; margin-bottom:8px">
+          <h3 class="modal-title" style="margin:0">📋 {{ viewLabel() }}</h3>
+          <button class="btn outline sm" (click)="closeCardView()">✕ Close</button>
+        </div>
+        <p class="modal-sub">Platform-wide · {{ (viewData()?.total ?? 0) | number }} records</p>
+
+        @if (viewLoading()) {
+          <div class="loading-state"><div class="spinner">⏳</div><div>Loading rows…</div></div>
+        }
+        @if (viewError()) {
+          <div class="notice warning">⚠️ {{ viewError() }}</div>
+        }
+
+        @if (viewData(); as d) {
+          <div class="data-viewer-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  @for (col of d.columns; track col) { <th>{{ formatColumnName(col) }}</th> }
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of d.rows; track $index) {
+                  <tr>
+                    @for (col of d.columns; track col) { <td>{{ renderCell(row[col]) }}</td> }
+                  </tr>
+                }
+                @if (d.rows.length === 0) {
+                  <tr>
+                    <td [attr.colspan]="d.columns.length" style="text-align:center; color:var(--text-muted); padding:24px">No rows on this page.</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="flex-row" style="justify-content:space-between; margin-top:14px">
+            <div style="font-size:12px; color:var(--text-muted)">{{ cardPaginationLabel() }}</div>
+            <div class="flex-row" style="gap:8px">
+              <button class="btn outline sm" [disabled]="!viewHasPrev() || viewLoading()" (click)="cardPrevPage()">← Prev</button>
+              <button class="btn outline sm" [disabled]="!viewHasNext() || viewLoading()" (click)="cardNextPage()">Next →</button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
   }
 </div>

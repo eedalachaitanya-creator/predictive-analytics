@@ -8,3 +8,45 @@
   text-align: right;
   flex-shrink: 0;
 }
+
+/* ── Clickable summary cards ─────────────────────────────────────────────── */
+/* The KPI tiles open a paginated drill-down modal. Mirrors the Dashboard
+   affordance (cursor + hover lift + "View →" hint); the dashboard's copy is
+   component-scoped so it is re-declared here. */
+.stat-card.clickable {
+  position: relative;
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .10);
+    border-color: var(--accent-cyan, #0891b2);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent-cyan, #0891b2);
+    outline-offset: 2px;
+  }
+  .stat-view {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-cyan, #0891b2);
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  &:hover .stat-view,
+  &:focus-visible .stat-view { opacity: 1; }
+}
+
+/* ── Drill-down modal (mirrors the Dashboard data-viewer) ────────────────── */
+.modal-card.data-viewer-card { width: min(1100px, 95vw); }
+.data-viewer-scroll {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}

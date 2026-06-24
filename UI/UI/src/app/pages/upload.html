@@ -6,6 +6,38 @@
     </div>
   </div>
 
+  <!-- ── Your integrations — feedback data by source + connector status ──── -->
+  @if (uploadSvc.integrationsSummary().length) {
+    <div class="card mb-20">
+      <div class="card-header">
+        <div class="card-title">🔌 Your integrations</div>
+        <div class="card-subtitle">Where your support tickets &amp; reviews come from</div>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Source</th><th>Tickets</th><th>Reviews</th><th>Connector</th><th>Last sync</th></tr>
+        </thead>
+        <tbody>
+          @for (i of uploadSvc.integrationsSummary(); track i.source) {
+            <tr>
+              <td><strong>{{ i.label }}</strong></td>
+              <td>{{ i.tickets | number }}</td>
+              <td>{{ i.reviews | number }}</td>
+              <td>
+                @if (i.configured) {
+                  <span class="badge" [ngClass]="i.enabled ? 'green' : 'gray'">{{ i.enabled ? 'Connected' : 'Configured' }}</span>
+                } @else {
+                  <span class="badge gray">Manual upload</span>
+                }
+              </td>
+              <td class="font-mono" style="font-size:11px">{{ i.lastSyncAt ? (i.lastSyncAt | date:'medium') : '—' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
   <!-- ── Success banner (shown after a successful save) ────────
        Uses friendly language: no batch IDs, no "materialized view",
        no "UPSERT" — just row counts per data type and a green "all

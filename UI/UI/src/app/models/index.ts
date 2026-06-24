@@ -320,6 +320,19 @@ export interface MatchReport {
   skippedSample: string[];
 }
 
+/** One row of the per-client "Your integrations" summary: feedback data volume
+ *  by source, plus any configured connector's status. */
+export interface IntegrationSummaryRow {
+  source: string;
+  label: string;
+  tickets: number;
+  reviews: number;
+  configured: boolean;
+  enabled: boolean;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+}
+
 export interface UploadResponse {
   masterType: MasterType;
   fileName: string;

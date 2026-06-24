@@ -6,6 +6,7 @@ import {
   BatchInfoResponse,
   CommitResponse,
   DiscardResponse,
+  IntegrationSummaryRow,
   MasterType,
   PendingBatch,
   SourceOption,
@@ -129,6 +130,16 @@ export class UploadService {
     return this.api.get<{ committed: Record<string, boolean> }>(
       `/uploads/data-status?clientId=${encodeURIComponent(clientId)}`
     ).pipe(tap(res => this.committed.set(res.committed ?? {})));
+  }
+
+  /** Per-client "Your integrations" summary — feedback data volume by source
+   *  plus configured-connector status. Drives the table on the Upload page. */
+  readonly integrationsSummary = signal<IntegrationSummaryRow[]>([]);
+
+  loadIntegrationsSummary(clientId: string): Observable<{ integrations: IntegrationSummaryRow[] }> {
+    return this.api.get<{ integrations: IntegrationSummaryRow[] }>(
+      `/integrations/summary?clientId=${encodeURIComponent(clientId)}`
+    ).pipe(tap(res => this.integrationsSummary.set(res.integrations ?? [])));
   }
 
   isCommitted(masterType: MasterType): boolean {

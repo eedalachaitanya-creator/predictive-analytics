@@ -87,6 +87,8 @@ export class UploadComponent implements OnInit {
     // Which masters are ALREADY committed for this client — lets a required
     // master count as satisfied without re-uploading it (incremental top-ups).
     this.uploadSvc.loadDataStatus(this.clientId).subscribe({ error: () => {} });
+    // "Your integrations" — feedback data volume by source + connector status.
+    this.uploadSvc.loadIntegrationsSummary(this.clientId).subscribe({ error: () => {} });
   }
 
   /** Re-fetch pending batch info from the backend. Called after uploads,
@@ -104,6 +106,8 @@ export class UploadComponent implements OnInit {
         this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
         // Newly-committed masters are now "satisfied" for any follow-up batch.
         this.uploadSvc.loadDataStatus(this.clientId).subscribe({ error: () => {} });
+        // Refresh the per-source integration counts (tickets/reviews changed).
+        this.uploadSvc.loadIntegrationsSummary(this.clientId).subscribe({ error: () => {} });
       },
       error: (err) => console.error('Commit failed:', err.message ?? err),
     });

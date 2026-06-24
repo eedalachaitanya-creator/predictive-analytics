@@ -101,9 +101,13 @@ def _find_user_by_token(token: str) -> Optional[dict]:
                      "WHERE token = :token AND expires_at > NOW()"),
                 {"token": token},
             ).fetchone()
-            if not row:
-                return None
-            return _get_user_by_id(row[0])
+        # Release the token connection BEFORE the user lookup. _get_user_by_id opens
+        # its own connection, so calling it inside the block above held two pool
+        # connections at once — which deadlocked the small (size 3 + 2) pool once a
+        # page fired several authenticated requests in parallel.
+        if not row:
+            return None
+        return _get_user_by_id(row[0])
     except Exception as e:
         log.error("Error looking up token: %s", e)
         return None

@@ -116,8 +116,6 @@ def integrations_summary(clientId: str = Query(...),
     user = _user_or_401(authorization)
     _require_client_access(user, clientId)
 
-    from ml.connectors.registry import PROVIDER_META
-
     with engine.connect() as conn:
         counts = conn.execute(text("""
             SELECT source,

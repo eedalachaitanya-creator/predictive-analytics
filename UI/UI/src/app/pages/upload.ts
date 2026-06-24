@@ -3,7 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UploadService } from '../services/upload.service';
 import { AuthService } from '../services/auth.service';
-import { MatchReport, MasterType, SourceOption, UploadPreview } from '../models';
+import { MatchReport, MasterType, SourceOption, SyncResult, UploadPreview } from '../models';
+import { IntegrationCardComponent, ProviderMeta } from './integration-card';
 
 interface MasterDef {
   key: MasterType;
@@ -18,7 +19,7 @@ interface MasterDef {
 @Component({
   selector: 'app-upload',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, IntegrationCardComponent],
   templateUrl: './upload.html',
   styleUrls: ['./upload.scss']
 })
@@ -89,6 +90,53 @@ export class UploadComponent implements OnInit {
     this.uploadSvc.loadDataStatus(this.clientId).subscribe({ error: () => {} });
     // "Your integrations" — feedback data volume by source + connector status.
     this.uploadSvc.loadIntegrationsSummary(this.clientId).subscribe({ error: () => {} });
+    // Provider metadata for the "Sync via API" modal (label/fields/configured).
+    this.uploadSvc.loadIntegrationProviders(this.clientId).subscribe({ error: () => {} });
+  }
+
+  // ── "Sync via API" modal (tickets/reviews tiles) ───────────────────────
+  syncModalProvider = signal<string | null>(null);
+  syncing    = signal(false);
+  syncResult = signal<SyncResult | null>(null);
+  syncError  = signal<string | null>(null);
+
+  /** A selected source maps to a live connector when it's a configured-able
+   *  provider (jira/hubspot from the registry), not 'other'/manual. */
+  isProviderSource(key: string): boolean {
+    return !!this.uploadSvc.integrationProviders()[this.sourceSel()[key]];
+  }
+  /** The provider key chosen in this tile's source dropdown. */
+  tileProvider(key: string): string { return this.sourceSel()[key]; }
+  providerMeta(provider: string): ProviderMeta | null {
+    return this.uploadSvc.integrationProviders()[provider]?.meta ?? null;
+  }
+  providerLabel(provider: string): string {
+    return this.providerMeta(provider)?.label ?? provider;
+  }
+
+  openSyncModal(provider: string) {
+    this.syncResult.set(null); this.syncError.set(null);
+    this.syncModalProvider.set(provider);
+  }
+  closeSyncModal() { this.syncModalProvider.set(null); }
+
+  /** Pull the provider's records into the pending batch (review before Save). */
+  doSyncIntoBatch(provider: string) {
+    this.syncing.set(true); this.syncResult.set(null); this.syncError.set(null);
+    this.uploadSvc.syncProvider(this.clientId, provider).subscribe({
+      next: (res) => {
+        this.syncing.set(false);
+        this.syncResult.set(res);
+        // Reflect the newly-staged rows in the Review panel + counts.
+        this.uploadSvc.loadUploads(this.clientId).subscribe({ error: () => {} });
+        this.refreshBatch();
+        this.uploadSvc.loadDataStatus(this.clientId).subscribe({ error: () => {} });
+      },
+      error: (e) => {
+        this.syncing.set(false);
+        this.syncError.set(e?.error?.detail ?? e?.message ?? 'Sync failed.');
+      },
+    });
   }
 
   /** Re-fetch pending batch info from the backend. Called after uploads,

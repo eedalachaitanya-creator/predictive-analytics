@@ -10,6 +10,7 @@ import {
   MasterType,
   PendingBatch,
   SourceOption,
+  SyncResult,
   UploadedFile,
   UploadPreview,
   UploadResponse,
@@ -140,6 +141,24 @@ export class UploadService {
     return this.api.get<{ integrations: IntegrationSummaryRow[] }>(
       `/integrations/summary?clientId=${encodeURIComponent(clientId)}`
     ).pipe(tap(res => this.integrationsSummary.set(res.integrations ?? [])));
+  }
+
+  /** Per-provider config status + UI metadata (drives the "Sync via API" modal:
+   *  which providers exist, their label/fields, and whether creds are saved). */
+  readonly integrationProviders = signal<Record<string, any>>({});
+
+  loadIntegrationProviders(clientId: string): Observable<Record<string, any>> {
+    return this.api.get<Record<string, any>>(
+      `/integrations?clientId=${encodeURIComponent(clientId)}`
+    ).pipe(tap(res => this.integrationProviders.set(res ?? {})));
+  }
+
+  /** Live "Sync into batch": pull a provider's records into the pending staging
+   *  batch (same matching/commit path as a CSV) — see POST /uploads/sync/{provider}. */
+  syncProvider(clientId: string, provider: string): Observable<SyncResult> {
+    return this.api.post<SyncResult>(
+      `/uploads/sync/${provider}?clientId=${encodeURIComponent(clientId)}`, {}
+    );
   }
 
   isCommitted(masterType: MasterType): boolean {

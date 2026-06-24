@@ -74,9 +74,11 @@
         <button class="btn outline" [disabled]="testing() || saving()" (click)="test()">
           {{ testing() ? '⏳ Testing…' : '🔌 Test connection' }}
         </button>
-        <button class="btn outline" [disabled]="syncing() || saving()" (click)="sync()">
-          {{ syncing() ? '⏳ Syncing…' : '🔄 Sync now' }}
-        </button>
+        @if (showSync) {
+          <button class="btn outline" [disabled]="syncing() || saving()" (click)="sync()">
+            {{ syncing() ? '⏳ Syncing…' : '🔄 Sync now' }}
+          </button>
+        }
         @if (saved()) { <span class="badge green" style="font-size:13px;padding:8px 14px">✅ Saved</span> }
       </div>
 
@@ -89,7 +91,7 @@
           {{ t.ok ? '✅ ' : '❌ ' }}{{ t.text }}
         </div>
       }
-      @if (syncResult(); as s) {
+      @if (showSync && syncResult(); as s) {
         <div class="notice" [class.success]="s.ok" [class.warning]="!s.ok"
              style="margin-top:14px;font-size:13px;padding:10px 16px;border-radius:8px">
           {{ s.ok ? '✅ ' : '❌ ' }}{{ s.text }}

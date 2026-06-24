@@ -205,7 +205,19 @@
                     <input class="form-input" style="width:160px" placeholder="Name e.g. Zendesk"
                            [ngModel]="sourceName()[m.key]" (ngModelChange)="setSourceName(m.key, $event)" />
                   }
+                  @if (isProviderSource(m.key)) {
+                    <button type="button" class="btn outline sm"
+                            (click)="openSyncModal(tileProvider(m.key))"
+                            title="Pull this data live from the connected app instead of a file">
+                      ⚡ Sync via API
+                    </button>
+                  }
                 </div>
+                @if (isProviderSource(m.key)) {
+                  <p class="text-muted" style="font-size:11px;margin:-4px 0 4px">
+                    Drop a file below, or pull it live from {{ providerLabel(tileProvider(m.key)) }} with <strong>Sync via API</strong>.
+                  </p>
+                }
               }
 
               <!-- Uploading state -->
@@ -342,6 +354,51 @@
           } @else {
             <p class="modal-sub">Showing first {{ p.shownRows | number }} of {{ p.totalRows | number }} rows (file is large)</p>
           }
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       "Sync via API" modal — connect a provider and pull its tickets/reviews
+       straight into the pending batch (same matching + review + Save as a CSV).
+       ══════════════════════════════════════════════════════════════════════ -->
+  @if (syncModalProvider(); as prov) {
+    <div class="modal-backdrop" (click)="closeSyncModal()">
+      <div class="modal-card" style="width:min(680px,95vw);max-height:90vh;overflow:auto" (click)="$event.stopPropagation()">
+        <div class="flex-row" style="align-items:center;justify-content:space-between;margin-bottom:6px">
+          <h3 class="modal-title" style="margin:0">⚡ Sync {{ providerLabel(prov) }} into your batch</h3>
+          <button class="btn outline sm" (click)="closeSyncModal()">✕ Close</button>
+        </div>
+        <p class="modal-sub" style="margin-bottom:6px">
+          Connect {{ providerLabel(prov) }} below, then pull your tickets &amp; reviews straight in.
+          We match each record to a customer and skip any we can't — you review the counts and click
+          <strong>Save My Data</strong>, exactly like a file upload. Prefer a file? Just close this and drop a CSV.
+        </p>
+
+        @if (providerMeta(prov); as meta) {
+          <app-integration-card [provider]="prov" [meta]="meta" [showSync]="false" />
+        } @else {
+          <div class="notice warning" style="font-size:13px;padding:10px 16px;border-radius:8px">
+            Couldn't load {{ providerLabel(prov) }} settings.
+          </div>
+        }
+
+        <div class="flex-row" style="gap:10px;margin-top:4px;align-items:center;flex-wrap:wrap">
+          <button class="btn walmart" [disabled]="syncing()" (click)="doSyncIntoBatch(prov)">
+            {{ syncing() ? '⏳ Syncing…' : '⚡ Sync into batch' }}
+          </button>
+          <span class="text-muted" style="font-size:12px">Pulls into staging — nothing is saved until you click Save My Data.</span>
+        </div>
+
+        @if (syncResult(); as r) {
+          <div class="notice success" style="margin-top:14px;font-size:13px;padding:10px 16px;border-radius:8px">
+            ✅ Imported {{ r.matchReport.matched }} · {{ r.matchReport.skipped }} skipped (no matching customer) ·
+            <strong>{{ r.rowsStaged }}</strong> added to your batch
+          </div>
+        }
+        @if (syncError()) {
+          <div class="notice warning" style="margin-top:14px;font-size:13px;padding:10px 16px;border-radius:8px">❌ {{ syncError() }}</div>
         }
       </div>
     </div>

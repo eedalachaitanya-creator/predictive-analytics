@@ -320,6 +320,16 @@ export interface MatchReport {
   skippedSample: string[];
 }
 
+/** Result of a live "Sync into batch" pull from a connector. */
+export interface SyncResult {
+  provider: string;
+  masterType: MasterType;
+  fetched: number;
+  matchReport: MatchReport;
+  rowsStaged: number;
+  batchId: string | null;
+}
+
 /** One row of the per-client "Your integrations" summary: feedback data volume
  *  by source, plus any configured connector's status. */
 export interface IntegrationSummaryRow {

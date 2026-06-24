@@ -39,6 +39,10 @@ interface IntegrationStatus {
 export class IntegrationCardComponent implements OnInit {
   @Input({ required: true }) provider!: string;
   @Input({ required: true }) meta!: ProviderMeta;
+  // Hide the built-in "Sync now" (which writes straight to live tables) when the
+  // card is embedded in the Upload-page modal, where syncing goes through the
+  // staging batch instead. Defaults true so Settings is unchanged.
+  @Input() showSync = true;
 
   private api = inject(ApiService);
   private auth = inject(AuthService);

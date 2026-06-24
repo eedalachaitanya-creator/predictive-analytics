@@ -108,11 +108,8 @@
     </table>
   </div>
 
-  <!-- Per-tenant external-signal integrations — one card per provider, each with
-       its own Save/Test/Sync (rendered from GET /integrations). -->
-  @for (i of integrations(); track i.provider) {
-    <app-integration-card [provider]="i.provider" [meta]="i.meta" />
-  }
+  <!-- Third-party integrations (Jira/HubSpot) now live on the Upload page —
+       select the provider on a Tickets/Reviews tile → "Sync via API". -->
 
   <div class="flex-row">
     <button class="btn walmart" (click)="save()">💾 Save Settings</button>

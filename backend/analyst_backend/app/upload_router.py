@@ -771,12 +771,24 @@ def _humanize_staging_error(exc: Exception, master_type: str = "") -> str:
 
 def _resolve_customers_in_df(df, client_id: str):
     """For ticket/review uploads: rewrite each row's customer_id to a known
-    customer (id→email). Drops unmatched rows. Returns (matched_df, report)."""
+    customer (id→email). Drops unmatched rows. Returns (matched_df, report).
+
+    "Known" = committed customers OR customers staged in the client's CURRENT
+    pending batch — so a brand-new client can onboard customers + tickets in one
+    batch (the deferred-FK commit inserts the customers first). Tickets for a
+    customer that is neither committed nor staged are still dropped."""
     from ml.connectors.sources import resolve_customer_id
 
     with engine.connect() as conn:
         rows = conn.execute(
-            text("SELECT customer_id, LOWER(customer_email) FROM customers WHERE client_id = :c"),
+            text("""
+                SELECT customer_id, LOWER(customer_email) FROM customers WHERE client_id = :c
+                UNION
+                SELECT customer_id, LOWER(customer_email) FROM staging_customers
+                 WHERE client_id = :c
+                   AND batch_id = (SELECT batch_id FROM upload_batches
+                                   WHERE client_id = :c AND status = 'pending')
+            """),
             {"c": client_id},
         ).fetchall()
     by_id = {r[0] for r in rows}

@@ -228,15 +228,14 @@ export class ScoutMonitorTab implements OnInit {
     });
   }
 
-  fmt(val: number, cur: string = ''): string {
+  fmt(val: number, cur: string = 'INR'): string {
     if (!val || val <= 0) return '—';
-    if (!cur) return val.toLocaleString();  // no currency info — show raw number
     const symbols: Record<string, string> = {
-        INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
-        AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
+      INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥',
+      AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'AED ',
     };
     return (symbols[cur] || cur + ' ') + val.toLocaleString();
-}
+  }
 
   /**
    * Derive a short display name for a platform column header.
@@ -293,14 +292,6 @@ export class ScoutMonitorTab implements OnInit {
     return lines.length ? lines.join('\n') : '(no titles available)';
   }
 
-  currencyFor(platform: string): string {
-    const p = platform.toLowerCase();
-    if (p.endsWith('.in') || ['flipkart', 'myntra', 'nykaa', 'beato', 'fastandup.in', 'ikea'].includes(p)) return 'INR';
-    if (['amazon', 'walmart', 'target', 'ebay'].includes(p)) return 'USD';
-    if (p === 'fast and up') return 'EUR';
-    return 'INR';
-  }
-
   changeIcon(a: any): string {
     if (a.direction === 'down')   return '📉';
     if (a.direction === 'up')     return '📈';
@@ -308,12 +299,15 @@ export class ScoutMonitorTab implements OnInit {
     return '🆕';
   }
   changeClass(a: any): string {
+    if (a.old_price != null && a.old_price === a.new_price) return 'text-muted';
     if (a.direction === 'down')   return 'text-green';
     if (a.direction === 'up')     return 'text-red';
     if (a.direction === 'stable') return 'text-muted';
     return 'text-blue';
   }
   fmtChange(a: any): string {
+    // If old price was backfilled and equals new price, it's stable — not new
+    if (a.old_price != null && a.old_price === a.new_price) return 'Stable';
     if (a.direction === 'new')    return 'New';
     if (a.direction === 'stable') return 'Stable';
     return a.change_percent != null ? `${a.change_percent > 0 ? '+' : ''}${a.change_percent.toFixed(1)}%` : '—';

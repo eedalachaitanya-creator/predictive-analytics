@@ -88,12 +88,8 @@ export class IntegrationCardComponent implements OnInit {
     field: 'From a field', label: 'From a label',
   };
   private static DESCRIPTIONS: Record<string, string> = {
-    jira: 'Connect your Jira to automatically pull in your customer support tickets. ' +
-          'We read each ticket to spot unhappy customers and use that to improve churn ' +
-          'predictions. Your Jira details are stored securely.',
-    hubspot: 'Connect your HubSpot to automatically pull in support tickets and customer ' +
-             'feedback. We read them to spot unhappy customers and use that to improve churn ' +
-             'predictions. Your details are stored securely.',
+    jira: 'Pull your support tickets straight from Jira. Your details are stored securely.',
+    hubspot: 'Pull your support tickets and feedback straight from HubSpot. Your details are stored securely.',
   };
 
   has(field: string): boolean { return !!this.meta?.fields?.includes(field); }

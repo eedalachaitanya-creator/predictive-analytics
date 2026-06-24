@@ -371,9 +371,8 @@
           <button class="btn outline sm" (click)="closeSyncModal()">✕ Close</button>
         </div>
         <p class="modal-sub" style="margin-bottom:6px">
-          Connect {{ providerLabel(prov) }} below, then pull your tickets &amp; reviews straight in.
-          We match each record to a customer and skip any we can't — you review the counts and click
-          <strong>Save My Data</strong>, exactly like a file upload. Prefer a file? Just close this and drop a CSV.
+          Connect {{ providerLabel(prov) }} and pull your data straight in — then review and
+          <strong>Save</strong>, just like a file. Prefer a file? Close this and drop a CSV.
         </p>
 
         @if (providerMeta(prov); as meta) {

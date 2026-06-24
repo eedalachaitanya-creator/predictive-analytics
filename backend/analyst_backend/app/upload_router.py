@@ -1536,6 +1536,22 @@ async def upload_file(
     return result
 
 
+def _stamp_integration_sync(provider: str, client_id: str, status: str, detail: str) -> None:
+    """Record a connector pull on the tenant_integrations row so the integrations
+    summary 'Last Sync' reflects batch syncs too. The direct /integrations sync
+    already stamps this; the batch path previously did not. No-op when the provider
+    has no integration row, and never fails the sync (telemetry, not core flow)."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE tenant_integrations SET last_sync_at=now(), "
+                "last_sync_status=:s, last_sync_detail=:d, updated_at=now() "
+                "WHERE client_id=:c AND provider=:p"),
+                {"s": status, "d": (detail or "")[:200], "c": client_id, "p": provider})
+    except Exception as exc:  # noqa: BLE001 — telemetry must never break the sync
+        log.warning("could not stamp last_sync for %s/%s: %s", client_id, provider, exc)
+
+
 @router.post("/uploads/sync/{provider}")
 def sync_provider_to_staging(
     provider: str,
@@ -1556,8 +1572,17 @@ def sync_provider_to_staging(
         records = list(connector.fetch(clientId))
     except Exception as exc:  # noqa: BLE001 — never echo the upstream body
         log.warning("sync fetch failed %s/%s: %s", clientId, provider, exc)
+        _stamp_integration_sync(provider, clientId, "error", type(exc).__name__)
         raise HTTPException(status_code=502,
                             detail=f"Could not sync from {provider} — check the integration settings.")
+
+    # Record the pull on the integration row so the integrations summary's 'Last
+    # Sync' reflects batch syncs (parity with the direct /integrations sync). The
+    # connector contact has happened by here, regardless of how many rows match.
+    n_tickets = sum(1 for r in records if r.__class__.__name__ == "RawTicket")
+    n_reviews = sum(1 for r in records if r.__class__.__name__ == "RawReview")
+    _stamp_integration_sync(provider, clientId, "ok",
+                            f"{n_tickets} tickets, {n_reviews} reviews into batch")
 
     df = _records_to_df(records, kind)
     if df.empty:

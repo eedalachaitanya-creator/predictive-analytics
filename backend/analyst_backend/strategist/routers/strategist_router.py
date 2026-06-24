@@ -26,8 +26,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
+from app.auth_router import get_current_user
 from strategist.agents.strategist_graph import run_strategist_graph
 from strategist.db.persistence import fetch_client_config
 from strategist.models.schemas import (
@@ -39,7 +40,9 @@ from strategist.models.schemas import (
 from strategist.services.langfuse_service import get_langfuse_safe, get_cost_summary
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/strategist", tags=["Strategist Agent"])
+# SECURITY: require a valid session token for every route (was unauthenticated).
+router = APIRouter(prefix="/api/strategist", tags=["Strategist Agent"],
+                   dependencies=[Depends(get_current_user)])
 
 # Fallback COGS estimate used by GET /sample-request when no saved cost exists.
 # Assumes cost is this % of the lowest observed competitor price.

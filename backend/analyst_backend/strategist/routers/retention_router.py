@@ -26,8 +26,9 @@ from strategist.services.email_service import send_retention_emails
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
+from app.auth_router import get_current_user
 from strategist.agents.retention_agent import RetentionAgent, RetentionConfig
 from strategist.db.persistence import (
     fetch_at_risk_customers,
@@ -46,7 +47,10 @@ from strategist.models.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/retention", tags=["Retention Agent"])
+# SECURITY: require a valid session token for every route (was unauthenticated —
+# /recommend and /run also WRITE per-tenant rows). Tenant-scoping is a follow-up.
+router = APIRouter(prefix="/api/retention", tags=["Retention Agent"],
+                   dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------

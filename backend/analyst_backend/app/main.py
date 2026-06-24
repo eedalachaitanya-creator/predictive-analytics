@@ -163,10 +163,12 @@ app.include_router(retention_router)   # /api/retention/*  — prefix built into
 app.include_router(db_router)          # /api/db/*         — prefix built into router
 # ── LangFuse Cost Tracking ────────────────────────────────────────────────────
 
-from fastapi import Query as _Query
+from fastapi import Query as _Query, Depends as _Depends, HTTPException as _HTTPException
+from app.auth_router import get_current_user as _get_current_user
 
 @app.get("/api/v1/cost-tracking", tags=["ops"])
-def get_cost_tracking(clientId: str = _Query("CLT-001")):
+def get_cost_tracking(clientId: str = _Query("CLT-001"),
+                      user: dict = _Depends(_get_current_user)):
     """
     Return LLM cost summary + per-client aggregates for the Cost Tracking UI.
 
@@ -195,7 +197,7 @@ def get_cost_tracking(clientId: str = _Query("CLT-001")):
 
 
 @app.get("/api/v1/cost-tracking/per-client", tags=["ops"])
-def get_cost_tracking_per_client():
+def get_cost_tracking_per_client(user: dict = _Depends(_get_current_user)):
     """
     Admin Cost Monitoring — cross-tenant cost breakdown.
 
@@ -203,6 +205,9 @@ def get_cost_tracking_per_client():
     `client_config` for client_name. The admin UI renders this as a table
     so super admins can see which clients are burning the most LLM budget.
     """
+    # SECURITY: cross-tenant data — super_admin only (was fully unauthenticated).
+    if user.get("role") != "super_admin":
+        raise _HTTPException(status_code=403, detail="Super admin access required")
     payload: dict = {"clients": [], "totals": {
         "total_calls": 0, "total_cost": 0.0, "total_tokens": 0,
         "calls_today": 0, "cost_today": 0.0,

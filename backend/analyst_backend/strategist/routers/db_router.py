@@ -25,8 +25,10 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
+
+from app.auth_router import get_current_user
 
 from strategist.db.connection import get_analyst_pool, get_scout_pool
 from strategist.db.repositories import (
@@ -38,7 +40,10 @@ from strategist.db.repositories import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/db", tags=["Admin / Debug"])
+# SECURITY: require a valid session token for every route (was unauthenticated —
+# allowed cross-tenant reads of any client_id). Tenant-scoping is a follow-up.
+router = APIRouter(prefix="/api/db", tags=["Admin / Debug"],
+                   dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------

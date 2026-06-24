@@ -14,14 +14,17 @@ Endpoints
     GET  /agent/sessions          — list all active session IDs (debug)
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from scout_agent.scout_agent import session_manager
+from app.auth_router import get_current_user
 from app.prompt_firewall import guard_question   # ① input guard (enforce + audit)
 from app.llm_gateway import guard_response        # ⑤ output guard (egress redact)
 
-router = APIRouter()
+# SECURITY: require a valid session token for every route (was unauthenticated —
+# anyone could drive the Scout LLM, trigger scrapes, and read others' chat history).
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ── Request / Response models ──────────────────────────────────────────

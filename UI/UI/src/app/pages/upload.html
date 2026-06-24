@@ -250,7 +250,15 @@
                 @if (lastMatch()[m.key]; as rep) {
                   <div class="notice" style="font-size:12px;margin-top:8px"
                        [class.warning]="rep.skipped > 0" [class.success]="rep.skipped === 0">
-                    Imported {{ rep.matched }} · {{ rep.skipped }} skipped (no matching customer)
+                    Imported {{ rep.matched }} · {{ rep.skipped }} skipped
+                    @if (rep.skipped > 0 && rep.skippedDetails?.length) {
+                      <div style="margin-top:6px">
+                        <button class="btn outline sm"
+                                (click)="openSkipped(rep.skippedDetails, rep.skipped, skippedTitleFor(m.key))">
+                          📋 View {{ rep.skipped }} skipped {{ rep.skipped === 1 ? 'record' : 'records' }}
+                        </button>
+                      </div>
+                    }
                   </div>
                 }
               }
@@ -359,6 +367,53 @@
     </div>
   }
 
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Skipped-records modal — lists records dropped during a sync/upload
+       (unmatched customer) in a scrollable popup, so a large skip count
+       doesn't flood the result banner. Reuses the Preview modal styles.
+       ══════════════════════════════════════════════════════════════════════ -->
+  @if (skippedOpen()) {
+    <div class="modal-backdrop" style="z-index: 1100" (click)="closeSkipped()">
+      <div class="modal-card preview-modal" (click)="$event.stopPropagation()">
+        <div class="preview-head">
+          <h3 class="modal-title">⚠️ {{ skippedTitle() }} ({{ skippedTotal() | number }})</h3>
+          <div style="display:flex;gap:8px;flex-shrink:0">
+            <button class="btn walmart sm" (click)="exportSkipped()" title="Download these skipped records as a CSV">⬇ Export CSV</button>
+            <button class="btn outline sm" (click)="closeSkipped()">✕ Close</button>
+          </div>
+        </div>
+
+        <p class="modal-sub">
+          These records were not added to your batch because their customer couldn't be
+          matched. Fix the customer id / email in the source, then sync again.
+        </p>
+
+        <div class="preview-table-wrap">
+          <table class="preview-table">
+            <thead>
+              <tr><th>Record</th><th>Customer Ref</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+              @for (d of skippedRows(); track $index) {
+                <tr>
+                  <td><strong>{{ d.record || '(no id)' }}</strong></td>
+                  <td>{{ d.customerRef || '—' }}</td>
+                  <td>{{ d.reason }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (skippedTotal() > skippedRows().length) {
+          <p class="modal-sub">Showing first {{ skippedRows().length | number }} of {{ skippedTotal() | number }} skipped (list capped).</p>
+        } @else {
+          <p class="modal-sub">Showing all {{ skippedRows().length | number }} skipped {{ skippedRows().length === 1 ? 'record' : 'records' }}.</p>
+        }
+      </div>
+    </div>
+  }
+
   <!-- ══════════════════════════════════════════════════════════════════════
        "Sync via API" modal — connect a provider and pull its tickets/reviews
        straight into the pending batch (same matching + review + Save as a CSV).
@@ -391,9 +446,19 @@
         </div>
 
         @if (syncResult(); as r) {
-          <div class="notice success" style="margin-top:14px;font-size:13px;padding:10px 16px;border-radius:8px">
-            ✅ Imported {{ r.matchReport.matched }} · {{ r.matchReport.skipped }} skipped (no matching customer) ·
+          <div class="notice" [class.success]="r.matchReport.skipped === 0" [class.warning]="r.matchReport.skipped > 0"
+               style="margin-top:14px;font-size:13px;padding:10px 16px;border-radius:8px">
+            {{ r.matchReport.skipped === 0 ? '✅' : '⚠️' }} Imported {{ r.matchReport.matched }} · {{ r.matchReport.skipped }} skipped ·
             <strong>{{ r.rowsStaged }}</strong> added to your batch
+
+            @if (r.matchReport.skipped > 0 && r.matchReport.skippedDetails?.length) {
+              <div style="margin-top:8px">
+                <button class="btn outline sm"
+                        (click)="openSkipped(r.matchReport.skippedDetails, r.matchReport.skipped, skippedTitleFor(r.masterType))">
+                  📋 View {{ r.matchReport.skipped }} skipped {{ r.matchReport.skipped === 1 ? 'record' : 'records' }}
+                </button>
+              </div>
+            }
           </div>
         }
         @if (syncError()) {

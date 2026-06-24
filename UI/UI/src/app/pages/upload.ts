@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UploadService } from '../services/upload.service';
 import { AuthService } from '../services/auth.service';
-import { MatchReport, MasterType, SourceOption, SyncResult, UploadPreview } from '../models';
+import { MatchReport, MasterType, SourceOption, SyncResult, UploadPreview, SkippedRecord } from '../models';
 import { IntegrationCardComponent, ProviderMeta } from './integration-card';
 
 interface MasterDef {
@@ -14,6 +14,26 @@ interface MasterDef {
   columns: string;
   required: boolean;
   accept: string;
+}
+
+/**
+ * Build a CSV (header + one row per skipped record) for the skipped-records
+ * popup's "Export CSV" button. Pure + exported so it's unit-tested; the browser
+ * download (Blob) lives in the component. Mirrors toChurnCsv's contract.
+ */
+export function toSkippedCsv(rows: SkippedRecord[]): string {
+  const cols: Array<[string, (r: SkippedRecord) => unknown]> = [
+    ['Record',       r => r.record],
+    ['Customer Ref', r => r.customerRef],
+    ['Reason',          r => r.reason],
+  ];
+  const esc = (v: unknown): string => {
+    const str = (v === null || v === undefined) ? '' : String(v);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const header = cols.map(c => esc(c[0])).join(',');
+  const body = rows.map(r => cols.map(c => esc(c[1](r))).join(','));
+  return [header, ...body].join('\n');
 }
 
 @Component({
@@ -245,6 +265,51 @@ export class UploadComponent implements OnInit {
     this.previewOpen.set(false);
     this.previewData.set(null);
     this.previewError.set('');
+  }
+
+  // ── Skipped-records modal ───────────────────────────────────────────
+  // Opened from the sync/upload result banner. Lists the records that
+  // couldn't be added (unmatched customer) in a scrollable popup, so a
+  // large skip count stays manageable instead of flooding the banner.
+  skippedOpen  = signal(false);
+  skippedRows  = signal<SkippedRecord[]>([]);
+  skippedTotal = signal(0);
+  skippedTitle = signal('');
+
+  openSkipped(rows: SkippedRecord[] | undefined, total: number, title: string) {
+    this.skippedRows.set(rows ?? []);
+    this.skippedTotal.set(total);
+    this.skippedTitle.set(title);
+    this.skippedOpen.set(true);
+  }
+
+  closeSkipped() { this.skippedOpen.set(false); }
+
+  /** Kind-aware heading for the skipped-records popup — the same shared modal
+   *  serves tickets (Jira/HubSpot) and reviews, so the wording follows the
+   *  master type rather than the provider. */
+  skippedTitleFor(masterType: string): string {
+    return masterType === 'customer_reviews' ? 'Skipped reviews' : 'Skipped tickets';
+  }
+
+  /** Download the currently-listed skipped records as a CSV the client can keep. */
+  exportSkipped() {
+    const rows = this.skippedRows();
+    if (!rows.length) return;
+    const stamp = new Date().toISOString().slice(0, 10);   // YYYY-MM-DD
+    this.triggerDownload(toSkippedCsv(rows), `skipped_records_${this.clientId}_${stamp}.csv`);
+  }
+
+  private triggerDownload(csv: string, filename: string) {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   /** Humanize a raw DB column name for display in the Preview grid headers,

@@ -834,16 +834,43 @@ def _resolve_customers_in_df(df, client_id: str):
     by_id = {r[0] for r in rows}
     by_email = {r[1]: r[0] for r in rows if r[1]}
 
-    matched, skipped_sample = [], []
+    # SKIP_DETAIL_CAP bounds the per-record list so a huge upload can't bloat
+    # the response; the `skipped` count below stays exact regardless. Set high
+    # enough that the skipped-records export is complete for realistic syncs/
+    # uploads (a 2000-row detail list is ~300 KB in the response).
+    SKIP_DETAIL_CAP = 2000
+
+    def _cell(v) -> str:
+        # pandas turns blank CSV cells into float NaN; coerce those (and None)
+        # to "" rather than the literal string "nan".
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        return str(v).strip()
+
+    matched, skipped_sample, skipped_details = [], [], []
     for idx, row in df.iterrows():
         rid = resolve_customer_id(row.to_dict(), by_id, by_email)
         if rid is not None:
             matched.append((idx, rid))
-        elif len(skipped_sample) < 10:
-            ref = row.get("customer_id")
-            if ref is None or str(ref).strip() == "":
-                ref = row.get("customer_email") or row.get("email") or ""
-            skipped_sample.append(str(ref))
+            continue
+
+        # Skipped row — capture WHICH record was dropped and WHY so the
+        # sync/upload modal can list it, not just show a count.
+        ref = _cell(row.get("customer_id")) or _cell(row.get("customer_email")) or _cell(row.get("email"))
+
+        if len(skipped_sample) < 10:
+            skipped_sample.append(ref)
+        if len(skipped_details) < SKIP_DETAIL_CAP:
+            record = _cell(row.get("ticket_id")) or _cell(row.get("review_id"))
+            if ref == "":
+                reason = "Missing customer reference (no customer id or email)"
+            else:
+                reason = f"No matching customer for '{ref}'"
+            skipped_details.append({
+                "record": record,
+                "customerRef": ref,
+                "reason": reason,
+            })
 
     if matched:
         idxs, rids = zip(*matched)
@@ -856,6 +883,7 @@ def _resolve_customers_in_df(df, client_id: str):
         "matched": len(matched),
         "skipped": int(len(df) - len(matched)),
         "skippedSample": skipped_sample,
+        "skippedDetails": skipped_details,
     }
     return matched_df, report
 
@@ -1587,7 +1615,7 @@ def sync_provider_to_staging(
     df = _records_to_df(records, kind)
     if df.empty:
         return {"provider": provider, "masterType": master_type, "fetched": 0,
-                "matchReport": {"matched": 0, "skipped": 0, "skippedSample": []},
+                "matchReport": {"matched": 0, "skipped": 0, "skippedSample": [], "skippedDetails": []},
                 "rowsStaged": 0, "batchId": None}
 
     fetched = len(df)

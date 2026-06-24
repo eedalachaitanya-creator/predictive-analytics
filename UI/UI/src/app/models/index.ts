@@ -314,10 +314,18 @@ export interface SourceOption {
   custom: boolean;
 }
 
+/** One skipped record in a sync/upload, with enough detail for the user to fix it. */
+export interface SkippedRecord {
+  record: string;       // the ticket/review id that was dropped (e.g. "KAN-12")
+  customerRef: string;  // the customer id/email value that didn't match
+  reason: string;       // human-readable reason (no matching customer / missing reference)
+}
+
 export interface MatchReport {
   matched: number;
   skipped: number;
   skippedSample: string[];
+  skippedDetails?: SkippedRecord[];
 }
 
 /** Result of a live "Sync into batch" pull from a connector. */

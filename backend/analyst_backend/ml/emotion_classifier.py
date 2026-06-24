@@ -273,7 +273,7 @@ def classify_unscored(
     counts = {"tickets": 0, "reviews": 0}
 
     for table, id_col, text_col, count_key in (
-        ("support_tickets", "ticket_id", "ticket_text", "tickets"),
+        ("support_tickets", "ticket_id", "description", "tickets"),
         ("customer_reviews", "review_id", "review_text", "reviews"),
     ):
         upd = text(f"""

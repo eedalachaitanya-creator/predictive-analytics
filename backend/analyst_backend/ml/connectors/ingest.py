@@ -12,13 +12,13 @@ from ml.connectors.base import RawTicket, RawReview
 
 _TICKET_UPSERT = text("""
     INSERT INTO support_tickets
-      (client_id, ticket_id, customer_id, source, subject, ticket_text,
+      (client_id, ticket_id, customer_id, source, subject, description,
        ticket_type, priority, status, opened_date, resolved_date)
     VALUES
       (:client_id, :ticket_id, :customer_id, :source, :subject, :text,
        :ticket_type, :priority, :status, :opened_date, :resolved_date)
     ON CONFLICT (client_id, ticket_id) DO UPDATE SET
-       ticket_text = EXCLUDED.ticket_text,
+       description = EXCLUDED.description,
        source      = EXCLUDED.source,
        subject     = EXCLUDED.subject,
        priority    = EXCLUDED.priority,

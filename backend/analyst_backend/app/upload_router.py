@@ -181,7 +181,7 @@ MASTER_TYPE_TO_TABLE = {
         "support_tickets",
         ["client_id", "ticket_id", "customer_id", "ticket_type", "priority",
          "status", "channel", "opened_date", "resolved_date", "resolution_time_hrs",
-         "ticket_text", "source"],
+         "description", "source"],
     ),
     # One row per login (engagement event log) — feeds point-in-time login
     # features in the temporal model. Same upload path as orders/tickets.
@@ -798,7 +798,7 @@ def _records_to_df(records, signal_kind: str):
                 "ticket_id": r.ticket_id, "customer_id": r.customer_id,
                 "ticket_type": r.ticket_type, "priority": r.priority, "status": r.status,
                 "opened_date": r.opened_date, "resolved_date": r.resolved_date,
-                "ticket_text": r.text, "source": r.source,
+                "description": r.text, "source": r.source,
             })
         else:  # review
             rows.append({

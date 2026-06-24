@@ -769,6 +769,46 @@ def _humanize_staging_error(exc: Exception, master_type: str = "") -> str:
             "uploaded the correct file for this slot.")
 
 
+def _build_sync_connector(provider: str, client_id: str):
+    """Build the tenant's connector for a live 'Sync into batch' pull. Raises a
+    clear HTTPException when the provider is unknown or not yet configured."""
+    from ml.connectors.registry import CONNECTOR_REGISTRY
+    cls = CONNECTOR_REGISTRY.get(provider)
+    if cls is None:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'.")
+    try:
+        connector = cls.from_client(engine, client_id, require_enabled=False)
+    except Exception as exc:  # noqa: BLE001 — crypto/config errors → friendly message
+        log.warning("sync connector build failed %s/%s: %s", client_id, provider, exc)
+        raise HTTPException(status_code=500,
+                            detail=f"Could not build the {provider} connector — check its settings.")
+    if connector is None:
+        raise HTTPException(status_code=400,
+                            detail=f"No {provider} credentials saved — configure the integration first.")
+    return connector
+
+
+def _records_to_df(records, signal_kind: str):
+    """Convert connector RawTicket/RawReview records to the column shape the
+    ticket/review staging path expects (client_id is injected at staging time)."""
+    rows = []
+    for r in records:
+        if signal_kind == "ticket":
+            rows.append({
+                "ticket_id": r.ticket_id, "customer_id": r.customer_id,
+                "ticket_type": r.ticket_type, "priority": r.priority, "status": r.status,
+                "opened_date": r.opened_date, "resolved_date": r.resolved_date,
+                "ticket_text": r.text, "source": r.source,
+            })
+        else:  # review
+            rows.append({
+                "review_id": r.review_id, "customer_id": r.customer_id,
+                "rating": r.rating, "review_text": r.text,
+                "review_date": r.review_date, "source": r.source,
+            })
+    return pd.DataFrame(rows)
+
+
 def _resolve_customers_in_df(df, client_id: str):
     """For ticket/review uploads: rewrite each row's customer_id to a known
     customer (id→email). Drops unmatched rows. Returns (matched_df, report).
@@ -1494,6 +1534,56 @@ async def upload_file(
     if match_report is not None:
         result["matchReport"] = match_report
     return result
+
+
+@router.post("/uploads/sync/{provider}")
+def sync_provider_to_staging(
+    provider: str,
+    request: Request,
+    clientId: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """'Sync into batch' — pull the tenant's live records via the connector and
+    route them through the SAME source-stamp + customer-match + staging path a
+    CSV upload uses. Unregistered customers are dropped centrally (never an FK
+    break), and the matched rows land in the pending batch for review + Save."""
+    _require_client_access(user, clientId)
+    connector = _build_sync_connector(provider, clientId)
+    kind = getattr(connector, "signal_kind", "ticket")
+    master_type = "support_tickets" if kind == "ticket" else "customer_reviews"
+
+    try:
+        records = list(connector.fetch(clientId))
+    except Exception as exc:  # noqa: BLE001 — never echo the upstream body
+        log.warning("sync fetch failed %s/%s: %s", clientId, provider, exc)
+        raise HTTPException(status_code=502,
+                            detail=f"Could not sync from {provider} — check the integration settings.")
+
+    df = _records_to_df(records, kind)
+    if df.empty:
+        return {"provider": provider, "masterType": master_type, "fetched": 0,
+                "matchReport": {"matched": 0, "skipped": 0, "skippedSample": []},
+                "rowsStaged": 0, "batchId": None}
+
+    fetched = len(df)
+    df, match_report = _resolve_customers_in_df(df, clientId)
+    if df.empty:
+        return {"provider": provider, "masterType": master_type, "fetched": fetched,
+                "matchReport": match_report, "rowsStaged": 0, "batchId": None}
+
+    db_result = _load_df_to_staging(df, master_type, clientId)
+    log_audit_event(
+        request, action_type="file_upload",
+        details=(f"sync {provider} · {master_type} · "
+                 f"{match_report['matched']} matched / {match_report['skipped']} skipped"),
+        client_id=clientId, user_id=user.get("id"), user_email=user.get("email"),
+        outcome="success",
+    )
+    return {
+        "provider": provider, "masterType": master_type, "fetched": fetched,
+        "matchReport": match_report, "rowsStaged": db_result["rows_staged"],
+        "batchId": db_result["batch_id"],
+    }
 
 
 @router.get("/uploads/sources")

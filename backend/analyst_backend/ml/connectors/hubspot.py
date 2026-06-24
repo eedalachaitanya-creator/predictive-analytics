@@ -225,28 +225,36 @@ class HubSpotConnector(ExternalSignalConnector):
                 if _capped():
                     return
 
-        # Feedback / NPS → customer_reviews
-        for results in self._iter_pages(self._client.crm.objects.basic_api.get_page,
-                                        object_type="feedback_submissions",
-                                        limit=self.page_size, properties=self.FEEDBACK_PROPS,
-                                        associations=["contacts"]):
-            id_to_email = self._emails_for_contacts(
-                [self._first_contact_id(r) for r in results])
-            for r in results:
-                props = r.properties or {}
-                email = id_to_email.get(self._first_contact_id(r))
-                customer = self._resolve_customer(props, email, known, email_to_id)
-                if not customer or (known is not None and customer not in known):
-                    continue
-                dt = self._parse_dt(props.get("hs_submission_timestamp"))
-                yield RawReview(
-                    client_id=client_id, review_id=str(r.id), customer_id=customer,
-                    source=self.source,
-                    rating=self._normalize_rating(props.get("hs_survey_type"),
-                                                  props.get("hs_value")),
-                    text=props.get("hs_content") or "",
-                    review_date=dt.date() if dt else None,
-                )
-                yielded += 1
-                if _capped():
-                    return
+        # Feedback / NPS → customer_reviews. This needs the Service Hub scope
+        # crm.objects.feedback_submissions.read; free/Starter portals don't have it
+        # and return 403 MISSING_SCOPES. Feedback is best-effort — tickets are the
+        # required signal — so log and skip rather than let one missing scope fail
+        # the whole sync (tickets above are already yielded by this point).
+        try:
+            for results in self._iter_pages(self._client.crm.objects.basic_api.get_page,
+                                            object_type="feedback_submissions",
+                                            limit=self.page_size, properties=self.FEEDBACK_PROPS,
+                                            associations=["contacts"]):
+                id_to_email = self._emails_for_contacts(
+                    [self._first_contact_id(r) for r in results])
+                for r in results:
+                    props = r.properties or {}
+                    email = id_to_email.get(self._first_contact_id(r))
+                    customer = self._resolve_customer(props, email, known, email_to_id)
+                    if not customer or (known is not None and customer not in known):
+                        continue
+                    dt = self._parse_dt(props.get("hs_submission_timestamp"))
+                    yield RawReview(
+                        client_id=client_id, review_id=str(r.id), customer_id=customer,
+                        source=self.source,
+                        rating=self._normalize_rating(props.get("hs_survey_type"),
+                                                      props.get("hs_value")),
+                        text=props.get("hs_content") or "",
+                        review_date=dt.date() if dt else None,
+                    )
+                    yielded += 1
+                    if _capped():
+                        return
+        except Exception as exc:  # noqa: BLE001 — feedback is optional (paid scope)
+            logger.warning("HubSpot feedback_submissions skipped for %s "
+                           "(likely missing Service Hub scope): %s", client_id, exc)

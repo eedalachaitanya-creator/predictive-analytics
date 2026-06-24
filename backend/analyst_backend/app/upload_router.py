@@ -831,7 +831,9 @@ def _resolve_customers_in_df(df, client_id: str):
             """),
             {"c": client_id},
         ).fetchall()
-    by_id = {r[0] for r in rows}
+    # Map lowercased id -> canonical stored id so matching is case-insensitive
+    # (a Jira 'cust-002' resolves to a stored 'CUST-002'), mirroring by_email.
+    by_id = {r[0].lower(): r[0] for r in rows}
     by_email = {r[1]: r[0] for r in rows if r[1]}
 
     # SKIP_DETAIL_CAP bounds the per-record list so a huge upload can't bloat

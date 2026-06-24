@@ -41,13 +41,18 @@ def apply_source(existing, fill: str) -> str:
     return fill
 
 
-def resolve_customer_id(row: dict, by_id: set, by_email: dict) -> "str | None":
-    """Match an uploaded row to a known customer: customer_id first, then email
-    (case-insensitive). Returns the resolved customer_id or None."""
+def resolve_customer_id(row: dict, by_id: dict, by_email: dict) -> "str | None":
+    """Match an uploaded row to a known customer: customer_id first (case-
+    insensitive), then email (case-insensitive). Returns the canonical stored
+    customer_id or None.
+
+    by_id maps a lowercased customer_id -> the canonical stored id, so a row's
+    'cust-002' matches a stored 'CUST-002' and we stage the real (stored) id —
+    consistent with how email matching already works."""
     cid = row.get("customer_id")
     cid = str(cid).strip() if cid is not None else ""
-    if cid and cid in by_id:
-        return cid
+    if cid and cid.lower() in by_id:
+        return by_id[cid.lower()]
     for k in ("customer_email", "email"):
         v = row.get(k)
         if v is not None and str(v).strip():

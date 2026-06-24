@@ -28,6 +28,19 @@ def normalize_source(selected_key: Optional[str], custom_name: Optional[str] = N
     return key
 
 
+def apply_source(existing, fill: str) -> str:
+    """Hybrid per-row source value: keep a row's existing source but canonicalize
+    it (e.g. 'JIRA' -> 'jira') for uniformity; fall back to ``fill`` (the upload
+    dropdown's normalized value) when the row's source is blank/missing or
+    slugifies to nothing. Lets a pre-labeled file keep its sources while a file
+    without the column is stamped from the dropdown."""
+    if existing is not None and str(existing).strip():
+        slug = slugify_source(str(existing))
+        if slug:
+            return slug
+    return fill
+
+
 def resolve_customer_id(row: dict, by_id: set, by_email: dict) -> "str | None":
     """Match an uploaded row to a known customer: customer_id first, then email
     (case-insensitive). Returns the resolved customer_id or None."""

@@ -1398,12 +1398,21 @@ async def upload_file(
     # (e.g. template Excel where every cell is a placeholder). Raises 400 if so.
     _assert_file_has_real_data(df, master_type, filename)
 
-    # Source-aware ingest (tickets/reviews only): stamp a canonical source on
-    # every row and resolve each to a known customer, dropping unmatched rows.
+    # Source-aware ingest (tickets/reviews only): set the source on every row —
+    # KEEP a pre-labeled file's source (canonicalized, e.g. JIRA->jira) and FILL
+    # blank/missing values from the dropdown selection — then resolve each row to
+    # a known customer, dropping unmatched rows.
     match_report = None
     if master_type in ("support_tickets", "customer_reviews"):
-        from ml.connectors.sources import normalize_source
-        df["source"] = normalize_source(source, sourceName)
+        from ml.connectors.sources import normalize_source, apply_source
+        fill = normalize_source(source, sourceName)
+        if "source" in df.columns:
+            # Blank cells parse as NaN; treat them as empty so apply_source fills
+            # them from the dropdown (str(NaN) would otherwise be the text 'nan').
+            existing = df["source"].where(df["source"].notna(), "")
+            df["source"] = existing.apply(lambda v: apply_source(v, fill))
+        else:
+            df["source"] = fill
         df, match_report = _resolve_customers_in_df(df, clientId)
         if df.empty:
             raise HTTPException(

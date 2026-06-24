@@ -19,7 +19,7 @@ pipeline-run tracking table, those metrics can come back as genuine
 aggregates.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app.auth_router import get_current_user
 from sqlalchemy import text
 
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/v1", tags=["analytics"], dependencies=[Depends(g
 
 
 @router.get("/analytics")
-def get_analytics():
+def get_analytics(user: dict = Depends(get_current_user)):
     """
     Platform-wide analytics: KPIs + per-client breakdown.
 
@@ -37,6 +37,9 @@ def get_analytics():
     `customers`, `orders`, and `mv_customer_features` to give admins a
     bird's-eye view of the platform.
     """
+    # Cross-tenant data (every client's totals) — super_admin only.
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
     with engine.connect() as conn:
 
         # ── 1. Platform KPIs (totals across ALL clients) ──

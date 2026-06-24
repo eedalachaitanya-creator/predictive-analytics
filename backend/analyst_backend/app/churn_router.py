@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy import text
 
 from app.database import engine
-from app.auth_router import _find_user_by_token, get_current_user
+from app.auth_router import _find_user_by_token, get_current_user, require_client_access
 
 router = APIRouter(prefix="/api/v1", tags=["churn"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
 log = logging.getLogger("churn")
@@ -50,6 +50,7 @@ def get_churn_scores(
     user = _find_user_by_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
 
     # Build WHERE clause
     where = "WHERE cs.client_id = :cid"

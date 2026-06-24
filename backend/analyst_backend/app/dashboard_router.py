@@ -27,7 +27,7 @@ which is the source of truth for the value bucket since the redundant
 
 import math
 from fastapi import APIRouter, Depends, Query
-from app.auth_router import get_current_user
+from app.auth_router import get_current_user, require_client_access
 from sqlalchemy import text
 
 from app.database import engine
@@ -38,6 +38,7 @@ router = APIRouter(prefix="/api/v1", tags=["dashboard"], dependencies=[Depends(g
 @router.get("/dashboard")
 def get_dashboard(
     clientId: str = Query(default="CLT-001"),
+    user: dict = Depends(get_current_user),
 ):
     # The orderPage / orderPageSize query params were removed 2026-04-29
     # along with the recentOrders payload section — see comment below.
@@ -51,6 +52,7 @@ def get_dashboard(
     Since the materialized view may not contain pre-computed segment
     and tier columns, we derive them from RFM scores on the fly.
     """
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
     with engine.connect() as conn:
 
         # ═══════════════════════════════════════════════════════════════
@@ -319,6 +321,7 @@ def get_segment_customers(
     # Default bumped from 10 → 100 per CTO direction. Max raised to 500
     # so the UI can request larger pages without a backend redeploy.
     pageSize: int = Query(default=100, ge=1, le=500),
+    user: dict = Depends(get_current_user),
 ):
     """
     Drill-down: returns customers belonging to a specific RFM segment.
@@ -327,6 +330,7 @@ def get_segment_customers(
     The frontend calls this when the user clicks on a segment bar in the
     Retention / Segment Distribution chart.
     """
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
     offset = (page - 1) * pageSize
 
     # SQL segment CASE — identical to Section 2 above
@@ -453,6 +457,7 @@ def get_kpi_drilldown(
                                        "repeat_customers, high_value, lapsed_customers"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    user: dict = Depends(get_current_user),
 ):
     """Paginated drill-down behind a Dashboard summary card.
 
@@ -462,6 +467,7 @@ def get_kpi_drilldown(
     """
     from fastapi import HTTPException
 
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
     if card not in VALID_KPI_CARDS:
         raise HTTPException(400, f"Unknown card '{card}'. Valid: {sorted(VALID_KPI_CARDS)}")
 

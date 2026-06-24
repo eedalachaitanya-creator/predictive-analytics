@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.database import engine
-from app.auth_router import _find_user_by_token, get_current_user
+from app.auth_router import _find_user_by_token, get_current_user, require_client_access
 from app.audit_logger import log_audit_event
 
 router = APIRouter(prefix="/api/v1", tags=["settings"], dependencies=[Depends(get_current_user)])  # audit-2026-04-29: router-level auth
@@ -71,6 +71,7 @@ def get_settings(
     user = _find_user_by_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
 
     try:
         with engine.connect() as conn:
@@ -153,6 +154,7 @@ def update_settings(
     user = _find_user_by_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    require_client_access(user, clientId)   # tenant authorization (prevent cross-tenant write)
 
     updates = []
     params = {"cid": clientId}

@@ -11,7 +11,7 @@ parameters, and expects back a JSON object with:
 
 import math
 from fastapi import APIRouter, Depends, Query
-from app.auth_router import get_current_user
+from app.auth_router import get_current_user, require_client_access
 from sqlalchemy import text
 
 from app.database import engine
@@ -27,6 +27,7 @@ def get_customers(
     # a vertical scroller is easier to scan than clicking through pages.
     # Max raised from 200 → 500 to match churn_router for consistency.
     pageSize: int = Query(default=100, ge=1, le=500),
+    user: dict = Depends(get_current_user),
 ):
     """
     Fetch paginated customers for a given client.
@@ -37,6 +38,7 @@ def get_customers(
     - OFFSET skips rows: page 2 with pageSize 50 skips first 50 rows
     - LIMIT caps how many rows we return
     """
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
     offset = (page - 1) * pageSize
 
     with engine.connect() as conn:

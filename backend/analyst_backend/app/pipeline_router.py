@@ -34,7 +34,7 @@ from sqlalchemy import text
 
 from app.database import engine
 from app.audit_logger import log_audit_event
-from app.auth_router import _find_user_by_token, get_current_user
+from app.auth_router import _find_user_by_token, get_current_user, require_client_access
 from app import job_store
 from app.pipeline_executor import get_executor, InProcessExecutor
 
@@ -580,8 +580,10 @@ def run_pipeline(
     req: PipelineRunRequest,
     request: Request,
     authorization: Optional[str] = Header(default=None),
+    user: dict = Depends(get_current_user),
 ):
     """Start a new pipeline run. Returns immediately with a jobId for polling."""
+    require_client_access(user, req.clientId)   # tenant authorization (prevent cross-tenant pipeline run)
     job_id = str(uuid.uuid4())[:8]
 
     job = job_store.create_job(job_id, [s.model_dump() for s in _make_stages()])

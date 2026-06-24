@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.auth_router import get_current_user
+from app.auth_router import get_current_user, require_client_access
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -168,11 +168,13 @@ def _fill_placeholders(template_body: str, customer: dict) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/messages/templates")
-def get_templates(clientId: str = Query(...), db: Session = Depends(get_db)):
+def get_templates(clientId: str = Query(...), db: Session = Depends(get_db),
+                  user: dict = Depends(get_current_user)):
     """
     Returns the 16 message templates for a given client.
     Tries the message_templates table first; falls back to defaults if empty.
     """
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
     _ensure_message_templates_table(db)
 
     rows = db.execute(text("""
@@ -213,12 +215,14 @@ def get_templates(clientId: str = Query(...), db: Session = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/messages/templates")
-def save_templates(req: SaveTemplatesRequest, db: Session = Depends(get_db)):
+def save_templates(req: SaveTemplatesRequest, db: Session = Depends(get_db),
+                   user: dict = Depends(get_current_user)):
     """
     Upserts all 16 templates for a client.
     The frontend sends the full array every time the user clicks "Save All".
     We delete old rows and insert fresh — simple and safe for 16 rows.
     """
+    require_client_access(user, req.clientId)   # tenant authorization (prevent cross-tenant write)
     _ensure_message_templates_table(db)
 
     # Delete existing templates for this client
@@ -261,7 +265,8 @@ def save_templates(req: SaveTemplatesRequest, db: Session = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/messages/generate-outreach")
-def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db)):
+def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db),
+                      user: dict = Depends(get_current_user)):
     """
     The main outreach generator.
 
@@ -277,6 +282,7 @@ def generate_outreach(req: GenerateOutreachRequest, db: Session = Depends(get_db
       - Manually from the UI "Generate Outreach" button
       - Automatically after pipeline runs (stage 9)
     """
+    require_client_access(user, req.clientId)   # tenant authorization (prevent IDOR)
     client_id = req.clientId
 
     # ── Step 1: Build the customer query with filters ──
@@ -523,10 +529,12 @@ def get_outreach_history(
     # churn_router / dashboard_router.
     pageSize: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     """
     Returns previously generated outreach messages for audit / review.
     """
+    require_client_access(user, clientId)   # tenant authorization (prevent IDOR)
     offset = (page - 1) * pageSize
 
     # Total count

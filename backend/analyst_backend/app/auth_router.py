@@ -50,6 +50,19 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
     return user
 
 
+def require_client_access(user: dict, client_id: str) -> None:
+    """Authorization gate: an authenticated user may only act on a client they have
+    access to. super_admin (or a '*' in clientAccess) passes for any client; a
+    client_user passes only for clients listed in their clientAccess. 403 otherwise.
+
+    Canonical shared copy — several routers historically defined their own private
+    _require_client_access; new callers should import this one."""
+    access = user.get("clientAccess") or []
+    if user.get("role") == "super_admin" or "*" in access or client_id in access:
+        return
+    raise HTTPException(status_code=403, detail=f"You do not have access to client {client_id}")
+
+
 def _ensure_tokens_table():
     try:
         with engine.connect() as conn:

@@ -5,6 +5,19 @@ Sprint 0 | Task 1.3
 from dotenv import load_dotenv
 load_dotenv()  # Load .env BEFORE any other imports read os.getenv()
 
+# TLS root CAs: python.org/pyenv builds on macOS ship without a default CA bundle
+# (the "Install Certificates" step is often skipped), so urllib3-based clients like
+# the HubSpot SDK fail with CERTIFICATE_VERIFY_FAILED. Point the process at certifi's
+# bundle when nothing is already configured. setdefault preserves an explicit override
+# (e.g. a corporate root CA behind a TLS-inspecting proxy). requests already uses
+# certifi, so this only affects the otherwise-broken default SSL context.
+import os
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+except Exception:  # noqa: BLE001 — never block startup over a TLS-bootstrap nicety
+    pass
+
 import sys
 import asyncio
 if sys.platform == "win32":     

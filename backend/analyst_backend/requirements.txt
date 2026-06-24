@@ -79,3 +79,6 @@ langchain-openai==1.1.14
 openai==2.32.0
 # Jira connector (real external-signal ingest)
 requests==2.34.2
+# TLS root CAs — imported directly in main.py to fix the default SSL context on
+# macOS python.org builds (HubSpot SDK uses urllib3, which needs an explicit bundle).
+certifi==2026.05.20

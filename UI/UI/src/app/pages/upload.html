@@ -426,8 +426,8 @@
           <button class="btn outline sm" (click)="closeSyncModal()">✕ Close</button>
         </div>
         <p class="modal-sub" style="margin-bottom:6px">
-          Connect {{ providerLabel(prov) }} and pull your data straight in — then review and
-          <strong>Save</strong>, just like a file. Prefer a file? Close this and drop a CSV.
+          Import your {{ providerLabel(prov) }} data into the current batch, then review and save.
+          To upload a file instead, close this dialog and add a CSV.
         </p>
 
         @if (providerMeta(prov); as meta) {
